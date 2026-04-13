@@ -1,0 +1,5 @@
+{
+  "name": "Remix:  Portfolio_feed_editor_ver10",
+  "description": "A portfolio application that fetches and displays images from a Flickr album and instagram feed, makes this feed editable, enables replacing it with heighres picures, saves it online as a html feed in a scriptfriendly way.",
+  "requestFramePermissions": []
+}

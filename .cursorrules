@@ -1,0 +1,84 @@
+# Portfolio Editor - AI Context & Architecture
+
+This file provides context for any AI assistant (like Cursor, GitHub Copilot, or Gemini) working on this project.
+
+## Project Architecture
+- **Frontend:** React 18, Vite, Tailwind CSS, Lucide React (Icons), dnd-kit (Drag & Drop).
+- **Backend:** Express.js (Node.js) running on port 3000.
+- **Storage:** Local file system (`/data` directory) for state and images.
+- **Cloud:** Cloudflare R2 for public hosting and image delivery.
+
+## Dual-Environment Constraint (CRITICAL)
+This application must run flawlessly in TWO environments:
+1. **Web-based Preview (AI Studio/Cloud Run):** Runs behind an Nginx reverse proxy.
+2. **Local Windows 11 Machine:** Runs via a local Node.js server (`start_windows.bat` or `run_fast.bat`).
+
+### Rules for Cross-Environment Compatibility:
+- **File Paths:** ALWAYS use relative paths with forward slashes (e.g., `./data/images/` or `../assets/`). NEVER use Windows-specific absolute paths (e.g., `C:\...`).
+- **CORS & Fetching:** The frontend runs on the same origin as the backend API (`http://localhost:3000`). API calls should use relative paths (e.g., `fetch('/api/state')`).
+- **File Headers:** When generating code, include the exact relative file path as a comment at the top of the block (e.g., `// File: ./src/App.tsx`).
+
+## Data Structure (`/data` directory)
+- `state.json`: The single source of truth for the portfolio. Contains all posts, titles, descriptions, and media links.
+- `uploads/`: Manually uploaded images.
+- `flickr/` & `instagram/`: Images scraped from social media.
+- `originals/`: High-resolution source files placed manually by the user.
+- `highres/`: Processed 3K versions of the originals.
+- `backups/`: Automated backups of `state.json`.
+
+## Cloudflare R2 & GitHub Integration
+The app syncs data to a Cloudflare R2 bucket to serve the public portfolio.
+- **Bucket Name:** `portfoliodata`
+- **Public Domain:** `https://pub-85bb68a84f3b4ba6b512b3d165c96497.r2.dev`
+- **Sync Logic:** The `server.ts` handles uploading files to R2 using the `@aws-sdk/client-s3` library. The `index.html` file generated during "Publish" is also uploaded here.
+- **GitHub Connection:** If Cloudflare R2 is unavailable or as an alternative backup, the system can sync the `state.json` and `index.html` to a GitHub repository. GitHub Pages can be used as an alternative hosting provider for the static portfolio.
+
+## Key Features & Workflows
+- **Scraping:** Fetches images from Flickr/Instagram and saves them locally.
+- **High-Res Sync:** Scans `data/originals/` for high-res versions of scraped images. Matches are based on filenames. Uncertain matches are flagged for manual review.
+- **Cloud Sync:** Mirrors all local images to Cloudflare R2.
+- **Publish:** Generates a static `index.html` injecting the current `state.json` data and uploads it to R2.
+
+## Batch Files
+- `start_windows.bat`: Checks for `node_modules`, installs dependencies if missing, and starts the server.
+- `run_fast.bat`: Starts the server directly without checking dependencies, and closes the batch window automatically.
+
+## Shortcut Commands for AI
+- `#plan`: Do not write code. Analyze the request, create a step-by-step architecture plan, list affected files, and assess risk (1-10).
+- `#exec [step]`: Execute a specific step from the plan.
+- `#review`: Analyze the chat history/code for errors or deviations from clean code principles.
+- `#check`: Assess the complexity of the current task (1-10). If > 7, recommend switching to a more advanced model.
+
+## Restart Recommendation Rule (ALWAYS)
+After every code change made by the AI, end the response with a bold restart recommendation line in this format:
+`**Nächster Schritt: Bitte starte <EMPFEHLUNG>, um die Änderungen zu übernehmen.**`
+
+Use this decision logic:
+
+1. Recommend `start_windows.bat`, when:
+   - dependencies changed (`package.json`, lockfiles, requirements, runtime/tooling setup),
+   - environment/runtime setup was changed,
+   - user returns after a long break and wants a safe restart.
+
+2. Recommend `run_fast.bat`, when:
+   - backend logic changed (`server.ts`, Python scripts, API logic),
+   - data structure stayed compatible (no reinstall/setup needed).
+
+3. Recommend `Nur Localhost/Browser Refresh`, when:
+   - only frontend files changed (`src/*.tsx`, `src/*.ts`, styles, static UI),
+   - dev server is already running and hot reload is sufficient.
+
+Priority for mixed changes:
+- If conditions from multiple groups apply, use the safest option in this order:
+  `start_windows.bat` > `run_fast.bat` > `Nur Localhost/Browser Refresh`.
+
+## Restart Execution Rule (ASK FIRST)
+After giving the restart recommendation, always ask the user if the AI should execute that step now.
+
+Use this exact follow-up question style:
+`Soll ich das jetzt direkt für dich ausführen?`
+
+Execution behavior:
+- Only execute after explicit user confirmation.
+- For `start_windows.bat` or `run_fast.bat`, run the selected batch file via terminal.
+- For `Nur Localhost/Browser Refresh`, do not claim browser control; instead instruct the user to refresh manually.
