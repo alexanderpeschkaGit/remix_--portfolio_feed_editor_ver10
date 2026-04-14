@@ -19,8 +19,6 @@ import {
   useSortable
 } from '@dnd-kit/sortable';
 import { PROJECT_STATES } from './constants';
-import { useRearrangeState } from './hooks/useRearrangeState';
-import { useLightboxState } from './hooks/useLightboxState';
 
 const formatDescription = (description: string, title: string) => {
   let text = description;
@@ -668,42 +666,10 @@ export default function App() {
       processNextMerge(groupsToMerge);
     }
   };
-
-  // ===== Hook: useRearrangeState für Rearrange/Merge/Delete Funktionalität =====
-  const rearrangeState = useRearrangeState();
-  const {
-    isReorderView,
-    setIsReorderView,
-    selectedThumbnails,
-    setSelectedThumbnails,
-    lastSelectedId,
-    setLastSelectedId,
-    isMoving,
-    setIsMoving,
-    activeId,
-    setActiveId,
-    moveToPosition,
-    setMoveToPosition,
-    resetSelection,
-    toggleSelection,
-    enterMoveMode,
-    exitMoveMode,
-  } = rearrangeState;
-
-  // ===== Hook: useLightboxState für Lightbox Modal UI State (Mouse, Hovering, Dragging) =====
-  const lightboxState = useLightboxState();
-  const {
-    lightboxMousePos,
-    setLightboxMousePos,
-    isHoveringLightboxBg,
-    setIsHoveringLightboxBg,
-    lightboxDraggedIdx,
-    setLightboxDraggedIdx,
-    startDragMedia,
-    endDragMedia,
-  } = lightboxState;
-
-  // ===== Übrige States =====
+  const [isReorderView, setIsReorderView] = useState(false);
+  const [selectedThumbnails, setSelectedThumbnails] = useState<string[]>([]);
+  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
+  const [isMoving, setIsMoving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<{url: string} | null>(null);
@@ -779,15 +745,17 @@ export default function App() {
       setIsResettingAll(false);
     }
   };
-  
+  const [activeId, setActiveId] = useState<string | null>(null);
   const reorderScrollRef = useRef<HTMLDivElement>(null);
   const [portfolioTitle, setPortfolioTitle] = useState("ProjectionArt by Vijay Sikanda");
   const [portfolioSubtitle, setPortfolioSubtitle] = useState("immersive projection experience");
   const [igAccount, setIgAccount] = useState("vijay_sikanda");
   const [flickrUrl, setFlickrUrl] = useState("https://www.flickr.com/photos/23689211@N04/albums/72157604835171705/");
   const [publicDomain, setPublicDomain] = useState<string | null>(null);
-  
+  const [lightboxDraggedIdx, setLightboxDraggedIdx] = useState<number | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const [lightboxMousePos, setLightboxMousePos] = useState({ x: 0, y: 0 });
+  const [isHoveringLightboxBg, setIsHoveringLightboxBg] = useState(false);
   const [isR2Fallback, setIsR2Fallback] = useState(false);
   const [isEmbeddedData, setIsEmbeddedData] = useState(false);
   const [isFlickrFallback, setIsFlickrFallback] = useState(false);
