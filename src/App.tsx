@@ -2318,7 +2318,7 @@ export default function App() {
             className="w-full h-full object-cover" 
             onError={(e) => {
               // Final fallback: only retry with preview image if we actually have it.
-              if (thumbMedia?.image_preview && isValidImageCandidate(thumbMedia.image_preview)) {
+              if (thumbMedia?.image_preview && e.currentTarget.src !== getDisplayImage(thumbMedia.image_preview, isR2Fallback, isEmbeddedData)) {
                 e.currentTarget.src = getDisplayImage(thumbMedia.image_preview, isR2Fallback, isEmbeddedData) || '';
               }
             }}

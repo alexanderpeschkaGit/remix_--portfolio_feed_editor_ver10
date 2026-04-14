@@ -252,7 +252,7 @@ export function FeedPostCard({
                       className="w-full h-24 object-cover rounded cursor-pointer"
                       onClick={() => setSelectedImage(post)}
                       onError={(e) => {
-                        if (media.image_preview && isValidImageCandidate?.(media.image_preview)) {
+                        if (media.image_preview && e.currentTarget.src !== getDisplayImage(media.image_preview, isR2Fallback, isEmbeddedData)) {
                           e.currentTarget.src = getDisplayImage(media.image_preview, isR2Fallback, isEmbeddedData) || '';
                         }
                       }}
@@ -286,7 +286,7 @@ export function FeedPostCard({
                   onLoad={handleFeedImageLoad}
                   onClick={() => setSelectedImage(post)}
                   onError={(e) => {
-                    if (displayMedia.image_preview && isValidImageCandidate?.(displayMedia.image_preview)) {
+                    if (displayMedia.image_preview && e.currentTarget.src !== getDisplayImage(displayMedia.image_preview, isR2Fallback, isEmbeddedData)) {
                       e.currentTarget.src = getDisplayImage(displayMedia.image_preview, isR2Fallback, isEmbeddedData) || '';
                     }
                   }}
