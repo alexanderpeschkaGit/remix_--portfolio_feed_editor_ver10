@@ -3,7 +3,7 @@ import React from 'react';
 import { DndContext, closestCenter, DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, rectSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { X, Undo2, Redo2, Layers, Trash2, ArrowLeft, GripVertical, Maximize2 } from 'lucide-react';
+import { X, Undo2, Redo2, Layers, Trash2, ArrowLeft, GripVertical, Maximize2, Image as ImageIcon } from 'lucide-react';
 
 interface RearrangeModalProps {
   isReorderView: boolean;
@@ -84,6 +84,7 @@ const SortableThumbnailInner: React.FC<{
     : post;
 
   const src = getImageSrc(thumbMedia, false);
+  const displaySrc = src ? getDisplayImage(src, isR2Fallback, isEmbeddedData) : undefined;
 
   return (
     <div
@@ -92,16 +93,22 @@ const SortableThumbnailInner: React.FC<{
       className={`aspect-square relative rounded-lg overflow-hidden group ${isSelected ? 'ring-2 ring-blue-500' : 'ring-1 ring-white/10'} ${isMoving ? 'cursor-crosshair' : 'cursor-pointer'} ${post.hidden ? 'grayscale brightness-50' : ''}`}
       onClick={isMoving ? () => onMoveToTarget() : onSelect}
     >
-      <img 
-        src={getDisplayImage(src, isR2Fallback, isEmbeddedData)} 
-        alt="" 
-        className="w-full h-full object-cover" 
-        onError={(e) => {
-          if (thumbMedia?.image_preview && e.currentTarget.src !== thumbMedia.image_preview) {
-            e.currentTarget.src = thumbMedia.image_preview;
-          }
-        }}
-      />
+      {displaySrc ? (
+        <img 
+          src={displaySrc} 
+          alt="" 
+          className="w-full h-full object-cover" 
+          onError={(e) => {
+            if (thumbMedia?.image_preview && e.currentTarget.src !== thumbMedia.image_preview) {
+              e.currentTarget.src = thumbMedia.image_preview;
+            }
+          }}
+        />
+      ) : (
+        <div className="w-full h-full bg-[#111] flex items-center justify-center text-white/40">
+          <ImageIcon className="w-6 h-6" />
+        </div>
+      )}
       <div 
         {...attributes} 
         {...listeners}

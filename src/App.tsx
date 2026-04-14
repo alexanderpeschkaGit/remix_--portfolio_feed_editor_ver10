@@ -23,6 +23,11 @@ import { useRearrangeState } from './hooks/useRearrangeState';
 import { useLightboxState } from './hooks/useLightboxState';
 import { RearrangeModal } from './components/modals/RearrangeModal';
 import { LightboxModal } from './components/modals/LightboxModal';
+import { BackupsModal } from './components/modals/BackupsModal';
+import { ScrapingLogsModal } from './components/modals/ScrapingLogsModal';
+import { UncertainMatchesModal } from './components/modals/UncertainMatchesModal';
+import { FeedPostCard } from './components/feed/FeedPostCard';
+import { ThumbnailGalleryGrid } from './components/gallery/ThumbnailGalleryGrid';
 
 const formatDescription = (description: string, title: string) => {
   let text = description;
@@ -100,14 +105,21 @@ const getResolutionLabel = (m: any, dimensions?: string) => {
 const isDirectMediaFile = (url?: string) =>
   !!url && /\.(jpg|jpeg|png|webp|gif|avif|bmp|mp4|webm|mov)(\?.*)?$/i.test(url);
 
+const isValidImageCandidate = (url?: string) => {
+  if (!url) return false;
+  if (url.startsWith('data:') || url.startsWith('blob:')) return true;
+  if (url.startsWith('/data/') || url.startsWith('/originals/')) return true;
+  return isDirectMediaFile(url);
+};
+
 const getImageSrc = (media: any, preferLarge = false) => {
   const primary = preferLarge
     ? [media?.image_3k, media?.image_large, media?.imageLarge, media?.largeUrl, media?.image, media?.image_preview]
     : [media?.image, media?.image_preview, media?.image_3k, media?.image_large, media?.imageLarge, media?.largeUrl];
   for (const candidate of primary) {
-    if (candidate) return candidate;
+    if (isValidImageCandidate(candidate)) return candidate;
   }
-  return isDirectMediaFile(media?.url) ? media.url : undefined;
+  return undefined;
 };
 
 const getVideoSrc = (media: any, preferLarge = false) => {
@@ -137,432 +149,7 @@ const EDITOR_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0
 </svg>`;
 const EDITOR_FAVICON_DATA_URI = `data:image/svg+xml,${encodeURIComponent(EDITOR_FAVICON_SVG)}`;
 
-function SortablePost({ post, index, totalPosts, isEditing, activeUploads, showResolutions, handleImageUpload, handlePostChange, handleYoutubeChange, handleDeletePost, handleMergeDown, handleUpdatePostMedia, setSelectedImage, handleStateToggle, handleToggleHidden, getDisplayImage, isR2Fallback, isEmbeddedData, getImageSrc, getVideoSrc, getResolutionLabel }: any) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging
-  } = useSortable({ id: post.id, disabled: !isEditing });
-
-  const [localTitle, setLocalTitle] = useState(post.title);
-  const [localDescription, setLocalDescription] = useState(post.description);
-  const [hoveredState, setHoveredState] = useState<string | null>(null);
-  const [feedImageDimensions, setFeedImageDimensions] = useState<string>('');
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const handleFeedImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = e.currentTarget;
-    setFeedImageDimensions(`${img.naturalWidth} x ${img.naturalHeight} px`);
-  };
-
-  useEffect(() => {
-    setLocalTitle(post.title);
-  }, [post.title]);
-
-  useEffect(() => {
-    setLocalDescription(post.description);
-  }, [post.description]);
-
-  useLayoutEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
-    }
-  }, [localDescription, isEditing]);
-
-  const style = {
-    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
-    transition,
-    zIndex: isDragging ? 10 : 1,
-    opacity: isDragging ? 0.8 : 1,
-  };
-
-  const displayMedia = post.mergedMedia && post.mergedMedia.length > 0 ? post.mergedMedia[0] : post;
-
-  const mediaItems = post.mergedMedia || [{ type: post.type || 'image', image: post.image, image_large: post.image_large, youtubeId: post.youtubeId, youtubeUrl: post.youtubeUrl, link: post.url }];
-
-  const [draggedMediaIdx, setDraggedMediaIdx] = useState<number | null>(null);
-
-  const updateMediaItem = (i: number, field: string, value: any) => {
-    const newMedia = [...mediaItems];
-    newMedia[i] = { ...newMedia[i], [field]: value };
-    handleUpdatePostMedia(post.id, newMedia);
-  };
-
-  const removeMedia = (i: number) => {
-    const newMedia = mediaItems.filter((_: any, idx: number) => idx !== i);
-    handleUpdatePostMedia(post.id, newMedia);
-  };
-
-  const addMedia = (type: 'image' | 'youtube') => {
-    const newMedia = [{ type, image: '', image_large: '', link: '', youtubeId: '', youtubeUrl: '' }, ...mediaItems];
-    handleUpdatePostMedia(post.id, newMedia);
-  };
-
-  const handleMediaDragStart = (e: React.DragEvent, index: number) => {
-    e.stopPropagation();
-    setDraggedMediaIdx(index);
-  };
-
-  const handleMediaDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
-  const handleMediaDrop = (e: React.DragEvent, index: number) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (draggedMediaIdx === null || draggedMediaIdx === index) return;
-    
-    const newMedia = [...mediaItems];
-    const [draggedItem] = newMedia.splice(draggedMediaIdx, 1);
-    newMedia.splice(index, 0, draggedItem);
-    handleUpdatePostMedia(post.id, newMedia);
-    setDraggedMediaIdx(null);
-  };
-
-  return (
-    <div 
-      ref={setNodeRef}
-      style={style}
-      className={`group bg-[#111] rounded-xl overflow-hidden border ${isDragging ? 'border-blue-500 shadow-xl shadow-black/50' : 'border-white/5 hover:border-white/20'} transition-all duration-300 flex flex-col relative`}
-    >
-      {isEditing && (
-        <div className="absolute top-2 left-2 z-20 flex gap-2">
-          <button 
-            onClick={(e) => { e.stopPropagation(); handleToggleHidden(post.id); }}
-            className={`p-1.5 rounded transition-all shadow-lg backdrop-blur-sm ${post.hidden ? 'bg-red-500/80 hover:bg-red-500 text-white' : 'bg-black/50 hover:bg-black/80 text-white/70 hover:text-white'}`}
-            title={post.hidden ? "Anzeigen" : "Verstecken"}
-          >
-            <Eye className={`w-4 h-4 ${post.hidden ? 'opacity-100' : 'opacity-70'}`} />
-          </button>
-        </div>
-      )}
-      {isEditing && (
-        <div 
-          {...attributes} 
-          {...listeners}
-          className="absolute top-2 right-2 z-20 bg-black/50 p-1.5 rounded cursor-grab active:cursor-grabbing hover:bg-black/80 transition-colors shadow-lg backdrop-blur-sm"
-          title="Drag to reorder"
-        >
-          <GripVertical className="w-4 h-4 text-white/70" />
-        </div>
-      )}
-      <div 
-        className={`relative ${(!isEditing && post.mergedMedia && post.mergedMedia.length > 1) || isEditing ? 'h-auto min-h-[300px] max-h-[600px] overflow-y-auto custom-scrollbar' : 'aspect-[4/3] overflow-hidden'} cursor-pointer bg-black/50 shrink-0 ${isEditing && post.hidden ? 'grayscale brightness-50' : ''}`}
-        onClick={() => setSelectedImage(post)}
-      >
-        {(showResolutions || isEditing) && (
-          <div className="absolute top-2 left-2 z-20 bg-blue-600/80 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-lg backdrop-blur-sm flex flex-col gap-0">
-            <span>{getResolutionLabel(displayMedia, feedImageDimensions)}</span>
-            {feedImageDimensions && (
-              <span className="opacity-80 text-[7px] border-t border-white/10 mt-0.5 pt-0.5">{feedImageDimensions}</span>
-            )}
-          </div>
-        )}
-        {isEditing ? (
-          <div className="flex flex-col gap-2 p-2">
-            <div className="flex gap-2 mb-2">
-              <label className="flex-1 flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded py-1.5 text-xs cursor-pointer transition-colors">
-                <ImageIcon className="w-3 h-3" /> + Bild
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  multiple
-                  className="hidden" 
-                  onChange={(e) => {
-                    if (e.target.files) {
-                      Array.from(e.target.files).forEach(file => {
-                        handleImageUpload(post.id, file, undefined, true);
-                      });
-                    }
-                  }}
-                />
-              </label>
-              <button 
-                onClick={() => addMedia('youtube')}
-                className="flex-1 flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded py-1.5 text-xs transition-colors"
-              >
-                <Youtube className="w-3 h-3" /> + YouTube
-              </button>
-            </div>
-            {mediaItems.map((media: any, i: number) => (
-              <div 
-                key={i} 
-                className="relative w-full bg-black/30 border border-white/10 rounded p-2"
-                draggable
-                onDragStart={(e) => handleMediaDragStart(e, i)}
-                onDragOver={handleMediaDragOver}
-                onDrop={(e) => handleMediaDrop(e, i)}
-              >
-                <button 
-                  onClick={(e) => { e.stopPropagation(); removeMedia(i); }}
-                  className="absolute top-1 right-1 z-10 bg-red-500/80 hover:bg-red-500 text-white p-1 rounded-full transition-colors"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-                <div className="flex items-center gap-2 mb-2">
-                  <GripVertical className="w-4 h-4 text-white/30 cursor-grab" />
-                  <span className="text-xs text-white/50">{media.type === 'youtube' ? 'YouTube' : 'Bild'}</span>
-                </div>
-                {media.type === 'youtube' ? (
-                  <input
-                    type="text"
-                    value={media.youtubeUrl || ''}
-                    onChange={(e) => {
-                      const url = e.target.value;
-                      const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-                      const match = url.match(regExp);
-                      const youtubeId = (match && match[2].length === 11) ? match[2] : null;
-                      if (youtubeId) {
-                        const thumbnailUrl = `https://img.youtube.com/vi/${youtubeId}/maxresdefault.jpg`;
-                        const newMedia = [...mediaItems];
-                        newMedia[i] = { ...media, youtubeUrl: url, youtubeId, image: thumbnailUrl, image_large: thumbnailUrl, url: url };
-                        handleUpdatePostMedia(post.id, newMedia);
-                      } else {
-                        updateMediaItem(i, 'youtubeUrl', url);
-                      }
-                    }}
-                    className="w-full bg-black/50 border border-red-500/30 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-red-500/60 mb-2"
-                    placeholder="YouTube URL einfügen..."
-                  />
-                ) : (
-                  <label className="block w-full text-center bg-white/5 hover:bg-white/10 border border-white/10 rounded py-1 mb-2 text-xs cursor-pointer transition-colors">
-                    Bild ändern
-                    <input 
-                      type="file" 
-                      accept="image/*" 
-                      className="hidden" 
-                      onChange={(e) => {
-                        if (e.target.files && e.target.files[0]) {
-                          handleImageUpload(post.id, e.target.files[0], i);
-                        }
-                      }}
-                    />
-                  </label>
-                )}
-                {media.image || media.image_preview || media.url ? (
-                  media.type === 'video' || (media.image && media.image.endsWith('.mp4')) ? (
-                    <video 
-                      src={getDisplayImage(getVideoSrc(media), isR2Fallback, isEmbeddedData)} 
-                      className="w-full h-24 object-cover rounded cursor-pointer"
-                      autoPlay 
-                      loop 
-                      muted 
-                      playsInline
-                      onClick={() => setSelectedImage(post)}
-                    />
-                  ) : (
-                    <img 
-                      src={getDisplayImage(getImageSrc(media), isR2Fallback, isEmbeddedData)} 
-                      alt="" 
-                      className="w-full h-24 object-cover rounded cursor-pointer"
-                      onClick={() => setSelectedImage(post)}
-                      onError={(e) => {
-                        if (media.image_preview && e.currentTarget.src !== media.image_preview) {
-                          e.currentTarget.src = media.image_preview;
-                        }
-                      }}
-                    />
-                  )
-                ) : (
-                  <div className="w-full h-24 bg-white/5 rounded flex items-center justify-center text-white/20">
-                    {media.type === 'youtube' ? <Youtube className="w-6 h-6" /> : <ImageIcon className="w-6 h-6" />}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <>
-            {/* === HIER STARTET DER ANGEPASSTE BEREICH FÜR DEN PREVIEW-MODUS === */}
-            {displayMedia.image || displayMedia.image_preview || displayMedia.url ? (
-              displayMedia.type === 'video' || (displayMedia.image && displayMedia.image.endsWith('.mp4')) ? (
-                <video 
-                  src={getDisplayImage(getVideoSrc(displayMedia), isR2Fallback, isEmbeddedData)} 
-                  className={`w-full h-full object-cover transition-transform duration-700 cursor-pointer ${!isEditing ? 'group-hover:scale-110' : ''}`}
-                  autoPlay 
-                  loop 
-                  muted 
-                  playsInline
-                  onClick={() => setSelectedImage(post)}
-                />
-              ) : (
-                <img 
-                  src={getDisplayImage(getImageSrc(displayMedia), isR2Fallback, isEmbeddedData)} 
-                  alt={post.title} 
-                  loading="lazy"
-                  referrerPolicy="no-referrer"
-                  className={`w-full h-full object-cover transition-transform duration-700 cursor-pointer ${!isEditing ? 'group-hover:scale-110' : ''}`}
-                  onLoad={handleFeedImageLoad}
-                  onClick={() => setSelectedImage(post)}
-                  onError={(e) => {
-                    if (displayMedia.image_preview && e.currentTarget.src !== displayMedia.image_preview) {
-                      e.currentTarget.src = displayMedia.image_preview;
-                    }
-                  }}
-                />
-              )
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-white/20">
-                <ImageIcon className="w-12 h-12" />
-              </div>
-            )}
-            
-            {displayMedia.type === 'youtube' && !isEditing && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center shadow-lg pointer-events-auto cursor-pointer" onClick={(e) => { e.stopPropagation(); setSelectedImage(post); }}>
-                  <Youtube className="w-8 h-8 text-white ml-1" />
-                </div>
-              </div>
-            )}
-
-            {post.mergedMedia && post.mergedMedia.length > 1 && (
-              <div className="absolute top-2 left-2 bg-black/70 text-white text-xs px-2 py-1 rounded-full z-10">
-                +{post.mergedMedia.length - 1}
-              </div>
-            )}
-
-            {!isEditing && (
-              <div 
-                className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center cursor-pointer"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedImage(post);
-                }}
-              >
-                <Maximize2 className="w-8 h-8 text-white/80" />
-              </div>
-            )}
-            {/* === HIER ENDET DER ANGEPASSTE BEREICH === */}
-          </>
-        )}
-        
-        {isEditing && activeUploads[post.id] > 0 && (
-          <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center z-10">
-            <Loader2 className="w-8 h-8 animate-spin text-white mb-2" />
-            <span className="text-xs text-white/70">Lädt hoch... ({activeUploads[post.id]})</span>
-          </div>
-        )}
-      </div>
-      <div className="p-4 flex flex-col gap-2 flex-grow">
-        {isEditing ? (
-          <>
-            <input
-              type="text"
-              value={localTitle}
-              onChange={(e) => setLocalTitle(e.target.value)}
-              onBlur={() => handlePostChange(post.id, 'title', localTitle)}
-              className="w-full bg-black/50 border border-white/10 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-white/30"
-              placeholder="Titel..."
-            />
-            <textarea
-              ref={textareaRef}
-              value={localDescription}
-              onChange={(e) => setLocalDescription(e.target.value)}
-              onBlur={() => handlePostChange(post.id, 'description', localDescription)}
-              className="w-full bg-black/50 border border-white/10 rounded px-2 py-1 text-xs text-white/80 focus:outline-none focus:border-white/30 min-h-[80px]"
-              placeholder="Beschreibung..."
-            />
-            <div className="flex flex-wrap gap-1 mt-2">
-              {PROJECT_STATES.map(s => {
-                const isActive = post.states?.includes(s.id);
-                const isHovered = hoveredState === s.id;
-                const isBright = isActive || isHovered;
-                return (
-                  <button
-                    key={s.id}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleStateToggle(post.id, s.id);
-                    }}
-                    onMouseEnter={() => setHoveredState(s.id)}
-                    onMouseLeave={() => setHoveredState(null)}
-                    className="px-2 py-0.5 rounded text-[10px] font-medium transition-all duration-300"
-                    style={{
-                      backgroundColor: isActive ? s.bright : (isHovered ? s.muted : '#1f2937'),
-                      color: (isActive || isHovered) ? 'white' : '#9ca3af',
-                      boxShadow: isActive ? `0 0 10px ${s.bright}` : (isHovered ? `0 0 5px ${s.muted}` : 'none'),
-                      opacity: isHovered && !isActive ? 0.8 : 1
-                    }}
-                  >
-                    {s.label}
-                  </button>
-                );
-              })}
-            </div>
-            <button
-              onClick={() => setSelectedImage(post)}
-              className="mt-2 flex items-center justify-center gap-2 w-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded py-1.5 text-xs transition-colors"
-            >
-              <Maximize2 className="w-3 h-3" /> Lightbox Editor
-            </button>
-            <button
-              onClick={() => handleDeletePost(post.id)}
-              className="mt-2 flex items-center justify-center gap-2 w-full bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 rounded py-1.5 text-xs transition-colors"
-            >
-              <Trash2 className="w-3 h-3" /> Post löschen
-            </button>
-            {index < totalPosts - 1 && (
-              <button
-                onClick={() => handleMergeDown(index)}
-                className="mt-2 flex items-center justify-center gap-2 w-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded py-1.5 text-xs transition-colors"
-                title="Mit dem nächsten Post zusammenlegen"
-              >
-                <FoldVertical className="w-3 h-3" /> Mit nächstem zusammenlegen
-              </button>
-            )}
-          </>
-        ) : (
-          <>
-            <h2 className="font-medium text-sm text-white/90 line-clamp-2" title={post.title}>
-              {post.title}
-            </h2>
-            {post.description && (
-              <div 
-                className="text-xs text-white/60 line-clamp-3 mt-1"
-                dangerouslySetInnerHTML={{ __html: formatDescription(post.description, post.title) }}
-              />
-            )}
-            {post.states && post.states.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-2">
-                {post.states.map((stateId: string) => {
-                  const state = PROJECT_STATES.find(s => s.id === stateId);
-                  if (!state) return null;
-                  return (
-                    <span 
-                      key={state.id}
-                      className="px-2 py-0.5 rounded text-[10px] font-medium text-white"
-                      style={{ backgroundColor: state.bright }}
-                    >
-                      {state.label}
-                    </span>
-                  );
-                })}
-              </div>
-            )}
-          </>
-        )}
-        
-        <div className="flex items-center justify-between mt-auto pt-4">
-          <span className="text-xs text-white/40 uppercase tracking-wider">{post.network_name}</span>
-          <a 
-            href={post.url} 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="text-white/40 hover:text-white transition-colors"
-            title="Auf Flickr ansehen"
-          >
-            <ExternalLink className="w-4 h-4" />
-          </a>
-        </div>
-      </div>
-    </div>
-  );
-}
+// SortablePost component moved to src/components/feed/FeedPostCard.tsx
 
 export default function App() {
   const [flickrPosts, setFlickrPosts] = useState<any[]>([]);
@@ -1817,16 +1404,22 @@ export default function App() {
           return !!url && /\\.(jpg|jpeg|png|webp|gif|avif|bmp|mp4|webm|mov)(\\?.*)?$/i.test(url);
         }
 
+        function isValidImageCandidate(url) {
+          if (!url) return false;
+          if (url.startsWith('data:') || url.startsWith('blob:')) return true;
+          if (url.startsWith('/data/') || url.startsWith('/originals/')) return true;
+          return isDirectMediaFile(url);
+        }
+
         function getImageSrc(media, preferLarge) {
           if (!media) return undefined;
           const primary = preferLarge
             ? [media.image_3k, media.image_large, media.imageLarge, media.largeUrl, media.image, media.image_preview]
             : [media.image, media.image_preview, media.image_3k, media.image_large, media.imageLarge, media.largeUrl];
           for (const candidate of primary) {
-            if (candidate) return candidate;
+            if (isValidImageCandidate(candidate)) return candidate;
           }
-          const url = media.url || media.link;
-          return (url && isDirectMediaFile(url)) ? url : undefined;
+          return undefined;
         }
 
         function getVideoSrc(media, preferLarge) {
@@ -2708,6 +2301,7 @@ export default function App() {
     // IMPORTANT: Do not fall back to post.url/link as an image source.
     // Some scraped entries contain normal page URLs in `url`, which causes broken/brown thumbs.
     const src = getImageSrc(thumbMedia, false);
+    const displaySrc = src ? getDisplayImage(src, isR2Fallback, isEmbeddedData) : undefined;
 
     return (
       <div
@@ -2716,37 +2310,47 @@ export default function App() {
         className={`aspect-square relative rounded-lg overflow-hidden group ${isSelected ? 'ring-2 ring-blue-500' : 'ring-1 ring-white/10'} ${isMoving ? 'cursor-crosshair' : 'cursor-pointer'} ${post.hidden ? 'grayscale brightness-50' : ''}`}
         onClick={isMoving ? () => onMoveToTarget(post.id) : onSelect}
       >
-        <img 
-          src={getDisplayImage(src, isR2Fallback, isEmbeddedData)} 
-          alt="" 
-          className="w-full h-full object-cover" 
-          onError={(e) => {
-            // Final fallback: only retry with preview image if we actually have it.
-            if (thumbMedia?.image_preview && e.currentTarget.src !== thumbMedia.image_preview) {
-              e.currentTarget.src = thumbMedia.image_preview;
-            }
-          }}
-        />
-        <div 
-          {...attributes} 
-          {...listeners}
-          className="absolute top-1 right-1 p-1 bg-black/50 rounded opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing z-10"
-        >
-          <GripVertical className="w-3 h-3 text-white/50" />
-        </div>
-        
-        {/* Lightbox Trigger in Rearrange View */}
-        {!isMoving && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setSelectedImage(post);
+        {displaySrc ? (
+          <img 
+            src={displaySrc} 
+            alt="" 
+            className="w-full h-full object-cover" 
+            onError={(e) => {
+              // Final fallback: only retry with preview image if we actually have it.
+              if (thumbMedia?.image_preview && isValidImageCandidate(thumbMedia.image_preview)) {
+                e.currentTarget.src = getDisplayImage(thumbMedia.image_preview, isR2Fallback, isEmbeddedData) || '';
+              }
             }}
-            className="absolute top-1 left-1 p-1 bg-black/50 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80 z-10"
-            title="Lightbox öffnen"
-          >
-            <Maximize2 className="w-3 h-3 text-white/70" />
-          </button>
+          />
+        ) : (
+          <div className="w-full h-full bg-[#111] flex items-center justify-center text-white/40">
+            <ImageIcon className="w-8 h-8" />
+          </div>
+        )}
+        {displaySrc && (
+          <>
+            <div 
+              {...attributes} 
+              {...listeners}
+              className="absolute top-1 right-1 p-1 bg-black/50 rounded opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing z-10"
+            >
+              <GripVertical className="w-3 h-3 text-white/50" />
+            </div>
+            
+            {/* Lightbox Trigger in Rearrange View */}
+            {!isMoving && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedImage(post);
+                }}
+                className="absolute top-1 left-1 p-1 bg-black/50 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80 z-10"
+                title="Lightbox öffnen"
+              >
+                <Maximize2 className="w-3 h-3 text-white/70" />
+              </button>
+            )}
+          </>
         )}
 
         {isSelected && (
@@ -3090,294 +2694,69 @@ export default function App() {
       )}
 
       {!loading && flickrPosts.length > 0 && (
-        <DndContext 
+        <ThumbnailGalleryGrid
+          flickrPosts={flickrPosts}
+          isEditing={isEditing}
+          activeUploads={activeUploads}
+          showResolutions={showResolutions}
           sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext 
-            items={flickrPosts.map(p => p.id)}
-            strategy={rectSortingStrategy}
-          >
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 max-w-[1400px] mx-auto">
-              {flickrPosts
-                .filter(post => isEditing || !post.hidden)
-                .map((post, index) => (
-                <SortablePost 
-                  key={post.id} 
-                  index={index}
-                  totalPosts={flickrPosts.length}
-                  post={post}
-                  isEditing={isEditing}
-                  activeUploads={activeUploads}
-                  showResolutions={showResolutions}
-                  handleImageUpload={handleImageUpload}
-                  handlePostChange={handlePostChange}
-                  handleYoutubeChange={handleYoutubeChange}
-                  handleDeletePost={handleDeletePost}
-                  handleMergeDown={handleMergeDown}
-                  handleUpdatePostMedia={handleUpdatePostMedia}
-                  setSelectedImage={setSelectedImage}
-                  handleStateToggle={handleStateToggle}
-                  handleToggleHidden={handleToggleHidden}
-                  getDisplayImage={getDisplayImage}
-                  isR2Fallback={isR2Fallback}
-                  isEmbeddedData={isEmbeddedData}
-                  getImageSrc={getImageSrc}
-                  getVideoSrc={getVideoSrc}
-                  getResolutionLabel={getResolutionLabel}
-                />
-              ))}
-            </div>
-          </SortableContext>
-        </DndContext>
+          imageDimensions={imageDimensions}
+          isR2Fallback={isR2Fallback}
+          isEmbeddedData={isEmbeddedData}
+          handleDragEnd={handleDragEnd}
+          handleImageUpload={handleImageUpload}
+          handlePostChange={handlePostChange}
+          handleYoutubeChange={handleYoutubeChange}
+          handleDeletePost={handleDeletePost}
+          handleMergeDown={handleMergeDown}
+          handleUpdatePostMedia={handleUpdatePostMedia}
+          setSelectedImage={setSelectedImage}
+          handleStateToggle={handleStateToggle}
+          handleToggleHidden={handleToggleHidden}
+          handleImageLoad={handleImageLoad}
+          getDisplayImage={getDisplayImage}
+          getImageSrc={getImageSrc}
+          getVideoSrc={getVideoSrc}
+          getResolutionLabel={getResolutionLabel}
+          formatDescription={formatDescription}
+          isValidImageCandidate={isValidImageCandidate}
+        />
       )}
 
       {/* Backups Modal */}
-      {showBackups && (
-        <div 
-          className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm"
-          onClick={() => setShowBackups(false)}
-        >
-          <div 
-            className="bg-[#111] p-6 rounded-xl border border-white/10 w-full max-w-md max-h-[80vh] flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-medium text-white flex items-center gap-2">
-                <History className="w-5 h-5" /> Letzte Backups
-              </h2>
-              <button 
-                className="text-white/50 hover:text-white transition-colors p-1"
-                onClick={() => setShowBackups(false)}
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto pr-2 space-y-2">
-              {restoreError && (
-                <div className="bg-red-500/10 border border-red-500/20 p-3 rounded text-red-400 text-xs mb-4">
-                  {restoreError}
-                </div>
-              )}
-              
-              {backupsList.length === 0 ? (
-                <p className="text-white/50 text-sm text-center py-4">Keine Backups vorhanden.</p>
-              ) : (
-                backupsList.map((filename) => {
-                  // Format filename for display: portfolio_2026-03-24T15-29-28-000Z.html
-                  const dateMatch = filename.match(/portfolio_(.*)\.html/);
-                  let displayDate = filename;
-                  if (dateMatch && dateMatch[1]) {
-                    try {
-                      // Correctly parse the timestamp format: 2026-03-24T15-29-28-000Z
-                      const raw = dateMatch[1];
-                      const datePart = raw.substring(0, 10);
-                      const timePart = raw.substring(11).replace(/-/g, ':');
-                      // Fix the last colon to a dot for milliseconds
-                      const lastColonIdx = timePart.lastIndexOf(':');
-                      const fixedTime = timePart.substring(0, lastColonIdx) + '.' + timePart.substring(lastColonIdx + 1);
-                      const dateStr = `${datePart}T${fixedTime}`;
-                      
-                      const date = new Date(dateStr);
-                      if (!isNaN(date.getTime())) {
-                        displayDate = date.toLocaleString('de-DE', {
-                          day: '2-digit',
-                          month: '2-digit',
-                          year: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          second: '2-digit'
-                        });
-                      }
-                    } catch (e) {}
-                  }
-
-                  const isThisRestoring = isRestoring === filename;
-
-                  return (
-                    <div key={filename} className="flex items-center justify-between bg-white/5 p-3 rounded border border-white/5 hover:border-white/20 transition-colors">
-                      <div className="flex flex-col min-w-0 mr-4">
-                        <span className="text-sm text-white/80 truncate">{displayDate}</span>
-                        <span className="text-[10px] text-white/30 truncate">{filename}</span>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button 
-                          onClick={() => handleRestoreBackup(filename)}
-                          disabled={!!isRestoring}
-                          className={`flex items-center gap-1 text-xs px-3 py-1.5 rounded transition-colors ${
-                            isThisRestoring 
-                              ? 'bg-blue-500/20 text-blue-400' 
-                              : 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
-                          }`}
-                        >
-                          {isThisRestoring ? (
-                            <RefreshCw className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <History className="w-3 h-3" />
-                          )}
-                          {isThisRestoring ? 'Restoring...' : 'Restore'}
-                        </button>
-                        <a 
-                          href={`/api/backups/${filename}`}
-                          download={filename}
-                          className="flex items-center gap-1 text-xs bg-white/5 text-white/50 hover:bg-white/10 p-1.5 rounded transition-colors"
-                          title="Download"
-                        >
-                          <Download className="w-4 h-4" />
-                        </a>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <BackupsModal
+        isOpen={showBackups}
+        onClose={() => setShowBackups(false)}
+        backupsList={backupsList}
+        isRestoring={isRestoring}
+        restoreError={restoreError}
+        onRestore={handleRestoreBackup}
+      />
 
       {/* Scraping Logs Modal */}
-      {showLogs && (
-        <div 
-          className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm"
-          onClick={() => !isScraping && setShowLogs(false)}
-        >
-          <div 
-            className="bg-[#111] p-6 rounded-xl border border-white/10 w-full max-w-lg flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-medium text-white flex items-center gap-2">
-                {(isScraping || syncStatus.running || fullR2SyncStatus.running) ? (
-                  <RefreshCw className="w-5 h-5 animate-spin text-blue-400" />
-                ) : (
-                  <CheckCircle className="w-5 h-5 text-green-400" />
-                )}
-                {fullR2SyncStatus.running ? 'Cloudflare Sync' : isScraping ? 'Scraping Verlauf' : syncStatus.running ? 'High-Res Sync' : 'Verlauf'}
-              </h2>
-              {!(isScraping || syncStatus.running || fullR2SyncStatus.running) && (
-                <button 
-                  className="text-white/50 hover:text-white transition-colors p-1"
-                  onClick={() => setShowLogs(false)}
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              )}
-            </div>
-
-            {fullR2SyncStatus.running && fullR2SyncStatus.total > 0 && (
-              <div className="mb-4">
-                <div className="flex justify-between text-[10px] text-white/50 mb-1 uppercase tracking-wider">
-                  <span>Fortschritt</span>
-                  <span>{Math.round((fullR2SyncStatus.progress / fullR2SyncStatus.total) * 100)}%</span>
-                </div>
-                <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-blue-500 transition-all duration-300"
-                    style={{ width: `${(fullR2SyncStatus.progress / fullR2SyncStatus.total) * 100}%` }}
-                  />
-                </div>
-                <div className="text-[10px] text-white/30 mt-1 text-right">
-                  {fullR2SyncStatus.progress} / {fullR2SyncStatus.total} Dateien
-                </div>
-              </div>
-            )}
-            
-            <div className="bg-black/50 border border-white/5 rounded-lg p-4 h-64 overflow-y-auto font-mono text-sm">
-              {scrapeLogs.map((log, i) => (
-                <div key={i} className="text-white/80 mb-1 flex items-start gap-2">
-                  <span className="text-blue-500/50 shrink-0">{'>'}</span>
-                  <span>{log}</span>
-                </div>
-              ))}
-              <div ref={logsEndRef} />
-            </div>
-
-            {!(isScraping || syncStatus.running || fullR2SyncStatus.running) && (
-              <button
-                onClick={() => setShowLogs(false)}
-                className="mt-4 w-full bg-white/10 hover:bg-white/20 text-white py-2 rounded-lg transition-colors"
-              >
-                Schließen
-              </button>
-            )}
-          </div>
-        </div>
-      )}
+      <ScrapingLogsModal
+        isOpen={showLogs}
+        onClose={() => setShowLogs(false)}
+        logs={scrapeLogs}
+        isScraping={isScraping}
+        syncStatus={syncStatus}
+        fullR2SyncStatus={fullR2SyncStatus}
+        logsEndRef={logsEndRef as React.RefObject<HTMLDivElement>}
+      />
 
       {/* Uncertain Matches Modal */}
-      {showUncertain && (
-        <div 
-          className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm"
-          onClick={() => setShowUncertain(false)}
-        >
-          <div 
-            className="bg-[#111] p-6 rounded-xl border border-white/10 w-full max-w-4xl max-h-[85vh] flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-medium text-white flex items-center gap-2">
-                <ImageIcon className="w-5 h-5 text-yellow-500" /> Unsichere Treffer prüfen
-              </h2>
-              <button 
-                className="text-white/50 hover:text-white transition-colors p-1"
-                onClick={() => setShowUncertain(false)}
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto pr-2 space-y-6">
-              {uncertainMatches.length === 0 ? (
-                <p className="text-white/50 text-sm text-center py-8">Keine unsicheren Treffer zur Überprüfung.</p>
-              ) : (
-                uncertainMatches.map((match, i) => {
-                  const post = flickrPosts.find(p => p.id === match.postId);
-                  return (
-                    <div key={i} className="bg-white/5 p-4 rounded-xl border border-white/10 flex flex-col md:flex-row gap-6">
-                      <div className="flex-1 flex flex-col gap-2">
-                        <span className="text-xs text-white/40 uppercase tracking-wider">Feed Bild</span>
-                        <img src={getDisplayImage(getImageSrc(post), isR2Fallback, isEmbeddedData)} alt="" className="w-full aspect-square object-cover rounded-lg border border-white/10" />
-                        <span className="text-xs text-white/60 mt-2 truncate">{post?.title || 'Unbekannter Post'}</span>
-                      </div>
-                      
-                      <div className="flex items-center justify-center">
-                        <div className="flex flex-col items-center gap-1">
-                          <span className="text-xs text-yellow-500 font-bold">Match?</span>
-                          <div className="h-px w-8 bg-white/20" />
-                          <span className="text-[10px] text-white/30">Dist: {match.distance}</span>
-                        </div>
-                      </div>
-
-                      <div className="flex-1 flex flex-col gap-2">
-                        <span className="text-xs text-white/40 uppercase tracking-wider">Lokales Original (Preview)</span>
-                        <img src={getDisplayImage(match.previewUrl, isR2Fallback, isEmbeddedData)} alt="" className="w-full aspect-square object-cover rounded-lg border border-white/10" />
-                        <span className="text-xs text-white/60 mt-2 truncate">{match.localFile}</span>
-                      </div>
-
-                      <div className="flex flex-col justify-center gap-2">
-                        <button 
-                          onClick={() => handleConfirmMatch(match)}
-                          className="flex items-center justify-center gap-2 bg-green-600 text-white px-6 py-3 rounded-xl font-medium hover:bg-green-500 transition-all active:scale-95"
-                        >
-                          <CheckCircle className="w-4 h-4" /> Bestätigen
-                        </button>
-                        <button 
-                          onClick={() => handleRejectMatch(match)}
-                          className="flex items-center justify-center gap-2 bg-white/5 text-white/50 px-6 py-3 rounded-xl font-medium hover:bg-white/10 transition-all"
-                        >
-                          <Trash2 className="w-4 h-4" /> Ablehnen
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <UncertainMatchesModal
+        isOpen={showUncertain}
+        onClose={() => setShowUncertain(false)}
+        matches={uncertainMatches}
+        flickrPosts={flickrPosts}
+        getImageSrc={getImageSrc}
+        getDisplayImage={getDisplayImage}
+        isR2Fallback={isR2Fallback}
+        isEmbeddedData={isEmbeddedData}
+        onConfirmMatch={handleConfirmMatch}
+        onRejectMatch={handleRejectMatch}
+      />
 
       <LightboxModal
         currentLightboxPost={currentLightboxPost}
