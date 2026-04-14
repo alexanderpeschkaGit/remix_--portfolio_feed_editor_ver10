@@ -374,15 +374,17 @@ function SortablePost({ post, index, totalPosts, isEditing, activeUploads, showR
           </div>
         ) : (
           <>
+            {/* === HIER STARTET DER ANGEPASSTE BEREICH FÜR DEN PREVIEW-MODUS === */}
             {displayMedia.image || displayMedia.image_preview || displayMedia.url ? (
               displayMedia.type === 'video' || (displayMedia.image && displayMedia.image.endsWith('.mp4')) ? (
                 <video 
                   src={getDisplayImage(getVideoSrc(displayMedia), isR2Fallback, isEmbeddedData)} 
-                  className={`w-full h-full object-cover transition-transform duration-700 ${!isEditing ? 'group-hover:scale-110' : ''}`}
+                  className={`w-full h-full object-cover transition-transform duration-700 cursor-pointer ${!isEditing ? 'group-hover:scale-110' : ''}`}
                   autoPlay 
                   loop 
                   muted 
                   playsInline
+                  onClick={() => setSelectedImage(post)}
                 />
               ) : (
                 <img 
@@ -390,8 +392,9 @@ function SortablePost({ post, index, totalPosts, isEditing, activeUploads, showR
                   alt={post.title} 
                   loading="lazy"
                   referrerPolicy="no-referrer"
-                  className={`w-full h-full object-cover transition-transform duration-700 ${!isEditing ? 'group-hover:scale-110' : ''}`}
+                  className={`w-full h-full object-cover transition-transform duration-700 cursor-pointer ${!isEditing ? 'group-hover:scale-110' : ''}`}
                   onLoad={handleFeedImageLoad}
+                  onClick={() => setSelectedImage(post)}
                   onError={(e) => {
                     if (displayMedia.image_preview && e.currentTarget.src !== displayMedia.image_preview) {
                       e.currentTarget.src = displayMedia.image_preview;
@@ -406,8 +409,8 @@ function SortablePost({ post, index, totalPosts, isEditing, activeUploads, showR
             )}
             
             {displayMedia.type === 'youtube' && !isEditing && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center shadow-lg">
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center shadow-lg pointer-events-auto cursor-pointer" onClick={(e) => { e.stopPropagation(); setSelectedImage(post); }}>
                   <Youtube className="w-8 h-8 text-white ml-1" />
                 </div>
               </div>
@@ -420,10 +423,17 @@ function SortablePost({ post, index, totalPosts, isEditing, activeUploads, showR
             )}
 
             {!isEditing && (
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+              <div 
+                className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedImage(post);
+                }}
+              >
                 <Maximize2 className="w-8 h-8 text-white/80" />
               </div>
             )}
+            {/* === HIER ENDET DER ANGEPASSTE BEREICH === */}
           </>
         )}
         
@@ -1770,7 +1780,7 @@ export default function App() {
         }
 
         function isDirectMediaFile(url) {
-          return !!url && /\.(jpg|jpeg|png|webp|gif|avif|bmp|mp4|webm|mov)(\?.*)?$/i.test(url);
+          return !!url && /\\.(jpg|jpeg|png|webp|gif|avif|bmp|mp4|webm|mov)(\\?.*)?$/i.test(url);
         }
 
         function getImageSrc(media, preferLarge) {
@@ -1788,10 +1798,12 @@ export default function App() {
         function getVideoSrc(media, preferLarge) {
           if (!media) return undefined;
           const primary = preferLarge
-            ? [media.video_large, media.video, media.url, media.link]
-            : [media.video, media.video_large, media.url, media.link];
+            ? [media.image_large, media.imageLarge, media.largeUrl, media.image, media.video_large, media.video, media.url, media.link]
+            : [media.image, media.image_preview, media.image_large, media.imageLarge, media.video, media.video_large, media.url, media.link];
           for (const candidate of primary) {
-            if (candidate && isDirectMediaFile(candidate) && /\.(mp4|webm|mov)(\?.*)?$/i.test(candidate)) return candidate;
+            if (candidate && isDirectMediaFile(candidate) && /\\.(mp4|webm|mov)(\\?.*)?$/i.test(candidate)) {
+              return candidate;
+            }
           }
           return undefined;
         }
@@ -1864,6 +1876,15 @@ export default function App() {
         const btnSaveOrder = document.getElementById('save-order-btn');
         const reorderGrid = document.getElementById('reorder-grid');
         
+        // Verify all critical elements exist
+        if (!lightbox || !lightboxContent || !lightboxTitle || !lightboxDescription || !lightboxCounter) {
+          console.error('CRITICAL: Missing lightbox DOM elements!', { 
+            lightbox, lightboxContent, lightboxTitle, 
+            lightboxDescription, lightboxCounter 
+          });
+          return; // Abort init if critical elements are missing
+        }
+        
         let currentPost = null;
         let currentPostMedia = [];
         let currentMediaIndex = 0;
@@ -1918,8 +1939,10 @@ export default function App() {
               }).join('');
               lightboxTags.style.display = 'flex';
             } else {
-              lightboxTags.innerHTML = '';
-              lightboxTags.style.display = 'none';
+              if (lightboxTags) {
+                lightboxTags.innerHTML = '';
+                lightboxTags.style.display = 'none';
+              }
             }
             
             updateLightbox();
@@ -1929,13 +1952,15 @@ export default function App() {
         });
         
         function updateLightbox() {
-          if (currentPostMedia.length === 0) return;
+          if (currentPostMedia.length === 0 || !lightboxContent) return;
           
           const m = currentPostMedia[currentMediaIndex];
-          lightboxCounter.textContent = \`\${currentMediaIndex + 1} / \${currentPostMedia.length}\`;
+          if (lightboxCounter) {
+            lightboxCounter.textContent = \`\${currentMediaIndex + 1} / \${currentPostMedia.length}\`;
+          }
           
-          btnPrev.style.display = currentPostMedia.length > 1 ? 'block' : 'none';
-          btnNext.style.display = currentPostMedia.length > 1 ? 'block' : 'none';
+          if (btnPrev) btnPrev.style.display = currentPostMedia.length > 1 ? 'block' : 'none';
+          if (btnNext) btnNext.style.display = currentPostMedia.length > 1 ? 'block' : 'none';
           
           let html = '';
           const yid = m.youtubeId || getYoutubeId(m.url || m.link);
@@ -1943,10 +1968,18 @@ export default function App() {
             html = \`<iframe width="800" height="450" src="https://www.youtube.com/embed/\${yid}?mute=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>\`;
           } else if (m.type === 'video' || (m.image && m.image.endsWith('.mp4')) || ((m.url || m.link) && (m.url || m.link).endsWith('.mp4'))) {
             const videoUrl = getProxiedUrl(getVideoSrc(m, true) || getVideoSrc(m));
-            html = \`<video src="\${videoUrl}" controls muted playsinline style="max-width: 100%; max-height: 85vh;"></video>\`;
+            if (videoUrl) {
+              html = \`<video src="\${videoUrl}" controls muted playsinline style="max-width: 100%; max-height: 85vh;"></video>\`;
+            } else {
+              html = '<div style="color: #aaa; padding: 40px; text-align: center;">Video konnte nicht geladen werden</div>';
+            }
           } else {
             const largeUrl = getProxiedUrl(getImageSrc(m, true) || getImageSrc(m));
-            html = \`<img src="\${largeUrl}" alt="" />\`;
+            if (largeUrl) {
+              html = \`<img src="\${largeUrl}" alt="" style="max-width: 100%; max-height: 85vh; object-fit: contain;" />\`;
+            } else {
+              html = '<div style="color: #aaa; padding: 40px; text-align: center;">Bild konnte nicht geladen werden</div>';
+            }
           }
           
           lightboxContent.innerHTML = html;
@@ -1959,6 +1992,10 @@ export default function App() {
         }
 
         function renderReorderGrid() {
+          if (!reorderGrid) {
+            console.warn('reorderGrid element not found, skipping grid render');
+            return;
+          }
           reorderGrid.innerHTML = '';
           currentPostMedia.forEach((m, i) => {
             const item = document.createElement('div');
@@ -2064,31 +2101,39 @@ export default function App() {
           alert('Reihenfolge gespeichert! Die aktualisierte index.html wurde heruntergeladen.');
         });
         
-        document.getElementById('lightbox-close').addEventListener('click', () => {
-          lightbox.classList.remove('active');
-          lightboxContent.innerHTML = '';
-          reorderGrid.innerHTML = '';
-        });
-        
-        btnPrev.addEventListener('click', (e) => {
-          e.stopPropagation();
-          currentMediaIndex = (currentMediaIndex - 1 + currentPostMedia.length) % currentPostMedia.length;
-          updateLightbox();
-        });
-        
-        btnNext.addEventListener('click', (e) => {
-          e.stopPropagation();
-          currentMediaIndex = (currentMediaIndex + 1) % currentPostMedia.length;
-          updateLightbox();
-        });
-        
-        lightbox.addEventListener('click', (e) => {
-          if (e.target === lightbox) {
+        if (document.getElementById('lightbox-close')) {
+          document.getElementById('lightbox-close').addEventListener('click', () => {
             lightbox.classList.remove('active');
             lightboxContent.innerHTML = '';
             reorderGrid.innerHTML = '';
-          }
-        });
+          });
+        }
+        
+        if (btnPrev) {
+          btnPrev.addEventListener('click', (e) => {
+            e.stopPropagation();
+            currentMediaIndex = (currentMediaIndex - 1 + currentPostMedia.length) % currentPostMedia.length;
+            updateLightbox();
+          });
+        }
+        
+        if (btnNext) {
+          btnNext.addEventListener('click', (e) => {
+            e.stopPropagation();
+            currentMediaIndex = (currentMediaIndex + 1) % currentPostMedia.length;
+            updateLightbox();
+          });
+        }
+        
+        if (lightbox) {
+          lightbox.addEventListener('click', (e) => {
+            if (e.target === lightbox) {
+              lightbox.classList.remove('active');
+              lightboxContent.innerHTML = '';
+              if (reorderGrid) reorderGrid.innerHTML = '';
+            }
+          });
+        }
       }
       if (document.readyState === 'complete' || document.readyState === 'interactive') {
         init();
