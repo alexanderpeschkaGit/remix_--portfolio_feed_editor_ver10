@@ -283,7 +283,7 @@ export function FeedPostCard({
               displayMedia.type === 'video' || (displayMedia.image && displayMedia.image.endsWith('.mp4')) ? (
                 <video 
                   src={getDisplayImage(getVideoSrc(displayMedia) ?? undefined, isR2Fallback, isEmbeddedData)} 
-                  className={`w-full h-full object-cover transition-transform duration-700 cursor-pointer ${!isEditing ? 'group-hover:scale-110' : ''}`}
+                  className={`w-full h-full object-cover transition-transform duration-500 ease-out cursor-pointer ${!isEditing ? 'group-hover:scale-[1.03]' : ''}`}
                   autoPlay loop muted playsInline
                   onClick={() => setSelectedImage(post)}
                 />
@@ -293,7 +293,7 @@ export function FeedPostCard({
                   alt={post.title} 
                   loading="lazy"
                   referrerPolicy="no-referrer"
-                  className={`w-full h-full object-cover transition-transform duration-700 cursor-pointer ${!isEditing ? 'group-hover:scale-110' : ''}`}
+                  className={`w-full h-full object-cover transition-transform duration-500 ease-out cursor-pointer ${!isEditing ? 'group-hover:scale-[1.03]' : ''}`}
                   onLoad={handleFeedImageLoad}
                   onClick={() => setSelectedImage(post)}
                   onError={(e) => {
@@ -320,18 +320,6 @@ export function FeedPostCard({
             {post.mergedMedia && post.mergedMedia.length > 1 && (
               <div className="absolute top-2 left-2 bg-black/70 text-white text-xs px-2 py-1 rounded-full z-10">
                 +{post.mergedMedia.length - 1}
-              </div>
-            )}
-
-            {!isEditing && (
-              <div 
-                className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center cursor-pointer"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedImage(post);
-                }}
-              >
-                <Maximize2 className="w-8 h-8 text-white/80" />
               </div>
             )}
           </>
