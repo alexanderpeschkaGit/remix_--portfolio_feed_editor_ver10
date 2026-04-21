@@ -20,7 +20,7 @@ interface FeedPostCardProps {
   isR2Fallback: boolean;
   isEmbeddedData: boolean;
   isValidImageCandidate?: (url?: string) => boolean;
-  handleImageUpload: (postId: string, file: File, mediaIndex?: number) => void;
+  handleImageUpload: (postId: string, file: File, mediaIndex?: number, isNew?: boolean) => void;
   handlePostChange: (postId: string, field: string, value: any) => void;
   handleYoutubeChange: (postId: string, url: string) => void;
   handleDeletePost: (postId: string) => void;
@@ -146,7 +146,9 @@ export function FeedPostCard({
       )}
       <div 
         className={`relative ${(!isEditing && post.mergedMedia && post.mergedMedia.length > 1) || isEditing ? 'h-auto min-h-[300px] max-h-[600px] overflow-y-auto custom-scrollbar' : 'aspect-[4/3] overflow-hidden'} cursor-pointer bg-black/50 shrink-0 ${isEditing && post.hidden ? 'grayscale brightness-50' : ''}`}
-        onClick={() => setSelectedImage(post)}
+        onClick={() => {
+          if (!isEditing) setSelectedImage(post);
+        }}
       >
         {(showResolutions || isEditing) && (
           <div className="absolute top-2 left-2 z-20 bg-blue-600/80 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-lg backdrop-blur-sm flex flex-col gap-0">
@@ -158,8 +160,11 @@ export function FeedPostCard({
         )}
         {isEditing ? (
           <div className="flex flex-col gap-2 p-2">
-            <div className="flex gap-2 mb-2">
-              <label className="flex-1 flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded py-1.5 text-xs cursor-pointer transition-colors">
+            <div className="flex gap-2 mb-2" onClick={(e) => e.stopPropagation()}>
+              <label
+                className="flex-1 flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded py-1.5 text-xs cursor-pointer transition-colors"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <ImageIcon className="w-3 h-3" /> + Bild
                 <input 
                   type="file" 
@@ -169,14 +174,18 @@ export function FeedPostCard({
                   onChange={(e) => {
                     if (e.target.files) {
                       Array.from(e.target.files).forEach(file => {
-                        handleImageUpload(post.id, file);
+                        handleImageUpload(post.id, file, undefined, true);
                       });
+                      e.target.value = '';
                     }
                   }}
                 />
               </label>
               <button 
-                onClick={() => addMedia('youtube')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  addMedia('youtube');
+                }}
                 className="flex-1 flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded py-1.5 text-xs transition-colors"
               >
                 <Youtube className="w-3 h-3" /> + YouTube
@@ -190,6 +199,7 @@ export function FeedPostCard({
                 onDragStart={(e) => handleMediaDragStart(e, i)}
                 onDragOver={handleMediaDragOver}
                 onDrop={(e) => handleMediaDrop(e, i)}
+                onClick={(e) => e.stopPropagation()}
               >
                 <button 
                   onClick={(e) => { e.stopPropagation(); removeMedia(i); }}
@@ -232,6 +242,7 @@ export function FeedPostCard({
                       onChange={(e) => {
                         if (e.target.files && e.target.files[0]) {
                           handleImageUpload(post.id, e.target.files[0], i);
+                          e.target.value = '';
                         }
                       }}
                     />

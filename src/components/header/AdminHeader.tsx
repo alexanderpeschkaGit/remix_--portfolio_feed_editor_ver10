@@ -1,5 +1,5 @@
 import React from 'react';
-import { Loader2, ExternalLink, Maximize2, X, Edit3, Save, UploadCloud, CheckCircle, Plus, Image as ImageIcon, Youtube, Trash2, GripVertical, Undo2, Redo2, FoldVertical, History, Download, RefreshCw, Instagram, ChevronUp, ChevronDown, FileCode, Layers, ArrowLeft, Eye } from 'lucide-react';
+import { Loader2, ExternalLink, Maximize2, X, Edit3, Save, UploadCloud, CheckCircle, Plus, Image as ImageIcon, Youtube, Trash2, GripVertical, Undo2, Redo2, FoldVertical, History, Download, RefreshCw, Instagram, ChevronUp, ChevronDown, FileCode, Layers, ArrowLeft, Eye, FileText, Camera } from 'lucide-react';
 
 interface AdminHeaderProps {
   isEditing: boolean;
@@ -17,6 +17,9 @@ interface AdminHeaderProps {
   fullR2SyncStatus: any;
   isResettingAll: boolean;
   loading: boolean;
+  restoringLatestPublish: boolean;
+  r2CleanupRunning: boolean;
+  legacyDupCleanupRunning: boolean;
   uploading: boolean;
   uploadProgress: number | null;
   past: any[];
@@ -34,6 +37,9 @@ interface AdminHeaderProps {
   handleResetAll: () => void;
   handlePreview: () => void;
   handleUpload: () => void;
+  handleRestoreLatestPublish: () => void;
+  handleR2Cleanup: () => void;
+  handleLegacyDuplicateCleanup: () => void;
   handleAddNewPost: () => void;
   handleUndo: () => void;
   handleRedo: () => void;
@@ -42,6 +48,9 @@ interface AdminHeaderProps {
   setShowUncertain: (v: boolean) => void;
   setIsReorderView: (v: boolean) => void;
   isReorderView: boolean;
+  setShowBioEditor: (v: boolean) => void;
+  handleGetLatestInstagram: () => void;
+  handleGetLatestFlickr: () => void;
 }
 
 const AdminButton = ({ onClick, disabled, id, children, className = "", color = "bg-white/5 text-white/80 hover:bg-white/10 border-white/10", tooltip, active }: any) => (
@@ -83,6 +92,9 @@ export function AdminHeader({
   fullR2SyncStatus,
   isResettingAll,
   loading,
+  restoringLatestPublish,
+  r2CleanupRunning,
+  legacyDupCleanupRunning,
   uploading,
   uploadProgress,
   past,
@@ -100,6 +112,9 @@ export function AdminHeader({
   handleResetAll,
   handlePreview,
   handleUpload,
+  handleRestoreLatestPublish,
+  handleR2Cleanup,
+  handleLegacyDuplicateCleanup,
   handleAddNewPost,
   handleUndo,
   handleRedo,
@@ -108,6 +123,9 @@ export function AdminHeader({
   setShowUncertain,
   setIsReorderView,
   isReorderView,
+  setShowBioEditor,
+  handleGetLatestInstagram,
+  handleGetLatestFlickr,
 }: AdminHeaderProps) {
   return (
     <header className="max-w-7xl mx-auto mb-12 relative">
@@ -231,7 +249,7 @@ export function AdminHeader({
           <span className="text-center">{isResettingAll ? 'Reset...' : 'Reset All'}</span>
         </AdminButton>
 
-        <AdminButton onClick={handleFullR2Sync} disabled={fullR2SyncStatus.running || isEditing} tooltip="Alle lokalen Bilder (Uploads, Flickr, etc.) zu Cloudflare R2 spiegeln">
+        <AdminButton onClick={handleFullR2Sync} disabled={fullR2SyncStatus.running} tooltip="Alle lokalen Bilder (Uploads, Flickr, etc.) zu Cloudflare R2 spiegeln">
           <UploadCloud className={`w-3 h-3 sm:w-4 sm:h-4 ${fullR2SyncStatus.running ? 'animate-spin text-blue-500' : ''}`} />
           <span className="text-center">Cloud Sync</span>
         </AdminButton>
@@ -239,6 +257,26 @@ export function AdminHeader({
         <AdminButton onClick={handleSyncFromCloudflare} disabled={isEditing || loading} tooltip="Aktuellen Stand von Cloudflare R2 laden (überschreibt lokale Änderungen)">
           <Download className={`w-3 h-3 sm:w-4 sm:h-4 ${loading ? 'animate-spin text-blue-500' : ''}`} />
           <span className="text-center">Load Cloud</span>
+        </AdminButton>
+
+        <AdminButton
+          onClick={handleR2Cleanup}
+          disabled={r2CleanupRunning}
+          color="bg-red-500/10 text-red-300 border-red-500/20"
+          tooltip="Verwaiste R2-Dateien analysieren und optional loeschen"
+        >
+          <Trash2 className={`w-3 h-3 sm:w-4 sm:h-4 ${r2CleanupRunning ? 'animate-pulse' : ''}`} />
+          <span className="text-center">{r2CleanupRunning ? 'Cleanup...' : 'Clean R2'}</span>
+        </AdminButton>
+
+        <AdminButton
+          onClick={handleLegacyDuplicateCleanup}
+          disabled={legacyDupCleanupRunning}
+          color="bg-orange-500/10 text-orange-300 border-orange-500/20"
+          tooltip="Nur alte uploads/... Duplikate loeschen, wenn data/uploads/... bereits existiert"
+        >
+          <Trash2 className={`w-3 h-3 sm:w-4 sm:h-4 ${legacyDupCleanupRunning ? 'animate-pulse' : ''}`} />
+          <span className="text-center">{legacyDupCleanupRunning ? 'Dupes...' : 'Clean Dupes'}</span>
         </AdminButton>
 
         <AdminButton 
@@ -318,6 +356,31 @@ export function AdminHeader({
         <AdminButton onClick={handleAddNewPost} tooltip="Manuellen Post hinzufügen">
           <Plus className="w-3 h-3 sm:w-4 sm:h-4" /> 
           <span className="text-center">Neu</span>
+        </AdminButton>
+
+        <AdminButton onClick={() => setShowBioEditor(true)} tooltip="Portfolio Bio bearbeiten">
+          <FileText className="w-3 h-3 sm:w-4 sm:h-4" /> 
+          <span className="text-center">Bio</span>
+        </AdminButton>
+
+        <AdminButton onClick={handleGetLatestInstagram} disabled={isScraping} tooltip="Letzten Instagram Post hinzufügen">
+          <Instagram className="w-3 h-3 sm:w-4 sm:h-4 text-pink-500" /> 
+          <span className="text-center">+ Insta</span>
+        </AdminButton>
+
+        <AdminButton onClick={handleGetLatestFlickr} disabled={isScraping} tooltip="Letzten Flickr Post hinzufügen">
+          <Camera className="w-3 h-3 sm:w-4 sm:h-4 text-blue-400" /> 
+          <span className="text-center">+ Flickr</span>
+        </AdminButton>
+
+        <AdminButton
+          onClick={handleRestoreLatestPublish}
+          disabled={restoringLatestPublish}
+          color="bg-amber-500/10 text-amber-300 border-amber-500/20"
+          tooltip="Letztes veroeffentlichtes HTML-Backup direkt wieder live schalten"
+        >
+          {restoringLatestPublish ? <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 animate-spin" /> : <History className="w-3 h-3 sm:w-4 sm:h-4" />}
+          <span className="text-center">{restoringLatestPublish ? 'Restore...' : 'Undo Publish'}</span>
         </AdminButton>
 
         {/* Row 4 */}

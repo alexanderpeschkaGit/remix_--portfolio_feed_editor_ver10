@@ -21,11 +21,15 @@ import {
 import { PROJECT_STATES } from './constants';
 import { useRearrangeState } from './hooks/useRearrangeState';
 import { useLightboxState } from './hooks/useLightboxState';
+import { useBioFeature } from './hooks/useBioFeature';
+import { linkifyToHtml } from './utils/linkify';
 import { RearrangeModal } from './components/modals/RearrangeModal';
 import { LightboxModal } from './components/modals/LightboxModal';
 import { BackupsModal } from './components/modals/BackupsModal';
 import { ScrapingLogsModal } from './components/modals/ScrapingLogsModal';
 import { UncertainMatchesModal } from './components/modals/UncertainMatchesModal';
+import { BioEditorModal } from './components/modals/BioEditorModal';
+import { PostCommitModal } from './components/modals/PostCommitModal';
 import { FeedPostCard } from './components/feed/FeedPostCard';
 import { ThumbnailGalleryGrid } from './components/gallery/ThumbnailGalleryGrid';
 import { AdminHeader } from './components/header/AdminHeader';
@@ -158,6 +162,9 @@ export default function App() {
   const [future, setFuture] = useState<any[][]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [restoringLatestPublish, setRestoringLatestPublish] = useState(false);
+  const [r2CleanupRunning, setR2CleanupRunning] = useState(false);
+  const [legacyDupCleanupRunning, setLegacyDupCleanupRunning] = useState(false);
   const [selectedImage, setSelectedImage] = useState<any | null>(null);
   const [imageDimensions, setImageDimensions] = useState<Record<string, string>>({});
 
@@ -376,6 +383,22 @@ export default function App() {
   const [igAccount, setIgAccount] = useState("vijay_sikanda");
   const [flickrUrl, setFlickrUrl] = useState("https://www.flickr.com/photos/23689211@N04/albums/72157604835171705/");
   const [publicDomain, setPublicDomain] = useState<string | null>(null);
+  
+  // Bio feature hook
+  const {
+    portfolioBio,
+    setPortfolioBio,
+    showBioEditor,
+    setShowBioEditor,
+    showPostCommitModal,
+    setShowPostCommitModal,
+    selectedPostForCommit,
+    commitPostSource,
+    handleGetLatestInstagram,
+    handleGetLatestFlickr,
+    handleCommitPostToPortfolio,
+    resetCommitState
+  } = useBioFeature();
   
   const logsEndRef = useRef<HTMLDivElement>(null);
   const [isR2Fallback, setIsR2Fallback] = useState(false);
@@ -659,6 +682,7 @@ export default function App() {
             setIsEmbeddedData(true);
             setPortfolioTitle(data.title || "ProjectionArt by Vijay Sikanda");
             setPortfolioSubtitle(data.subtitle || "immersive projection experience");
+            if (data.bio) setPortfolioBio(data.bio);
             setFlickrPosts(data.posts);
             setLoading(false);
             setIsInitialized(true);
@@ -678,6 +702,9 @@ export default function App() {
         }
         if (stateData.subtitle) {
           setPortfolioSubtitle(stateData.subtitle);
+        }
+        if (stateData.bio) {
+          setPortfolioBio(stateData.bio);
         }
         if (stateData.scrapeConfig) {
           if (stateData.scrapeConfig.igAccount) setIgAccount(stateData.scrapeConfig.igAccount);
@@ -709,6 +736,7 @@ export default function App() {
             setIsFlickrFallback(false);
             setPortfolioTitle(r2Data.title || portfolioTitle);
             setPortfolioSubtitle(r2Data.subtitle || portfolioSubtitle);
+            if (r2Data.bio) setPortfolioBio(r2Data.bio);
             if (r2Data.scrapeConfig) {
               if (r2Data.scrapeConfig.igAccount) setIgAccount(r2Data.scrapeConfig.igAccount);
               if (r2Data.scrapeConfig.flickrUrl) setFlickrUrl(r2Data.scrapeConfig.flickrUrl);
@@ -832,6 +860,7 @@ export default function App() {
           items: cleanPosts, 
           title: portfolioTitle, 
           subtitle: portfolioSubtitle,
+          bio: portfolioBio,
           scrapeConfig: {
             igAccount,
             flickrUrl
@@ -839,7 +868,7 @@ export default function App() {
         })
       }).catch(console.error);
     }
-  }, [flickrPosts, portfolioTitle, portfolioSubtitle, igAccount, flickrUrl, isInitialized, uploadingCount]);
+  }, [flickrPosts, portfolioTitle, portfolioSubtitle, portfolioBio, igAccount, flickrUrl, isInitialized, uploadingCount]);
 
   useEffect(() => {
     (window as any).portfolioData = {
@@ -997,6 +1026,11 @@ export default function App() {
     setLastSelectedId(null);
   };
 
+  // Bio feature handlers (wrappers around hook functions)
+  const handleAddInstagramPost = () => handleGetLatestInstagram(flickrPosts);
+  const handleAddFlickrPost = () => handleGetLatestFlickr(flickrPosts);
+  const handleConfirmCommitPost = () => handleCommitPostToPortfolio(updatePosts, flickrPosts);
+
   const resizeImage = (file: File, maxSide: number): Promise<Blob> => {
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -1048,13 +1082,46 @@ export default function App() {
       const { largeUrl, url, url_o, url_l, url_q, url_sq, url_m, local_highres, image_3k, ...rest } = obj;
       return rest;
     };
+
+    const postToMediaItem = (post: any) => ({
+      type: post.type || 'image',
+      image: post.image,
+      image_large: post.image_large,
+      image_preview: post.image_preview,
+      image_3k: post.image_3k,
+      youtubeId: post.youtubeId,
+      youtubeUrl: post.youtubeUrl,
+      url: post.url,
+      link: post.url
+    });
+
+    const hasPrimaryMedia = (post: any) =>
+      !!(post.image || post.image_large || post.image_preview || post.image_3k || post.youtubeId || post.youtubeUrl || post.url);
     
     updatePosts(posts => posts.map(post => {
       if (String(post.id) === String(id)) {
         if (isNew) {
           const newItem: any = { uploadId, type: 'image', image: localUrl, image_large: localUrl, image_preview: localUrl, image_3k: localUrl };
-          const newMedia = post.mergedMedia ? [newItem, ...post.mergedMedia] : [newItem, { type: post.type || 'image', image: post.image, image_large: post.image_large, youtubeId: post.youtubeId, link: post.url }];
-          return { ...cleanOldUrls(post), image: localUrl, image_large: localUrl, image_preview: localUrl, image_3k: localUrl, mergedMedia: newMedia };
+          const existingMedia = post.mergedMedia
+            ? [...post.mergedMedia]
+            : hasPrimaryMedia(post)
+              ? [postToMediaItem(post)]
+              : [];
+          const newMedia = [...existingMedia, newItem];
+          const primaryMedia = newMedia[0] || newItem;
+
+          return {
+            ...cleanOldUrls(post),
+            type: primaryMedia.type || 'image',
+            image: primaryMedia.image || '',
+            image_large: primaryMedia.image_large || primaryMedia.image || '',
+            image_preview: primaryMedia.image_preview,
+            image_3k: primaryMedia.image_3k || primaryMedia.image_large || primaryMedia.image || '',
+            url: primaryMedia.url || primaryMedia.link || post.url || '',
+            youtubeId: primaryMedia.youtubeId || '',
+            youtubeUrl: primaryMedia.youtubeUrl || '',
+            mergedMedia: newMedia
+          };
         }
         if (mediaIndex !== undefined && post.mergedMedia) {
           const newMedia = [...post.mergedMedia];
@@ -1185,7 +1252,7 @@ export default function App() {
     }
   };
 
-  const generateHTML = (posts: any[], title: string, subtitle: string) => {
+  const generateHTML = (posts: any[], title: string, subtitle: string, bio: string = '') => {
     console.log('Generating HTML, posts:', posts);
     const baseUrl = R2_CONFIG.publicDomain.startsWith('http') ? R2_CONFIG.publicDomain : `https://${R2_CONFIG.publicDomain}`;
 
@@ -1314,6 +1381,7 @@ export default function App() {
         header { text-align: center; margin-bottom: 3rem; }
         h1 { font-weight: 300; letter-spacing: 0.2em; text-transform: uppercase; margin: 0; }
         .subtitle { color: #666; letter-spacing: 0.1em; text-transform: uppercase; font-size: 0.8rem; margin-top: 0.5rem; }
+        .bio { color: #999; font-size: 0.95rem; line-height: 1.6; max-width: 900px; margin: 2rem auto; padding: 1rem; border-top: 1px solid #333; border-bottom: 1px solid #333; white-space: pre-wrap; word-wrap: break-word; }
         
         /* Filter Bar */
         .filter-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; margin-bottom: 2rem; }
@@ -1359,6 +1427,7 @@ export default function App() {
       ${JSON.stringify({
         title,
         subtitle,
+        bio,
         projectStates: PROJECT_STATES,
         posts: posts.filter(p => !p.hidden),
         publicDomain: baseUrl
@@ -1774,6 +1843,7 @@ export default function App() {
     <header>
         <h1>${title}</h1>
         <div class="subtitle">${subtitle}</div>
+        ${bio ? `<div class="bio">${linkifyToHtml(bio)}</div>` : ''}
     </header>
     ${filterBar}
     <div class="gallery">
@@ -1882,7 +1952,7 @@ export default function App() {
 
   const handlePreview = async () => {
     try {
-      const html = generateHTML(flickrPosts, portfolioTitle, portfolioSubtitle);
+      const html = generateHTML(flickrPosts, portfolioTitle, portfolioSubtitle, portfolioBio);
       const response = await fetch('/api/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1912,13 +1982,14 @@ export default function App() {
     console.log('handleUpload: currentPosts IDs in order:', currentPosts.map(p => p.id));
     
     try {
-      const htmlContent = generateHTML(currentPosts, portfolioTitle, portfolioSubtitle);
+      const htmlContent = generateHTML(currentPosts, portfolioTitle, portfolioSubtitle, portfolioBio);
       console.log('handleUpload: htmlContent generated, length:', htmlContent.length);
       
       const stateData = JSON.stringify({
         items: currentPosts,
         title: portfolioTitle,
         subtitle: portfolioSubtitle,
+        bio: portfolioBio,
         lastUpdated: new Date().toISOString()
       });
       console.log('handleUpload: stateData generated, items count:', currentPosts.length);
@@ -1935,7 +2006,8 @@ export default function App() {
             htmlContent,
             stateData,
             title: portfolioTitle,
-            subtitle: portfolioSubtitle
+            subtitle: portfolioSubtitle,
+            bio: portfolioBio
           })
         });
 
@@ -1990,6 +2062,187 @@ export default function App() {
       setError(err.message || 'Upload fehlgeschlagen. Prüfen Sie die Cloudflare CORS-Einstellungen.');
       setUploading(false);
       setUploadProgress(null);
+    }
+  };
+
+  const handleRestoreLatestPublish = async () => {
+    if (restoringLatestPublish) return;
+
+    const confirmed = window.confirm(
+      'Das stellt das letzte veroeffentlichte HTML-Backup wieder live. Lokale Media-Dateien in R2 werden dabei nicht geloescht.\n\nFortfahren?'
+    );
+    if (!confirmed) return;
+
+    setRestoringLatestPublish(true);
+    setError('');
+
+    try {
+      const response = await fetch('/api/backups/restore-latest-publish', {
+        method: 'POST'
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || 'Restore fehlgeschlagen');
+      }
+
+      if (data.url) {
+        setUploadSuccess({ url: data.url });
+      }
+
+      await handleSyncFromCloudflare();
+    } catch (err: any) {
+      setError(err.message || 'Restore fehlgeschlagen');
+    } finally {
+      setRestoringLatestPublish(false);
+    }
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+    const value = bytes / Math.pow(1024, exponent);
+    return `${value.toFixed(exponent === 0 ? 0 : 2)} ${units[exponent]}`;
+  };
+
+  const handleR2Cleanup = async () => {
+    if (r2CleanupRunning) return;
+
+    setR2CleanupRunning(true);
+    setError('');
+    setShowLogs(true);
+    setScrapeLogs(['Analysiere R2 auf verwaiste Dateien...']);
+
+    try {
+      const previewResponse = await fetch('/api/r2-cleanup/preview', { method: 'POST' });
+      const previewData = await previewResponse.json().catch(() => ({}));
+
+      if (!previewResponse.ok) {
+        throw new Error(previewData.error || 'Cleanup-Vorschau fehlgeschlagen');
+      }
+
+      const previewLogs = [
+        `R2-Analyse abgeschlossen.`,
+        `Gepruefte Dateien: ${previewData.scannedCount || 0}`,
+        `Verwaiste Dateien: ${previewData.orphanedCount || 0}`,
+        `Moeglich frei werdender Speicher: ${formatBytes(previewData.totalBytes || 0)}`
+      ];
+
+      if (Array.isArray(previewData.sampleKeys) && previewData.sampleKeys.length > 0) {
+        previewLogs.push('Beispiele:');
+        previewData.sampleKeys.forEach((key: string) => previewLogs.push(`- ${key}`));
+      }
+
+      setScrapeLogs(previewLogs);
+
+      if (!previewData.orphanedCount) {
+        return;
+      }
+
+      const confirmed = window.confirm(
+        `${previewData.orphanedCount} verwaiste R2-Dateien gefunden.\n` +
+        `Geschätzte Freigabe: ${formatBytes(previewData.totalBytes || 0)}.\n\n` +
+        `Jetzt wirklich löschen?`
+      );
+
+      if (!confirmed) {
+        setScrapeLogs(prev => [...prev, 'Löschen abgebrochen.']);
+        return;
+      }
+
+      setScrapeLogs(prev => [...prev, 'Starte Löschen der verwaisten Dateien...']);
+      const executeResponse = await fetch('/api/r2-cleanup/execute', { method: 'POST' });
+      const executeData = await executeResponse.json().catch(() => ({}));
+
+      if (!executeResponse.ok) {
+        throw new Error(executeData.error || 'Cleanup fehlgeschlagen');
+      }
+
+      setScrapeLogs(prev => [
+        ...prev,
+        `Cleanup abgeschlossen.`,
+        `Gelöschte Dateien: ${executeData.deletedCount || 0}`,
+        `Freigegebener Speicher: ${formatBytes(executeData.deletedBytes || 0)}`
+      ]);
+
+      await fetchCloudflareUsage();
+    } catch (err: any) {
+      const message = err.message || 'Cleanup fehlgeschlagen';
+      setError(message);
+      setScrapeLogs(prev => [...prev, `FEHLER: ${message}`]);
+    } finally {
+      setR2CleanupRunning(false);
+    }
+  };
+
+  const handleLegacyDuplicateCleanup = async () => {
+    if (legacyDupCleanupRunning) return;
+
+    setLegacyDupCleanupRunning(true);
+    setError('');
+    setShowLogs(true);
+    setScrapeLogs(['Analysiere alte uploads/... Duplikate in R2...']);
+
+    try {
+      const previewResponse = await fetch('/api/r2-cleanup/preview-legacy-uploads', { method: 'POST' });
+      const previewData = await previewResponse.json().catch(() => ({}));
+
+      if (!previewResponse.ok) {
+        throw new Error(previewData.error || 'Duplikat-Vorschau fehlgeschlagen');
+      }
+
+      const previewLogs = [
+        `Legacy-Duplikat-Analyse abgeschlossen.`,
+        `Gepruefte Legacy-Dateien: ${previewData.scannedCount || 0}`,
+        `Sichere Duplikate: ${previewData.duplicateCount || 0}`,
+        `Moeglich frei werdender Speicher: ${formatBytes(previewData.totalBytes || 0)}`
+      ];
+
+      if (Array.isArray(previewData.sampleKeys) && previewData.sampleKeys.length > 0) {
+        previewLogs.push('Beispiele:');
+        previewData.sampleKeys.forEach((key: string) => previewLogs.push(`- ${key}`));
+      }
+
+      setScrapeLogs(previewLogs);
+
+      if (!previewData.duplicateCount) {
+        return;
+      }
+
+      const confirmed = window.confirm(
+        `${previewData.duplicateCount} sichere Legacy-Duplikate gefunden.\n` +
+        `Geschätzte Freigabe: ${formatBytes(previewData.totalBytes || 0)}.\n\n` +
+        `Nur diese alten uploads/... Duplikate jetzt löschen?`
+      );
+
+      if (!confirmed) {
+        setScrapeLogs(prev => [...prev, 'Löschen abgebrochen.']);
+        return;
+      }
+
+      setScrapeLogs(prev => [...prev, 'Starte Löschen der sicheren Legacy-Duplikate...']);
+      const executeResponse = await fetch('/api/r2-cleanup/execute-legacy-uploads', { method: 'POST' });
+      const executeData = await executeResponse.json().catch(() => ({}));
+
+      if (!executeResponse.ok) {
+        throw new Error(executeData.error || 'Duplikat-Cleanup fehlgeschlagen');
+      }
+
+      setScrapeLogs(prev => [
+        ...prev,
+        `Legacy-Duplikat-Cleanup abgeschlossen.`,
+        `Gelöschte Dateien: ${executeData.deletedCount || 0}`,
+        `Freigegebener Speicher: ${formatBytes(executeData.deletedBytes || 0)}`
+      ]);
+
+      await fetchCloudflareUsage();
+    } catch (err: any) {
+      const message = err.message || 'Duplikat-Cleanup fehlgeschlagen';
+      setError(message);
+      setScrapeLogs(prev => [...prev, `FEHLER: ${message}`]);
+    } finally {
+      setLegacyDupCleanupRunning(false);
     }
   };
 
@@ -2437,6 +2690,9 @@ export default function App() {
         fullR2SyncStatus={fullR2SyncStatus}
         isResettingAll={isResettingAll}
         loading={loading}
+        restoringLatestPublish={restoringLatestPublish}
+        r2CleanupRunning={r2CleanupRunning}
+        legacyDupCleanupRunning={legacyDupCleanupRunning}
         uploading={uploading}
         uploadProgress={uploadProgress}
         past={past}
@@ -2454,6 +2710,9 @@ export default function App() {
         handleResetAll={handleResetAll}
         handlePreview={handlePreview}
         handleUpload={handleUpload}
+        handleRestoreLatestPublish={handleRestoreLatestPublish}
+        handleR2Cleanup={handleR2Cleanup}
+        handleLegacyDuplicateCleanup={handleLegacyDuplicateCleanup}
         handleAddNewPost={handleAddNewPost}
         handleUndo={handleUndo}
         handleRedo={handleRedo}
@@ -2462,6 +2721,9 @@ export default function App() {
         setShowUncertain={setShowUncertain}
         setIsReorderView={setIsReorderView}
         isReorderView={isReorderView}
+        setShowBioEditor={setShowBioEditor}
+        handleGetLatestInstagram={handleAddInstagramPost}
+        handleGetLatestFlickr={handleAddFlickrPost}
       />
 
       {uploadSuccess && (
@@ -2566,6 +2828,23 @@ export default function App() {
         isEmbeddedData={isEmbeddedData}
         onConfirmMatch={handleConfirmMatch}
         onRejectMatch={handleRejectMatch}
+      />
+
+      {/* Bio Editor Modal */}
+      <BioEditorModal
+        isOpen={showBioEditor}
+        bio={portfolioBio}
+        onClose={() => setShowBioEditor(false)}
+        onSave={setPortfolioBio}
+      />
+
+      {/* Post Commit Modal */}
+      <PostCommitModal
+        isOpen={showPostCommitModal}
+        post={selectedPostForCommit}
+        source={commitPostSource}
+        onClose={resetCommitState}
+        onConfirm={handleConfirmCommitPost}
       />
 
       <LightboxModal

@@ -2,11 +2,12 @@ import "dotenv/config";
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import fetch from "node-fetch";
-import { S3Client, PutObjectCommand, HeadObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, HeadObjectCommand, ListObjectsV2Command, DeleteObjectsCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import multer from "multer";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
+import { createHash } from "crypto";
 import { imageHash } from "image-hash";
 import sharp from "sharp";
 import { spawn } from "child_process";
@@ -31,6 +32,7 @@ async function startServer() {
   const SYNC_DIR = path.join(DATA_DIR, 'sync');
   const HIGHRES_DIR = path.join(DATA_DIR, 'highres');
   const PREVIEWS_DIR = path.join(DATA_DIR, 'previews');
+  const SYNC_MANIFEST_KEY = '.sync-manifest.json';
   
   app.use('/data/preview.html', (req, res, next) => {
     res.setHeader("Content-Security-Policy", "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data: https://www.youtube.com https://s.ytimg.com;");
@@ -76,6 +78,30 @@ async function startServer() {
       console.error("Backup failed:", e);
     }
   }
+
+  const extractPortfolioDataFromHtml = (html: string) => {
+    const match = html.match(/<script id="portfolio-data" type="application\/json">([\s\S]*?)<\/script>/);
+    if (!match || !match[1]) {
+      throw new Error('Backup-Format ungültig: portfolio-data Script-Tag fehlt.');
+    }
+    return JSON.parse(match[1]);
+  };
+
+  const publishHtmlAndState = async (htmlContent: string, stateData: string) => {
+    await s3Client.send(new PutObjectCommand({
+      Bucket: R2_CONFIG.bucketName,
+      Key: 'index.html',
+      Body: Buffer.from(htmlContent),
+      ContentType: "text/html; charset=utf-8",
+    }));
+
+    await s3Client.send(new PutObjectCommand({
+      Bucket: R2_CONFIG.bucketName,
+      Key: 'state.json',
+      Body: Buffer.from(stateData),
+      ContentType: "application/json; charset=utf-8",
+    }));
+  };
 
   async function getDeletedIds(): Promise<string[]> {
     try {
@@ -345,10 +371,252 @@ async function startServer() {
       ContentType: contentType,
     }));
 
-    const baseUrl = R2_CONFIG.publicDomain ? `https://${R2_CONFIG.publicDomain}` : `https://${R2_CONFIG.bucketName}.${R2_CONFIG.accountId}.r2.cloudflarestorage.com`;
+    const baseUrl = R2_CONFIG.publicDomain || `https://${R2_CONFIG.bucketName}.${R2_CONFIG.accountId}.r2.cloudflarestorage.com`;
     const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
     return `${cleanBaseUrl}/${filename.replace(/^\/+/, '')}`;
   }
+
+  const getContentTypeForPath = (filePath: string) => {
+    const ext = path.extname(filePath).toLowerCase();
+    if (ext === '.json') return 'application/json';
+    if (ext === '.mp4') return 'video/mp4';
+    if (ext === '.webm') return 'video/webm';
+    if (ext === '.mov') return 'video/quicktime';
+    if (ext === '.png') return 'image/png';
+    if (ext === '.webp') return 'image/webp';
+    if (ext === '.gif') return 'image/gif';
+    return 'image/jpeg';
+  };
+
+  const getBufferSha1 = (buffer: Buffer) => createHash('sha1').update(buffer).digest('hex');
+
+  const loadSyncManifest = async () => {
+    try {
+      const result = await s3Client.send(new GetObjectCommand({
+        Bucket: R2_CONFIG.bucketName,
+        Key: SYNC_MANIFEST_KEY
+      }));
+      const body = await result.Body!.transformToString();
+      return JSON.parse(body);
+    } catch {
+      return {};
+    }
+  };
+
+  const saveSyncManifest = async (manifest: Record<string, any>) => {
+    try {
+      await s3Client.send(new PutObjectCommand({
+        Bucket: R2_CONFIG.bucketName,
+        Key: SYNC_MANIFEST_KEY,
+        Body: JSON.stringify(manifest, null, 2),
+        ContentType: 'application/json'
+      }));
+    } catch (e) {
+      console.error('Failed to save sync manifest:', e);
+    }
+  };
+
+  const updateSyncManifestEntries = async (entries: Array<{ r2Key: string; hash: string; size: number }>) => {
+    if (entries.length === 0) return;
+    const manifest = await loadSyncManifest();
+    const syncedAt = new Date().toISOString();
+    for (const entry of entries) {
+      manifest[entry.r2Key] = {
+        hash: entry.hash,
+        size: entry.size,
+        syncedAt
+      };
+    }
+    await saveSyncManifest(manifest);
+  };
+
+  const normalizePossibleR2Key = (value?: string) => {
+    if (!value) return null;
+
+    const fromPath = (pathname: string) => {
+      const normalized = pathname.replace(/^\/+/, '');
+      if (!normalized) return null;
+      if (
+        normalized.startsWith('data/') ||
+        normalized.startsWith('uploads/') ||
+        normalized.startsWith('highres/') ||
+        normalized.startsWith('originals/')
+      ) {
+        return normalized;
+      }
+      return null;
+    };
+
+    if (value.startsWith('/')) {
+      return fromPath(value);
+    }
+
+    if (/^https?:\/\//i.test(value)) {
+      try {
+        const parsed = new URL(value);
+        return fromPath(parsed.pathname);
+      } catch {
+        return null;
+      }
+    }
+
+    return fromPath(value);
+  };
+
+  const localUrlToSyncTarget = (url?: string) => {
+    if (!url) return null;
+    const cleanUrl = url.split('?')[0];
+    if (cleanUrl.startsWith('/data/')) {
+      return {
+        localPath: path.join(DATA_DIR, cleanUrl.replace('/data/', '')),
+        r2Key: cleanUrl.replace(/^\/+/, '')
+      };
+    }
+    if (cleanUrl.startsWith('/originals/')) {
+      return {
+        localPath: path.join(ORIGINALS_DIR, cleanUrl.replace('/originals/', '')),
+        r2Key: cleanUrl.replace(/^\/+/, '')
+      };
+    }
+    return null;
+  };
+
+  const collectReferencedSyncTargets = async () => {
+    try {
+      const stateData = await fs.readFile(path.join(DATA_DIR, 'state.json'), 'utf-8');
+      const state = JSON.parse(stateData);
+      const candidates = new Map<string, { localPath: string; r2Key: string }>();
+      const seen = new Set<string>();
+
+      const visitMedia = (media: any) => {
+        if (!media || typeof media !== 'object') return;
+        for (const field of ['image', 'image_large', 'image_3k', 'local_highres', 'url', 'link']) {
+          const target = localUrlToSyncTarget(media[field]);
+          if (target && !seen.has(target.r2Key)) {
+            seen.add(target.r2Key);
+            candidates.set(target.r2Key, target);
+          }
+        }
+      };
+
+      for (const item of state.items || []) {
+        visitMedia(item);
+        if (Array.isArray(item.mergedMedia)) {
+          for (const media of item.mergedMedia) {
+            visitMedia(media);
+          }
+        }
+      }
+
+      const resolvedTargets = await Promise.all(
+        Array.from(candidates.values()).map(async (target) => {
+          try {
+            const stats = await fs.stat(target.localPath);
+            if (!stats.isFile()) return null;
+            return target;
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      return resolvedTargets.filter(Boolean) as Array<{ localPath: string; r2Key: string }>;
+    } catch {
+      return [];
+    }
+  };
+
+  const collectReferencedR2Keys = async () => {
+    const referencedKeys = new Set<string>();
+
+    try {
+      const stateData = await fs.readFile(path.join(DATA_DIR, 'state.json'), 'utf-8');
+      const state = JSON.parse(stateData);
+
+      const visitMedia = (media: any) => {
+        if (!media || typeof media !== 'object') return;
+        for (const field of ['image', 'image_large', 'image_3k', 'local_highres', 'url', 'link']) {
+          const key = normalizePossibleR2Key(media[field]);
+          if (key) {
+            referencedKeys.add(key);
+          }
+        }
+      };
+
+      for (const item of state.items || []) {
+        visitMedia(item);
+        if (Array.isArray(item.mergedMedia)) {
+          for (const media of item.mergedMedia) {
+            visitMedia(media);
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Failed to collect referenced R2 keys:', e);
+    }
+
+    return referencedKeys;
+  };
+
+  const listR2ObjectsForPrefixes = async (prefixes: string[]) => {
+    const objects: Array<{ key: string; size: number }> = [];
+
+    for (const prefix of prefixes) {
+      let continuationToken: string | undefined = undefined;
+      let isTruncated = true;
+
+      while (isTruncated) {
+        const response = await s3Client.send(new ListObjectsV2Command({
+          Bucket: R2_CONFIG.bucketName,
+          Prefix: prefix,
+          ContinuationToken: continuationToken,
+        }));
+
+        for (const obj of response.Contents || []) {
+          if (!obj.Key) continue;
+          objects.push({ key: obj.Key, size: obj.Size || 0 });
+        }
+
+        isTruncated = !!response.IsTruncated;
+        continuationToken = response.NextContinuationToken;
+      }
+    }
+
+    return objects;
+  };
+
+  const buildR2CleanupReport = async () => {
+    const managedPrefixes = ['data/', 'uploads/', 'highres/', 'originals/'];
+    const referencedKeys = await collectReferencedR2Keys();
+    const r2Objects = await listR2ObjectsForPrefixes(managedPrefixes);
+    const orphaned = r2Objects.filter(obj => !referencedKeys.has(obj.key));
+    const totalBytes = orphaned.reduce((sum, obj) => sum + obj.size, 0);
+
+    return {
+      scannedCount: r2Objects.length,
+      orphanedCount: orphaned.length,
+      totalBytes,
+      orphaned,
+      sampleKeys: orphaned.slice(0, 25).map(obj => obj.key)
+    };
+  };
+
+  const buildLegacyUploadDuplicateReport = async () => {
+    const uploadObjects = await listR2ObjectsForPrefixes(['uploads/']);
+    const allDataObjects = await listR2ObjectsForPrefixes(['data/uploads/']);
+    const dataKeys = new Set(allDataObjects.map(obj => obj.key));
+
+    const duplicates = uploadObjects.filter(obj => dataKeys.has(`data/${obj.key}`));
+    const totalBytes = duplicates.reduce((sum, obj) => sum + obj.size, 0);
+
+    return {
+      scannedCount: uploadObjects.length,
+      duplicateCount: duplicates.length,
+      totalBytes,
+      duplicates,
+      sampleKeys: duplicates.slice(0, 25).map(obj => obj.key)
+    };
+  };
 
   async function getRecursiveFiles(dir: string, baseDir: string): Promise<string[]> {
     try {
@@ -687,11 +955,12 @@ async function startServer() {
 
   // API route for full R2 sync (mirrors all local data to Cloudflare)
   const fullR2SyncStatus = { running: false, logs: [] as string[], done: false, error: null as string | null, progress: 0, total: 0 };
+  
   app.post("/api/sync/r2-full", async (req, res) => {
     if (fullR2SyncStatus.running) return res.json({ message: 'Sync already in progress', status: fullR2SyncStatus });
 
     fullR2SyncStatus.running = true;
-    fullR2SyncStatus.logs = ["Starte vollständigen Cloudflare R2 Sync..."];
+    fullR2SyncStatus.logs = ["Starte inkrementellen Cloudflare R2 Sync..."];
     fullR2SyncStatus.done = false;
     fullR2SyncStatus.error = null;
     fullR2SyncStatus.progress = 0;
@@ -701,50 +970,58 @@ async function startServer() {
 
     (async () => {
       try {
-        // Scan all subdirectories in DATA_DIR
-        const subDirs = ['uploads', 'flickr', 'instagram', 'highres', 'previews'];
-        let allImageFiles: { localPath: string, r2Key: string }[] = [];
+        // Load existing sync manifest
+        const manifest = await loadSyncManifest();
+        let uploaded = 0;
+        let skipped = 0;
 
-        for (const sub of subDirs) {
-          const subDirPath = path.join(DATA_DIR, sub);
-          if (await fs.access(subDirPath).then(() => true).catch(() => false)) {
-            const files = await getRecursiveFiles(subDirPath, subDirPath);
-            const images = files.filter(f => /\.(jpg|jpeg|png|webp|json|mp4)$/i.test(f)).map(f => ({
-              localPath: path.join(subDirPath, f),
-              r2Key: `data/${sub}/${f}`
-            }));
-            allImageFiles = [...allImageFiles, ...images];
+        let allImageFiles = await collectReferencedSyncTargets();
+
+        if (allImageFiles.length === 0) {
+          fullR2SyncStatus.logs.push("Keine referenzierten Dateien in state.json gefunden. Fallback auf Verzeichnis-Scan...");
+          const subDirs = ['uploads', 'flickr', 'instagram', 'highres', 'previews'];
+          for (const sub of subDirs) {
+            const subDirPath = path.join(DATA_DIR, sub);
+            if (await fs.access(subDirPath).then(() => true).catch(() => false)) {
+              const files = await getRecursiveFiles(subDirPath, subDirPath);
+              const images = files.filter(f => /\.(jpg|jpeg|png|webp|json|mp4|webm|mov)$/i.test(f)).map(f => ({
+                localPath: path.join(subDirPath, f),
+                r2Key: `data/${sub}/${f}`
+              }));
+              allImageFiles = [...allImageFiles, ...images];
+            }
           }
         }
 
         fullR2SyncStatus.total = allImageFiles.length;
-        fullR2SyncStatus.logs.push(`Gefunden: ${allImageFiles.length} Dateien zum Synchronisieren.`);
+        fullR2SyncStatus.logs.push(`Gefunden: ${allImageFiles.length} Dateien. Überprüfe auf Änderungen...`);
 
         for (let i = 0; i < allImageFiles.length; i++) {
           const file = allImageFiles[i];
           try {
-            const stats = await fs.stat(file.localPath);
-            const localSize = stats.size;
-            
-            // Optimization: Check if file already exists on R2 with same size
-            const exists = await checkFileExistsOnR2(file.r2Key, localSize);
-            
-            if (exists) {
+            const buffer = await fs.readFile(file.localPath);
+            const localHash = getBufferSha1(buffer);
+            const localSize = buffer.length;
+
+            const manifestEntry = manifest[file.r2Key];
+            if (manifestEntry && manifestEntry.hash === localHash && manifestEntry.size === localSize) {
+              skipped++;
               fullR2SyncStatus.progress = i + 1;
               if ((i + 1) % 20 === 0 || i === allImageFiles.length - 1) {
-                fullR2SyncStatus.logs.push(`[SKIPPED] ${i + 1}/${allImageFiles.length} - ${file.r2Key} bereits aktuell.`);
+                fullR2SyncStatus.logs.push(`[SKIPPED] ${i + 1}/${allImageFiles.length} - ${file.r2Key} ist aktuell.`);
               }
               continue;
             }
 
-            const buffer = await fs.readFile(file.localPath);
-            const ext = path.extname(file.localPath).toLowerCase();
-            let contentType = 'image/jpeg';
-            if (ext === '.json') contentType = 'application/json';
-            else if (ext === '.mp4') contentType = 'video/mp4';
+            await uploadToR2(buffer, file.r2Key, getContentTypeForPath(file.localPath));
+
+            manifest[file.r2Key] = {
+              hash: localHash,
+              size: localSize,
+              syncedAt: new Date().toISOString()
+            };
             
-            await uploadToR2(buffer, file.r2Key, contentType);
-            
+            uploaded++;
             fullR2SyncStatus.progress = i + 1;
             if ((i + 1) % 10 === 0 || i === allImageFiles.length - 1) {
               fullR2SyncStatus.logs.push(`[UPLOAD] ${i + 1}/${allImageFiles.length} - ${file.r2Key} hochgeladen.`);
@@ -754,9 +1031,12 @@ async function startServer() {
           }
         }
 
+        // Save updated manifest
+        await saveSyncManifest(manifest);
+
         fullR2SyncStatus.done = true;
         fullR2SyncStatus.running = false;
-        fullR2SyncStatus.logs.push("Vollständiger Cloudflare R2 Sync abgeschlossen.");
+        fullR2SyncStatus.logs.push(`Sync abgeschlossen: ${uploaded} hochgeladen, ${skipped} übersprungen.`);
       } catch (err: any) {
         fullR2SyncStatus.running = false;
         fullR2SyncStatus.error = err.message;
@@ -952,6 +1232,162 @@ async function startServer() {
       res.download(filepath);
     } catch (e) {
       res.status(404).json({ error: 'Backup not found' });
+    }
+  });
+
+  app.post("/api/backups/restore-latest-publish", async (req, res) => {
+    try {
+      const files = await fs.readdir(BACKUPS_DIR);
+      const htmlFiles = files.filter(f => f.endsWith('.html')).sort().reverse();
+      const latestBackup = htmlFiles[0];
+
+      if (!latestBackup) {
+        return res.status(404).json({ error: 'Kein HTML-Backup gefunden' });
+      }
+
+      const backupPath = path.join(BACKUPS_DIR, latestBackup);
+      const htmlContent = await fs.readFile(backupPath, 'utf-8');
+      const portfolioData = extractPortfolioDataFromHtml(htmlContent);
+      const stateData = JSON.stringify({
+        items: portfolioData.items || portfolioData.posts || [],
+        title: portfolioData.title || 'ProjectionArt',
+        subtitle: portfolioData.subtitle || '',
+        bio: portfolioData.bio || '',
+        projectStates: portfolioData.projectStates || [],
+        publicDomain: portfolioData.publicDomain || '',
+        lastUpdated: new Date().toISOString()
+      }, null, 2);
+
+      await publishHtmlAndState(htmlContent, stateData);
+
+      const statePath = path.join(DATA_DIR, 'state.json');
+      await backupState();
+      await fs.writeFile(statePath, stateData);
+
+      const baseUrl = R2_CONFIG.publicDomain.startsWith('http') ? R2_CONFIG.publicDomain : `https://${R2_CONFIG.publicDomain}`;
+      const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
+      res.json({
+        success: true,
+        restoredBackup: latestBackup,
+        url: `${cleanBaseUrl}/index.html`
+      });
+    } catch (error: any) {
+      console.error("Error restoring latest published backup:", error);
+      res.status(500).json({ error: error.message || 'Restore fehlgeschlagen' });
+    }
+  });
+
+  app.post("/api/r2-cleanup/preview", async (req, res) => {
+    try {
+      const report = await buildR2CleanupReport();
+      res.json({ success: true, ...report });
+    } catch (error: any) {
+      console.error("Error generating R2 cleanup preview:", error);
+      res.status(500).json({ error: error.message || 'Cleanup-Vorschau fehlgeschlagen' });
+    }
+  });
+
+  app.post("/api/r2-cleanup/execute", async (req, res) => {
+    try {
+      const report = await buildR2CleanupReport();
+
+      if (report.orphanedCount === 0) {
+        return res.json({
+          success: true,
+          deletedCount: 0,
+          deletedBytes: 0,
+          message: 'Keine verwaisten R2-Dateien gefunden.'
+        });
+      }
+
+      const batches: Array<Array<{ Key: string }>> = [];
+      for (let i = 0; i < report.orphaned.length; i += 1000) {
+        batches.push(report.orphaned.slice(i, i + 1000).map(obj => ({ Key: obj.key })));
+      }
+
+      for (const batch of batches) {
+        await s3Client.send(new DeleteObjectsCommand({
+          Bucket: R2_CONFIG.bucketName,
+          Delete: {
+            Objects: batch,
+            Quiet: true
+          }
+        }));
+      }
+
+      const manifest = await loadSyncManifest();
+      for (const obj of report.orphaned) {
+        delete manifest[obj.key];
+      }
+      await saveSyncManifest(manifest);
+      await syncStorageSize();
+
+      res.json({
+        success: true,
+        deletedCount: report.orphanedCount,
+        deletedBytes: report.totalBytes,
+        sampleKeys: report.sampleKeys
+      });
+    } catch (error: any) {
+      console.error("Error executing R2 cleanup:", error);
+      res.status(500).json({ error: error.message || 'Cleanup fehlgeschlagen' });
+    }
+  });
+
+  app.post("/api/r2-cleanup/preview-legacy-uploads", async (req, res) => {
+    try {
+      const report = await buildLegacyUploadDuplicateReport();
+      res.json({ success: true, ...report });
+    } catch (error: any) {
+      console.error("Error generating legacy duplicate preview:", error);
+      res.status(500).json({ error: error.message || 'Legacy-Duplikat-Vorschau fehlgeschlagen' });
+    }
+  });
+
+  app.post("/api/r2-cleanup/execute-legacy-uploads", async (req, res) => {
+    try {
+      const report = await buildLegacyUploadDuplicateReport();
+
+      if (report.duplicateCount === 0) {
+        return res.json({
+          success: true,
+          deletedCount: 0,
+          deletedBytes: 0,
+          message: 'Keine Legacy-Duplikate gefunden.'
+        });
+      }
+
+      const batches: Array<Array<{ Key: string }>> = [];
+      for (let i = 0; i < report.duplicates.length; i += 1000) {
+        batches.push(report.duplicates.slice(i, i + 1000).map(obj => ({ Key: obj.key })));
+      }
+
+      for (const batch of batches) {
+        await s3Client.send(new DeleteObjectsCommand({
+          Bucket: R2_CONFIG.bucketName,
+          Delete: {
+            Objects: batch,
+            Quiet: true
+          }
+        }));
+      }
+
+      const manifest = await loadSyncManifest();
+      for (const obj of report.duplicates) {
+        delete manifest[obj.key];
+      }
+      await saveSyncManifest(manifest);
+      await syncStorageSize();
+
+      res.json({
+        success: true,
+        deletedCount: report.duplicateCount,
+        deletedBytes: report.totalBytes,
+        sampleKeys: report.sampleKeys
+      });
+    } catch (error: any) {
+      console.error("Error deleting legacy duplicates:", error);
+      res.status(500).json({ error: error.message || 'Legacy-Duplikat-Cleanup fehlgeschlagen' });
     }
   });
 
@@ -1317,15 +1753,6 @@ async function startServer() {
         }
       }
 
-      // 2. Upload index.html to R2
-      await s3Client.send(new PutObjectCommand({
-        Bucket: R2_CONFIG.bucketName,
-        Key: 'index.html',
-        Body: Buffer.from(htmlContent),
-        ContentType: "text/html; charset=utf-8",
-      }));
-
-      // 3. Upload state.json to R2
       const finalStateData = stateData || JSON.stringify({
         items: req.body.items || [],
         title: title || "ProjectionArt",
@@ -1333,12 +1760,8 @@ async function startServer() {
         lastUpdated: new Date().toISOString()
       });
 
-      await s3Client.send(new PutObjectCommand({
-        Bucket: R2_CONFIG.bucketName,
-        Key: 'state.json',
-        Body: Buffer.from(finalStateData),
-        ContentType: "application/json; charset=utf-8",
-      }));
+      // 2. Upload index.html and state.json to R2
+      await publishHtmlAndState(htmlContent, finalStateData);
 
     const baseUrl = R2_CONFIG.publicDomain.startsWith('http') ? R2_CONFIG.publicDomain : `https://${R2_CONFIG.publicDomain}`;
     const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
@@ -1389,43 +1812,6 @@ async function startServer() {
       const filenameThumb = `${baseName}_thumb.jpg`;
       await fs.writeFile(path.join(UPLOADS_THUMBS_DIR, filenameThumb), bufferThumb);
 
-      // Upload all to R2
-      const uploadPromises = [
-        s3Client.send(new PutObjectCommand({
-          Bucket: R2_CONFIG.bucketName,
-          Key: `uploads/originals/${originalFilename}`,
-          Body: req.file.buffer,
-          ContentType: req.file.mimetype,
-        })),
-        s3Client.send(new PutObjectCommand({
-          Bucket: R2_CONFIG.bucketName,
-          Key: `uploads/${largeFolder}/${filenameLarge}`,
-          Body: bufferLarge,
-          ContentType: 'image/jpeg',
-        })),
-        s3Client.send(new PutObjectCommand({
-          Bucket: R2_CONFIG.bucketName,
-          Key: `uploads/thumbs/${filenameThumb}`,
-          Body: bufferThumb,
-          ContentType: 'image/jpeg',
-        }))
-      ];
-
-      await Promise.all(uploadPromises);
-
-      const getUrl = (key: string) => {
-        let baseUrl = R2_CONFIG.publicDomain ? `${R2_CONFIG.publicDomain}` : `https://${R2_CONFIG.bucketName}.${R2_CONFIG.accountId}.r2.cloudflarestorage.com`;
-        
-        // Ensure baseUrl starts with https:// if it doesn't already
-        if (!baseUrl.startsWith('http')) {
-          baseUrl = `https://${baseUrl}`;
-        }
-        
-        // Ensure the baseUrl doesn't end with a slash, and the key doesn't start with one.
-        const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
-        return `${cleanBaseUrl}/${key.replace(/^\/+/, '')}`;
-      };
-
       const basePublicUrl = '/data/uploads';
       const localThumb = `${basePublicUrl}/thumbs/${filenameThumb}`;
       const localLarge = `${basePublicUrl}/${largeFolder}/${filenameLarge}`;
@@ -1433,19 +1819,15 @@ async function startServer() {
 
       res.json({
         success: true, 
-        // Prefer local paths in editor runtime, publish step can still sync/mirror to R2.
+        // Manual uploads stay local until Cloud Sync mirrors only the changed files to R2.
         url: localThumb,
         url_large: localLarge,
         url_original: localOriginal,
-        local_large_variant: largeSuffix,
-        r2_url: getUrl(`uploads/thumbs/${filenameThumb}`),
-        r2_url_large: getUrl(`uploads/${largeFolder}/${filenameLarge}`),
-        r2_url_original: getUrl(`uploads/originals/${originalFilename}`),
-        fileKey: `uploads/thumbs/${filenameThumb}`
+        local_large_variant: largeSuffix
       });
     } catch (error: any) {
-      console.error("Error uploading image to Cloudflare:", error);
-      res.status(500).json({ error: error.message || "Failed to upload image to Cloudflare" });
+      console.error("Error processing local image upload:", error);
+      res.status(500).json({ error: error.message || "Failed to process local image upload" });
     }
   });
 
