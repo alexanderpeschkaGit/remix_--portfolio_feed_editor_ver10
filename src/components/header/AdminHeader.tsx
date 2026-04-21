@@ -289,20 +289,6 @@ export function AdminHeader({
           <span className="text-center">Review ({uncertainMatches.length})</span>
         </AdminButton>
 
-        {publicDomain && (
-          <a 
-            href={isEditing ? undefined : `https://${publicDomain}/index.html`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`w-full h-full ${isEditing ? 'pointer-events-none' : ''}`}
-          >
-            <AdminButton disabled={isEditing} tooltip="Live Website in neuem Tab öffnen">
-              <ExternalLink className="w-3 h-3 sm:w-4 sm:h-4" />
-              <span className="text-center">Live</span>
-            </AdminButton>
-          </a>
-        )}
-
         {/* Row 3 */}
         <AdminButton onClick={handlePreview} tooltip="Voransicht der generierten HTML-Seite">
           <Eye className="w-3 h-3 sm:w-4 sm:h-4" />
@@ -335,23 +321,6 @@ export function AdminHeader({
           <FoldVertical className="w-3 h-3 sm:w-4 sm:h-4" />
           <span className="text-center">Merge Similar</span>
         </AdminButton>
-
-        <div className="relative col-span-1">
-          <AdminButton 
-            id="upload-btn" 
-            onClick={handleUpload} 
-            disabled={uploading || flickrPosts.length === 0} 
-            tooltip="Änderungen auf die Live-Website übertragen"
-          >
-            {uploading ? <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 animate-spin" /> : <UploadCloud className="w-3 h-3 sm:w-4 sm:h-4" />}
-            <span className="text-center font-black tracking-tighter">{uploading ? '...' : 'PUBLISH'}</span>
-          </AdminButton>
-          {uploadProgress !== null && (
-            <div className="absolute -bottom-1 left-0 w-full h-0.5 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full bg-white transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
-            </div>
-          )}
-        </div>
 
         <AdminButton onClick={handleAddNewPost} tooltip="Manuellen Post hinzufügen">
           <Plus className="w-3 h-3 sm:w-4 sm:h-4" /> 
@@ -403,6 +372,37 @@ export function AdminHeader({
             <Redo2 className="w-3 h-3" />
             <span>Redo</span>
           </button>
+        </div>
+
+        {publicDomain && (
+          <a 
+            href={isEditing ? undefined : `https://${publicDomain}/index.html`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`w-full h-full flex ${isEditing ? 'pointer-events-none' : ''}`}
+          >
+            <AdminButton className="w-full" disabled={isEditing} tooltip="Live Website in neuem Tab öffnen">
+              <ExternalLink className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span className="text-center">Live</span>
+            </AdminButton>
+          </a>
+        )}
+
+        <div className="relative col-span-1">
+          <AdminButton 
+            id="upload-btn" 
+            onClick={handleUpload} 
+            disabled={uploading || flickrPosts.length === 0} 
+            tooltip="Änderungen auf die Live-Website übertragen"
+          >
+            {uploading ? <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 animate-spin" /> : <UploadCloud className="w-3 h-3 sm:w-4 sm:h-4" />}
+            <span className="text-center font-black tracking-tighter">{uploading ? '...' : 'PUBLISH'}</span>
+          </AdminButton>
+          {uploadProgress !== null && (
+            <div className="absolute -bottom-1 left-0 w-full h-0.5 bg-white/10 rounded-full overflow-hidden">
+              <div className="h-full bg-white transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
+            </div>
+          )}
         </div>
       </div>
     </header>
