@@ -33,6 +33,7 @@ import { PostCommitModal } from './components/modals/PostCommitModal';
 import { FeedPostCard } from './components/feed/FeedPostCard';
 import { ThumbnailGalleryGrid } from './components/gallery/ThumbnailGalleryGrid';
 import { AdminHeader } from './components/header/AdminHeader';
+import { mergeIncomingPostsPreservingExisting } from './utils/mergePosts';
 
 const formatDescription = (description: string, title: string) => {
   let text = description;
@@ -354,8 +355,8 @@ export default function App() {
   const handleResetAll = async () => {
     if (isResettingAll) return;
     const confirm = window.confirm(
-      'ACHTUNG: Das löscht lokal ALLES (data/, originals/, backups/) und löscht auch den kompletten R2-Bucket-Inhalt.\n\n' +
-      'Danach ist das Projekt leer und du musst neu scrapen.\n\n' +
+      'ACHTUNG: Das leert den kompletten R2-Bucket und baut ihn danach aus den lokalen Daten neu auf.\n\n' +
+      'Lokale Dateien und Edits bleiben erhalten.\n\n' +
       'Wirklich fortfahren?'
     );
     if (!confirm) return;
@@ -363,16 +364,18 @@ export default function App() {
     setIsResettingAll(true);
     setError('');
     try {
-      // Disable fallback so we don't repopulate from R2/test data after wiping.
-      setFallbackEnabled(false);
-      await fetch('/api/reset-all', {
+      const response = await fetch('/api/reset-all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ confirm: 'YES' })
       });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || data.details || 'R2-Rebuild fehlgeschlagen');
+      }
       window.location.reload();
     } catch (e: any) {
-      setError(e?.message || 'Reset fehlgeschlagen');
+      setError(e?.message || 'R2-Rebuild fehlgeschlagen');
       setIsResettingAll(false);
     }
   };
@@ -559,7 +562,7 @@ export default function App() {
               try {
                 const stateRes = await fetch('/api/state');
                 const stateData = await stateRes.json();
-                updatePosts(stateData.items);
+                updatePosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items));
                 setIsFlickrFallback(false);
                 
                 if (autoUpload) {
@@ -619,7 +622,7 @@ export default function App() {
               // Refresh state
               const stateRes = await fetch('/api/state');
               const stateData = await stateRes.json();
-              updatePosts(stateData.items);
+              updatePosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items));
             }
           }
         } catch (e) {
@@ -648,7 +651,7 @@ export default function App() {
         // Refresh state
         const stateRes = await fetch('/api/state');
         const stateData = await stateRes.json();
-        setFlickrPosts(stateData.items);
+        setFlickrPosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items));
       }
     } catch (e) {
       console.error("Confirm match error:", e);
@@ -2917,3 +2920,4 @@ export default function App() {
     </div>
   );
 }
+

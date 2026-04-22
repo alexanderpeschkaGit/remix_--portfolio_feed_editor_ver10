@@ -390,6 +390,36 @@ async function startServer() {
 
   const getBufferSha1 = (buffer: Buffer) => createHash('sha1').update(buffer).digest('hex');
 
+  const MEDIA_REFERENCE_FIELDS = [
+    'image',
+    'image_large',
+    'image_3k',
+    'image_preview',
+    'imageLarge',
+    'largeUrl',
+    'local_highres',
+    'video',
+    'video_large',
+    'url',
+    'link',
+    'poster',
+    'thumbnail',
+    'thumb',
+    'preview',
+  ] as const;
+
+  const isVideoR2Key = (key: string) => /\.(mp4|webm|mov)$/i.test(key);
+  const isImageR2Key = (key: string) => /\.(jpg|jpeg|png|webp|gif|avif|bmp)$/i.test(key);
+
+  // Keep video sibling images (e.g. *_thumb.jpg, *_poster.jpg) safe during cleanup.
+  const toCanonicalMediaStem = (key: string) =>
+    key
+      .toLowerCase()
+      .split('?')[0]
+      .replace(/^\/+/, '')
+      .replace(/\.(jpg|jpeg|png|webp|gif|avif|bmp|mp4|webm|mov)$/i, '')
+      .replace(/(?:[_-](thumb|thumbnail|poster|preview))$/i, '');
+
   const loadSyncManifest = async () => {
     try {
       const result = await s3Client.send(new GetObjectCommand({
@@ -490,7 +520,7 @@ async function startServer() {
 
       const visitMedia = (media: any) => {
         if (!media || typeof media !== 'object') return;
-        for (const field of ['image', 'image_large', 'image_3k', 'local_highres', 'url', 'link']) {
+        for (const field of MEDIA_REFERENCE_FIELDS) {
           const target = localUrlToSyncTarget(media[field]);
           if (target && !seen.has(target.r2Key)) {
             seen.add(target.r2Key);
@@ -535,7 +565,7 @@ async function startServer() {
 
       const visitMedia = (media: any) => {
         if (!media || typeof media !== 'object') return;
-        for (const field of ['image', 'image_large', 'image_3k', 'local_highres', 'url', 'link']) {
+        for (const field of MEDIA_REFERENCE_FIELDS) {
           const key = normalizePossibleR2Key(media[field]);
           if (key) {
             referencedKeys.add(key);
@@ -589,7 +619,21 @@ async function startServer() {
     const managedPrefixes = ['data/', 'uploads/', 'highres/', 'originals/'];
     const referencedKeys = await collectReferencedR2Keys();
     const r2Objects = await listR2ObjectsForPrefixes(managedPrefixes);
-    const orphaned = r2Objects.filter(obj => !referencedKeys.has(obj.key));
+    const referencedVideoStems = new Set(
+      Array.from(referencedKeys)
+        .filter((key) => isVideoR2Key(key))
+        .map((key) => toCanonicalMediaStem(key))
+    );
+
+    const orphaned = r2Objects.filter((obj) => {
+      if (referencedKeys.has(obj.key)) return false;
+
+      if (isImageR2Key(obj.key) && referencedVideoStems.has(toCanonicalMediaStem(obj.key))) {
+        return false;
+      }
+
+      return true;
+    });
     const totalBytes = orphaned.reduce((sum, obj) => sum + obj.size, 0);
 
     return {
@@ -799,33 +843,13 @@ async function startServer() {
     res.json(syncStatus);
   });
 
-  // API route to fully reset local + R2 state (destructive)
+  // API route to reset R2 and rebuild it from current local data
   app.post("/api/reset-all", async (req, res) => {
     try {
       const { confirm } = req.body || {};
       if (confirm !== 'YES') return res.status(400).json({ error: 'confirm=YES required' });
 
-      // 1) Wipe local folders
-      await fs.rm(DATA_DIR, { recursive: true, force: true }).catch(() => {});
-      await fs.rm(BACKUPS_DIR, { recursive: true, force: true }).catch(() => {});
-      await fs.rm(ORIGINALS_DIR, { recursive: true, force: true }).catch(() => {});
-
-      // Recreate required directories
-      await fs.mkdir(DATA_DIR, { recursive: true }).catch(() => {});
-      await fs.mkdir(BACKUPS_DIR, { recursive: true }).catch(() => {});
-      await fs.mkdir(path.join(BACKUPS_DIR, 'data'), { recursive: true }).catch(() => {});
-      await fs.mkdir(ORIGINALS_DIR, { recursive: true }).catch(() => {});
-
-      await fs.mkdir(UPLOADS_DIR, { recursive: true }).catch(() => {});
-      await fs.mkdir(UPLOADS_ORIGINALS_DIR, { recursive: true }).catch(() => {});
-      await fs.mkdir(UPLOADS_2K_DIR, { recursive: true }).catch(() => {});
-      await fs.mkdir(UPLOADS_3K_DIR, { recursive: true }).catch(() => {});
-      await fs.mkdir(UPLOADS_THUMBS_DIR, { recursive: true }).catch(() => {});
-      await fs.mkdir(SYNC_DIR, { recursive: true }).catch(() => {});
-      await fs.mkdir(HIGHRES_DIR, { recursive: true }).catch(() => {});
-      await fs.mkdir(PREVIEWS_DIR, { recursive: true }).catch(() => {});
-
-      // 2) Wipe R2 bucket content (delete all objects)
+      // 1) Wipe complete R2 bucket content
       let deletedCount = 0;
       let isTruncated = true;
       let continuationToken: string | undefined = undefined;
@@ -861,23 +885,79 @@ async function startServer() {
         continuationToken = response.NextContinuationToken;
       }
 
-      // 3) Write a minimal fresh state locally
-      await fs.writeFile(
-        path.join(DATA_DIR, 'state.json'),
-        JSON.stringify(
-          {
-            title: 'ProjectionArt by Vijay Sikanda',
-            subtitle: 'immersive projection experience',
-            scrapeConfig: { igAccount: 'vijay_sikanda', flickrUrl: '' },
-            items: [],
-          },
-          null,
-          2
-        )
-      );
-      await fs.writeFile(path.join(DATA_DIR, 'deleted_ids.json'), JSON.stringify([], null, 2));
+      // 2) Mirror local media files back to R2
+      let allImageFiles = await collectReferencedSyncTargets();
+      if (allImageFiles.length === 0) {
+        const subDirs = ['uploads', 'flickr', 'instagram', 'highres', 'previews'];
+        for (const sub of subDirs) {
+          const subDirPath = path.join(DATA_DIR, sub);
+          if (await fs.access(subDirPath).then(() => true).catch(() => false)) {
+            const files = await getRecursiveFiles(subDirPath, subDirPath);
+            const mediaFiles = files.filter(f => /\.(jpg|jpeg|png|webp|json|mp4|webm|mov)$/i.test(f)).map(f => ({
+              localPath: path.join(subDirPath, f),
+              r2Key: `data/${sub}/${f}`
+            }));
+            allImageFiles = [...allImageFiles, ...mediaFiles];
+          }
+        }
+      }
 
-      res.json({ success: true, deletedR2Objects: deletedCount });
+      const dedupTargets = new Map<string, { localPath: string; r2Key: string }>();
+      for (const target of allImageFiles) dedupTargets.set(target.r2Key, target);
+      const uploadTargets = Array.from(dedupTargets.values());
+
+      const newManifest: Record<string, any> = {};
+      for (const target of uploadTargets) {
+        const buffer = await fs.readFile(target.localPath);
+        await uploadToR2(buffer, target.r2Key, getContentTypeForPath(target.localPath));
+        newManifest[target.r2Key] = {
+          hash: getBufferSha1(buffer),
+          size: buffer.length,
+          syncedAt: new Date().toISOString()
+        };
+      }
+      await saveSyncManifest(newManifest);
+
+      // 3) Republish state.json and, if available, index.html
+      const statePath = path.join(DATA_DIR, 'state.json');
+      const stateData = await fs.readFile(statePath, 'utf-8').catch(() => JSON.stringify({ items: [] }, null, 2));
+
+      let htmlContent: string | null = null;
+      const previewPath = path.join(DATA_DIR, 'preview.html');
+      htmlContent = await fs.readFile(previewPath, 'utf-8').catch(() => null);
+
+      if (!htmlContent) {
+        const backupFiles = await fs.readdir(BACKUPS_DIR).catch(() => []);
+        const latestBackup = backupFiles
+          .filter(f => f.endsWith('.html'))
+          .sort()
+          .reverse()[0];
+
+        if (latestBackup) {
+          htmlContent = await fs.readFile(path.join(BACKUPS_DIR, latestBackup), 'utf-8').catch(() => null);
+        }
+      }
+
+      let republishedHtml = false;
+      if (htmlContent) {
+        await publishHtmlAndState(htmlContent, stateData);
+        republishedHtml = true;
+      } else {
+        await s3Client.send(new PutObjectCommand({
+          Bucket: R2_CONFIG.bucketName,
+          Key: 'state.json',
+          Body: Buffer.from(stateData),
+          ContentType: "application/json; charset=utf-8",
+        }));
+      }
+
+      await syncStorageSize();
+      res.json({
+        success: true,
+        deletedR2Objects: deletedCount,
+        uploadedFiles: uploadTargets.length,
+        republishedHtml
+      });
     } catch (e: any) {
       console.error("Reset failed:", e);
       res.status(500).json({ error: 'Reset failed', details: e?.message || String(e) });

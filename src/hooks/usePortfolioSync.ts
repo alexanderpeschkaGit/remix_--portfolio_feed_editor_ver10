@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 
+import { mergeIncomingPostsPreservingExisting } from '../utils/mergePosts';
+
 interface SyncProps {
   updatePosts: (newPosts: any[] | ((p: any[]) => any[])) => void;
   setFallbackEnabled: (enabled: boolean) => void;
@@ -64,7 +66,7 @@ export function usePortfolioSync({ updatePosts, setFallbackEnabled, setError }: 
               setScrapeLogs(prev => [...prev, "Fertig! Lade neue Daten..."]);
               const stateRes = await fetch('/api/state');
               const stateData = await stateRes.json();
-              updatePosts(stateData.items);
+              updatePosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items));
               
               if (autoUpload) {
                 setTimeout(() => document.getElementById('upload-btn')?.click(), 500);
@@ -109,7 +111,7 @@ export function usePortfolioSync({ updatePosts, setFallbackEnabled, setError }: 
               
               const stateRes = await fetch('/api/state');
               const stateData = await stateRes.json();
-              updatePosts(stateData.items);
+              updatePosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items));
             }
           }
         } catch (e) { console.error("Polling error:", e); }
@@ -158,7 +160,7 @@ export function usePortfolioSync({ updatePosts, setFallbackEnabled, setError }: 
         setUncertainMatches(prev => prev.filter(m => m.postId !== match.postId));
         const stateRes = await fetch('/api/state');
         const stateData = await stateRes.json();
-        updatePosts(stateData.items);
+        updatePosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items));
       }
     } catch (e) { console.error("Confirm match error:", e); }
   };
@@ -175,20 +177,25 @@ export function usePortfolioSync({ updatePosts, setFallbackEnabled, setError }: 
   };
 
   const handleResetAll = async () => {
-    const confirm = window.confirm('ACHTUNG: Das löscht lokal ALLES und den R2-Bucket-Inhalt. Wirklich fortfahren?');
+    const confirm = window.confirm('ACHTUNG: Das leert den kompletten R2-Bucket und baut ihn danach aus den lokalen Daten neu auf. Lokale Dateien und Edits bleiben erhalten. Wirklich fortfahren?');
     if (!confirm) return;
 
     setError('');
     try {
-      setFallbackEnabled(false);
-      await fetch('/api/reset-all', {
+      const response = await fetch('/api/reset-all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ confirm: 'YES' })
       });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || data.details || 'R2-Rebuild fehlgeschlagen');
+      }
       window.location.reload();
     } catch (e: any) {
-      setError(e?.message || 'Reset fehlgeschlagen');
+      setError(e?.message || 'R2-Rebuild fehlgeschlagen');
+    }
+  };
     }
   };
 

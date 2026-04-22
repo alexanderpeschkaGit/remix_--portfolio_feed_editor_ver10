@@ -243,10 +243,10 @@ export function AdminHeader({
           onClick={handleResetAll}
           disabled={isEditing || isResettingAll}
           color={isResettingAll ? "bg-red-600/20 text-red-300 border-red-500/20" : "bg-red-600/10 text-red-300 border-red-500/20"}
-          tooltip="Löscht lokal alles und R2 komplett. Danach neu scrapen."
+          tooltip="Leert den kompletten R2-Bucket und baut ihn aus den lokalen Daten neu auf."
         >
-          <Trash2 className={`w-3 h-3 sm:w-4 sm:h-4 ${isResettingAll ? 'animate-spin' : ''}`} />
-          <span className="text-center">{isResettingAll ? 'Reset...' : 'Reset All'}</span>
+          <RefreshCw className={`w-3 h-3 sm:w-4 sm:h-4 ${isResettingAll ? 'animate-spin' : ''}`} />
+          <span className="text-center">{isResettingAll ? 'Rebuild...' : 'Rebuild R2'}</span>
         </AdminButton>
 
         <AdminButton onClick={handleFullR2Sync} disabled={fullR2SyncStatus.running} tooltip="Alle lokalen Bilder (Uploads, Flickr, etc.) zu Cloudflare R2 spiegeln">
