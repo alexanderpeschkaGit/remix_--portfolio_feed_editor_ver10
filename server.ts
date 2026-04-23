@@ -412,13 +412,14 @@ async function startServer() {
   const isImageR2Key = (key: string) => /\.(jpg|jpeg|png|webp|gif|avif|bmp)$/i.test(key);
 
   // Keep video sibling images (e.g. *_thumb.jpg, *_poster.jpg) safe during cleanup.
-  const toCanonicalMediaStem = (key: string) =>
-    key
+  const toCanonicalMediaStem = (key: string) => {
+    const basename = key.split('/').pop() || key;
+    return basename
       .toLowerCase()
       .split('?')[0]
-      .replace(/^\/+/, '')
       .replace(/\.(jpg|jpeg|png|webp|gif|avif|bmp|mp4|webm|mov)$/i, '')
       .replace(/(?:[_-](thumb|thumbnail|poster|preview))$/i, '');
+  };
 
   const loadSyncManifest = async () => {
     try {
@@ -650,7 +651,22 @@ async function startServer() {
     const allDataObjects = await listR2ObjectsForPrefixes(['data/uploads/']);
     const dataKeys = new Set(allDataObjects.map(obj => obj.key));
 
-    const duplicates = uploadObjects.filter(obj => dataKeys.has(`data/${obj.key}`));
+    const videoStems = new Set([
+      ...Array.from(dataKeys).filter(isVideoR2Key).map(toCanonicalMediaStem),
+      ...uploadObjects.map(obj => obj.key).filter(isVideoR2Key).map(toCanonicalMediaStem)
+    ]);
+
+    const duplicates = uploadObjects.filter(obj => {
+      if (!dataKeys.has(`data/${obj.key}`)) return false;
+
+      // Protect images that share a stem with any video in the same family
+      if (isImageR2Key(obj.key) && videoStems.has(toCanonicalMediaStem(obj.key))) {
+        return false;
+      }
+
+      return true;
+    });
+
     const totalBytes = duplicates.reduce((sum, obj) => sum + obj.size, 0);
 
     return {

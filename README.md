@@ -41,3 +41,9 @@ The active application is implemented in `src/` with a modular React structure.
 ### Notes
 - `backups_app/` is intentionally preserved and contains backup copies and older integration references.
 - Active source code lives under `src/`; runtime build is driven by `vite` and `package.json`.
+
+[!IMPORTANT]
+> **AI INSTRUCTIONS:**
+> Wenn du (KI/Agent) an diesem Projekt arbeitest, lies ZUERST die Datei 
+> [AI_SYSTEM_INSTRUCTIONS.md](./AI_SYSTEM_INSTRUCTIONS.md) und befolge alle 
+> dort definierten Regeln strikt.
