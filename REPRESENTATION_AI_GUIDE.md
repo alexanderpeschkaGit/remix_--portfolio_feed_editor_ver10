@@ -88,3 +88,51 @@ def update_item_in_background(item_id, new_title=None, new_description=None):
 
 ## Editor Sync Loop
 Because you updated the `lastUpdated` timestamp in `state.json`, the local Admin Editor (which polls the R2 bucket every 15 seconds) will automatically detect the change. The "Load Cloud" button will flash green, alerting the human editor that the AI has curated new content which can be pulled into their local workspace with one click.
+
+## Reading Data (Consuming the SSOT)
+
+This guide is for the AI responsible for metadata updates (improved titles, descriptions, categorized tags) directly via Cloudflare R2.
+
+### Workflow for Updating items
+1. **Fetch current `state.json`** from R2.
+2. **Convert items to Lookup (In-Memory)** for fast access by ID (Optional, but recommended for speed).
+3. **Apply Modifications** to your specific item(s) within the array.
+4. **Update `lastUpdated`** at the root of the JSON (ISO string).
+5. **Upload back to R2** (Keep the array structure intact!).
+
+### Python Example
+```python
+import boto3
+import json
+from datetime import datetime, timezone
+
+def update_item(item_id, new_title, new_description=None):
+    # Setup S3 Client (compatible with R2)
+    s3 = boto3.client('s3',
+        endpoint_url='https://<YOUR_ACCOUNT_ID>.r2.cloudflarestorage.com',
+        aws_access_key_id='<YOUR_ACCESS_KEY>',
+        aws_secret_access_key='<YOUR_SECRET_KEY>'
+    )
+    
+    # 1. Fetch from R2
+    response = s3.get_object(Bucket='portfoliodata', Key='state.json')
+    state = json.loads(response['Body'].read().decode('utf-8'))
+    
+    # 2 & 3. Update item in Array (Keeping the array intact!)
+    for item in state.get('items', []):
+        if str(item['id']) == str(item_id):
+            if new_title: item['title'] = new_title
+            if new_description: item['description'] = new_description
+            break
+            
+    # 4. Update Root Timestamp
+    state['lastUpdated'] = datetime.now(timezone.utc).isoformat()
+    
+    # 5. Save back to R2
+    s3.put_object(
+        Bucket='portfoliodata', 
+        Key='state.json', 
+        Body=json.dumps(state, indent=2).encode('utf-8'),
+        ContentType='application/json'
+    )
+```

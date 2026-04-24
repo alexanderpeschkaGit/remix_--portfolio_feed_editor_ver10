@@ -1162,9 +1162,22 @@ async function startServer() {
   app.get("/api/r2-state", async (req, res) => {
     try {
       const baseUrl = R2_CONFIG.publicDomain.startsWith('http') ? R2_CONFIG.publicDomain : `https://${R2_CONFIG.publicDomain}`;
+      const timestamp = Date.now();
       
-      // First try to extract the embedded state from index.html (more reliable)
-      const r2HtmlUrl = `${baseUrl}/index.html`;
+      // First try to fetch the SSOT (state.json) directly with a cache buster
+      try {
+        const r2Url = `${baseUrl}/state.json?t=${timestamp}`;
+        const response = await fetch(r2Url);
+        if (response.ok) {
+          const data = await response.json();
+          return res.json(data);
+        }
+      } catch (e) {
+        console.log("Failed to fetch state.json directly, falling back to index.html embedded state.");
+      }
+      
+      // Fallback: extract the embedded state from index.html (legacy / fallback)
+      const r2HtmlUrl = `${baseUrl}/index.html?t=${timestamp}`;
       const htmlResponse = await fetch(r2HtmlUrl);
       
       if (htmlResponse.ok) {
@@ -1176,12 +1189,7 @@ async function startServer() {
         }
       }
 
-      // Fallback to state.json if index.html doesn't have the script tag
-      const r2Url = `${baseUrl}/state.json`;
-      const response = await fetch(r2Url);
-      if (!response.ok) throw new Error("R2 fetch failed");
-      const data = await response.json();
-      res.json(data);
+      throw new Error("R2 fetch failed for both state.json and index.html");
     } catch (e) {
       console.error("Failed to fetch R2 state:", e);
       res.status(500).json({ error: 'Failed to fetch R2 state' });
