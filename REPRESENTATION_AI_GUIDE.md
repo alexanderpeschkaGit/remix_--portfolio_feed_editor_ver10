@@ -1,40 +1,90 @@
-# Portfolio Representation AI Guide
+# Portfolio Representation AI Guide (Direct R2 Strategy)
 
-This guide describes how an external AI or script (such as the public-facing portfolio website or representation scripts) can update portfolio items back to the central Editor backend. 
+This guide is for the AI or external backend script responsible for representation and text generation. It explains how to push metadata updates (e.g. improved titles, better descriptions, categorized tags) directly to the Cloudflare R2 storage without relying on the Editor's local API.
 
-## Endpoints
+## Architecture & Performance
+To ensure that the pure display performance (rendering/serving of the website) does not suffer:
+1. **Asynchronous Updates:** Any data refinement (e.g., calling an LLM to generate a better bio or description) and the subsequent upload to R2 MUST happen in an asynchronous background thread or task. It should never block the main rendering thread or the user's request.
+2. **CDN Caching:** The live website reads `state.json` directly from the Cloudflare CDN edge. Modifying the file in the R2 bucket takes a few milliseconds and automatically invalidates/updates the edge cache.
+3. **Atomic `state.json` Updates:** You should only fetch `state.json`, apply your specific changes, update the `lastUpdated` timestamp, and push it back. You do *not* need to regenerate the static `index.html`—the live site and the editor will both dynamically react to the new `state.json`.
 
-### 1. `POST /api/item/update`
-Use this endpoint to update specific fields of a single portfolio item. This allows you to apply corrections, layout changes, or metadata updates directly from the live public site into the single source of truth (the editor's state.json).
+## Required Configuration
+You will need S3-compatible credentials for Cloudflare R2:
+- **R2 Account ID**
+- **Access Key ID**
+- **Secret Access Key**
+- **Bucket Name**
 
-**Important Note:** The update merges with the existing post state. You only need to send the fields you want to modify. Do not send fields that should remain unchanged.
+## Workflow for Updating an Item
 
-**Headers:**
-- `Content-Type: application/json`
+### 1. Fetch the Current State
+Download the current `state.json` directly from the public URL (or via S3 API) to ensure you have the latest data.
+```bash
+curl https://[YOUR_PUBLIC_R2_DOMAIN]/state.json -o current_state.json
+```
 
-**Body Structure:**
+### 2. Modify the State (Locally in Memory)
+Parse the JSON and find the item you want to modify using its `id`.
+Apply your changes (e.g., `title`, `description`).
+**CRITICAL:** You must update the `lastUpdated` property at the root of the JSON so the Editor knows there are new changes!
 ```json
 {
-  "id": "string (Required: the unique ID of the post to update)",
-  "title": "string (Optional: new title for the post)",
-  "description": "string (Optional: new description/text for the post, supports basic HTML like <br/>)",
-  "states": ["string", "string"] (Optional: array of category IDs to assign to this post)
+  ...
+  "lastUpdated": "2026-04-24T12:00:00.000Z",
+  "items": [
+    {
+      "id": "12345",
+      "title": "New AI Generated Title",
+      ...
+    }
+  ]
 }
 ```
 
-**Example Request (Update Title & Description):**
-```bash
-curl -X POST https://your-editor-domain.com/api/item/update \
-  -H "Content-Type: application/json" \
-  -d '{
-    "id": "flickr-17192837482",
-    "title": "Updated Artwork Title",
-    "description": "A refined description of this amazing artwork."
-  }'
+### 3. Upload directly to Cloudflare R2 (Python Example)
+Use `boto3` (AWS SDK) to push the modified JSON back to the bucket asynchronously.
+
+```python
+import boto3
+import json
+import threading
+from datetime import datetime, timezone
+
+def update_item_in_background(item_id, new_title=None, new_description=None):
+    # This runs in a background thread to not block performance!
+    def _upload():
+        s3 = boto3.client('s3',
+            endpoint_url='https://<YOUR_ACCOUNT_ID>.r2.cloudflarestorage.com',
+            aws_access_key_id='<YOUR_ACCESS_KEY>',
+            aws_secret_access_key='<YOUR_SECRET_KEY>'
+        )
+        
+        # 1. Fetch latest state
+        response = s3.get_object(Bucket='<YOUR_BUCKET>', Key='state.json')
+        state = json.loads(response['Body'].read().decode('utf-8'))
+        
+        # 2. Modify item
+        for item in state.get('items', []):
+            if str(item['id']) == str(item_id):
+                if new_title: item['title'] = new_title
+                if new_description: item['description'] = new_description
+                break
+                
+        # 3. Update Timestamp
+        state['lastUpdated'] = datetime.now(timezone.utc).isoformat()
+        
+        # 4. Upload back to R2
+        s3.put_object(
+            Bucket='<YOUR_BUCKET>',
+            Key='state.json',
+            Body=json.dumps(state, indent=2).encode('utf-8'),
+            ContentType='application/json'
+        )
+        print(f"Successfully updated {item_id} in R2.")
+
+    # Start the async thread
+    threading.Thread(target=_upload).start()
 ```
 
-**Response:**
-On success, you will receive a 200 OK containing the newly merged item state and a `success: true` flag. Behind the scenes, the editor updates the `state.json` file in Cloudflare R2 and bumps the `lastUpdated` timestamp.
-
-## Synchronization Loop
-The editor frontend polls for changes made by external scripts. When you successfully push an update to `/api/item/update`, the next time the admin opens the Portfolio Editor, the "Load Cloud" button will blink green to notify them that the Representation AI has made updates that they can load into their active session. 
+## Editor Sync Loop
+Because you updated the `lastUpdated` timestamp in `state.json`, the local Admin Editor (which polls the R2 bucket every 15 seconds) will automatically detect the change. The "Load Cloud" button will flash green, alerting the human editor that the AI has curated new content which can be pulled into their local workspace with one click.

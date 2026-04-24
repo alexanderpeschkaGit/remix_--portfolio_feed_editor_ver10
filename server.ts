@@ -80,9 +80,12 @@ async function startServer() {
   }
 
   const extractPortfolioDataFromHtml = (html: string) => {
-    const match = html.match(/<script id="portfolio-data" type="application\/json">([\s\S]*?)<\/script>/);
+    const fullStateMatch = html.match(/<script id="editor-state-backup" type="application\/json">([\s\S]*?)<\/script>/);
+    const publicMatch = html.match(/<script id="portfolio-data" type="application\/json">([\s\S]*?)<\/script>/);
+    const match = fullStateMatch || publicMatch;
+    
     if (!match || !match[1]) {
-      throw new Error('Backup-Format ungültig: portfolio-data Script-Tag fehlt.');
+      throw new Error('Backup-Format ungültig: Script-Tag fehlt.');
     }
     return JSON.parse(match[1]);
   };
@@ -1233,7 +1236,16 @@ async function startServer() {
       state.lastUpdated = new Date().toISOString();
 
       await backupState();
-      await fs.writeFile(statePath, JSON.stringify(state, null, 2));
+      const stateString = JSON.stringify(state, null, 2);
+      await fs.writeFile(statePath, stateString);
+      
+      // Push the updated state to Cloudflare R2 so the polling detects it
+      await s3Client.send(new PutObjectCommand({
+        Bucket: R2_CONFIG.bucketName,
+        Key: 'state.json',
+        Body: Buffer.from(stateString),
+        ContentType: 'application/json'
+      }));
       
       res.json({ success: true, item: state.items[itemIndex] });
     } catch (e: any) {
@@ -1868,10 +1880,21 @@ async function startServer() {
         return res.status(400).json({ error: "No HTML content provided" });
       }
 
-      // 1. Save local backup of HTML
+      const finalStateData = stateData || JSON.stringify({
+        items: req.body.items || [],
+        title: title || "ProjectionArt",
+        subtitle: subtitle || "",
+        lastUpdated: new Date().toISOString()
+      });
+
+      // 1. Save local backup of HTML with full state injected
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const backupFilename = `portfolio_${timestamp}.html`;
-      await fs.writeFile(path.join(BACKUPS_DIR, backupFilename), htmlContent);
+      const htmlWithFullState = htmlContent.includes('</body>') 
+        ? htmlContent.replace('</body>', `<script id="editor-state-backup" type="application/json">\n${finalStateData}\n</script>\n</body>`)
+        : htmlContent + `\n<script id="editor-state-backup" type="application/json">\n${finalStateData}\n</script>`;
+        
+      await fs.writeFile(path.join(BACKUPS_DIR, backupFilename), htmlWithFullState);
       
       // Cleanup old backups (keep 20)
       const files = await fs.readdir(BACKUPS_DIR);
@@ -1882,12 +1905,7 @@ async function startServer() {
         }
       }
 
-      const finalStateData = stateData || JSON.stringify({
-        items: req.body.items || [],
-        title: title || "ProjectionArt",
-        subtitle: subtitle || "",
-        lastUpdated: new Date().toISOString()
-      });
+
 
       // 2. Upload index.html and state.json to R2
       await publishHtmlAndState(htmlContent, finalStateData);

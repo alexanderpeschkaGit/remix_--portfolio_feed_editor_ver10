@@ -1460,7 +1460,8 @@ export default function App() {
         bio,
         projectStates: PROJECT_STATES,
         posts: posts.filter(p => !p.hidden),
-        publicDomain: baseUrl
+        publicDomain: baseUrl,
+        lastUpdated: new Date().toISOString()
       }).replace(new RegExp('<', 'g'), '\\u003c')}
     </script>
     <script>
@@ -1481,6 +1482,74 @@ export default function App() {
               if (window.portfolioData && window.portfolioData.publicDomain) {
                 publicDomain = window.portfolioData.publicDomain;
               }
+              
+              // Live Update Check
+              fetch('state.json')
+                .then(res => res.json())
+                .then(newData => {
+                  if (newData && newData.lastUpdated && window.portfolioData.lastUpdated) {
+                    if (new Date(newData.lastUpdated) > new Date(window.portfolioData.lastUpdated)) {
+                      console.log('Newer state found! Updating live view...', newData.lastUpdated);
+                      
+                      // 1. Update Title and Bio if changed
+                      if (newData.title) document.title = newData.title;
+                      const h1 = document.querySelector('header h1');
+                      const subtitle = document.querySelector('header .subtitle');
+                      const bio = document.querySelector('header .bio');
+                      if (h1 && newData.title) h1.textContent = newData.title;
+                      if (subtitle && newData.subtitle) subtitle.textContent = newData.subtitle;
+                      if (bio && newData.bio) bio.innerHTML = newData.bio.replace(/\\n/g, '<br/>');
+                      
+                      // 2. Update existing cards
+                      newData.items.forEach(item => {
+                        const card = document.querySelector(\`[data-post-id="\${item.id}"]\`);
+                        if (card) {
+                          const h2 = card.querySelector('.content h2');
+                          if (h2) h2.textContent = item.title || '';
+                          
+                          let p = card.querySelector('.content p');
+                          if (item.description) {
+                            if (!p) {
+                              p = document.createElement('p');
+                              if (h2 && h2.nextSibling) {
+                                h2.parentNode.insertBefore(p, h2.nextSibling);
+                              } else {
+                                card.querySelector('.content').appendChild(p);
+                              }
+                            }
+                            p.textContent = item.description;
+                          } else if (p) {
+                            p.remove();
+                          }
+                          
+                          // States/Tags
+                          if (item.states && item.states.length > 0 && newData.projectStates) {
+                            let tagsDiv = card.querySelector('.tags');
+                            if (!tagsDiv) {
+                              tagsDiv = document.createElement('div');
+                              tagsDiv.className = 'tags';
+                              tagsDiv.style.cssText = 'display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px;';
+                              card.querySelector('.content').appendChild(tagsDiv);
+                            }
+                            tagsDiv.innerHTML = item.states.map(stateId => {
+                              const state = newData.projectStates.find(s => String(s.id) === String(stateId));
+                              return state ? \`<span class="tag-label" style="background-color: \${state.bright}; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">\${state.label}</span>\` : '';
+                            }).join('');
+                          } else {
+                            const tagsDiv = card.querySelector('.tags');
+                            if (tagsDiv) tagsDiv.remove();
+                          }
+                        }
+                      });
+                      
+                      // 3. Update global window object for Lightbox sync
+                      newData.posts = newData.items.filter(p => !p.hidden); // Map items back to posts property for Lightbox
+                      window.portfolioData = newData;
+                    }
+                  }
+                })
+                .catch(err => console.log('Live update check failed or no state.json available yet.', err));
+                
             } catch (jsonErr) {
               console.error('JSON parse failed:', jsonErr);
               console.log('Raw data length:', portfolioDataEl.textContent.length);
@@ -2022,6 +2091,7 @@ export default function App() {
         title: portfolioTitle,
         subtitle: portfolioSubtitle,
         bio: portfolioBio,
+        scrapeConfig: { igAccount, flickrUrl },
         lastUpdated: new Date().toISOString()
       });
       const parsedData = JSON.parse(stateData);
@@ -2327,8 +2397,12 @@ export default function App() {
       if (!res.ok) throw new Error(`Download fehlgeschlagen: ${res.statusText}`);
       const html = await res.text();
       
-      // Extract data from script tag
-      const match = html.match(/<script id="portfolio-data" type="application\/json">([\s\S]*?)<\/script>/);
+      // Extract data from script tag (try editor full state first, fallback to public portfolio data)
+      const fullStateMatch = html.match(/<script id="editor-state-backup" type="application\/json">([\s\S]*?)<\/script>/);
+      const publicMatch = html.match(/<script id="portfolio-data" type="application\/json">([\s\S]*?)<\/script>/);
+      
+      const match = fullStateMatch || publicMatch;
+      
       if (match && match[1]) {
         const data = JSON.parse(match[1]);
         const items = data.items || data.posts;
@@ -2342,6 +2416,11 @@ export default function App() {
           
           if (data.title) setPortfolioTitle(data.title);
           if (data.subtitle) setPortfolioSubtitle(data.subtitle);
+          if (data.bio) setPortfolioBio(data.bio);
+          if (data.scrapeConfig) {
+            if (data.scrapeConfig.igAccount) setIgAccount(data.scrapeConfig.igAccount);
+            if (data.scrapeConfig.flickrUrl) setFlickrUrl(data.scrapeConfig.flickrUrl);
+          }
           
           // Close modal after a short delay to show success
           setTimeout(() => {
