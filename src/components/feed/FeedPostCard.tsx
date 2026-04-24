@@ -353,7 +353,7 @@ export function FeedPostCard({
             />
             <div className="flex flex-wrap gap-1 mt-2">
               {PROJECT_STATES.map(s => {
-                const isActive = post.states?.includes(s.id);
+                const isActive = post.states?.map(state => String(state).toLowerCase()).includes(String(s.id).toLowerCase());
                 const isHovered = hoveredState === s.id;
                 const isBright = isActive || isHovered;
                 return (
@@ -366,6 +366,7 @@ export function FeedPostCard({
                     onMouseEnter={() => setHoveredState(s.id)}
                     onMouseLeave={() => setHoveredState(null)}
                     className="px-2 py-0.5 rounded text-[10px] font-medium transition-all duration-300"
+                    title={s.tooltip}
                     style={{
                       backgroundColor: isActive ? s.bright : (isHovered ? s.muted : '#1f2937'),
                       color: (isActive || isHovered) ? 'white' : '#9ca3af',
@@ -414,12 +415,13 @@ export function FeedPostCard({
             {post.states && post.states.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-2">
                 {post.states.map((stateId: string) => {
-                  const state = PROJECT_STATES.find(s => s.id === stateId);
+                  const state = PROJECT_STATES.find(s => String(s.id).toLowerCase() === String(stateId).toLowerCase());
                   if (!state) return null;
                   return (
                     <span 
                       key={state.id}
                       className="px-2 py-0.5 rounded text-[10px] font-medium text-white"
+                      title={state.tooltip}
                       style={{ backgroundColor: state.bright }}
                     >
                       {state.label}

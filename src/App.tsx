@@ -440,13 +440,14 @@ export default function App() {
 
   // Poll for cloud changes from representation AI
   useEffect(() => {
-    if (!isInitialized || !localLastUpdated) return;
+    if (!isInitialized) return; // Wait for initialization, but poll even if localLastUpdated is missing
     
     const checkCloudChanges = async () => {
       try {
-        const res = await fetch('/api/r2-state');
+        const res = await fetch(`/api/r2-state?t=${Date.now()}`);
         if (res.ok) {
           const cloudData = await res.json();
+          // Trigger flash if cloud has a timestamp and it differs from local (or local has none)
           if (cloudData.lastUpdated && cloudData.lastUpdated !== localLastUpdated) {
             setHasCloudChanges(true);
           }
@@ -456,6 +457,7 @@ export default function App() {
       }
     };
 
+    checkCloudChanges(); // Call immediately on init
     const interval = setInterval(checkCloudChanges, 15000); // Check every 15s
     return () => clearInterval(interval);
   }, [isInitialized, localLastUpdated]);
@@ -739,7 +741,7 @@ export default function App() {
         }
         if (stateData.items && stateData.items.length > 0) {
           setFlickrPosts(stateData.items);
-          if (stateData.lastUpdated) setLocalLastUpdated(stateData.lastUpdated);
+          setLocalLastUpdated(stateData.lastUpdated || new Date(0).toISOString());
           setLoading(false);
           setIsInitialized(true);
           return;
@@ -1368,7 +1370,7 @@ export default function App() {
           <h2>${post.title}</h2>
           ${post.description ? `<p>${post.description}</p>` : ''}
           ${post.states && post.states.length > 0 ? `<div class="tags" style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px;">${post.states.map((stateId: string) => {
-            const state = PROJECT_STATES.find(s => String(s.id) === String(stateId));
+            const state = PROJECT_STATES.find(s => String(s.id).toLowerCase() === String(stateId).toLowerCase());
             return state ? `<span class="tag-label" style="background-color: ${state.bright}; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">${state.label}</span>` : '';
           }).join('')}</div>` : ''}
           ${post.mergedMedia ? `<div class="links">` + post.mergedMedia.map((m: any, i: number) => (m.url || m.link) ? `<a href="${m.url || m.link}" target="_blank">Link ${i + 1}</a>` : '').join(' ') + `</div>` : ''}
@@ -1532,7 +1534,7 @@ export default function App() {
                               card.querySelector('.content').appendChild(tagsDiv);
                             }
                             tagsDiv.innerHTML = item.states.map(stateId => {
-                              const state = newData.projectStates.find(s => String(s.id) === String(stateId));
+                              const state = newData.projectStates.find(s => String(s.id).toLowerCase() === String(stateId).toLowerCase());
                               return state ? \`<span class="tag-label" style="background-color: \${state.bright}; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">\${state.label}</span>\` : '';
                             }).join('');
                           } else {
@@ -1644,7 +1646,8 @@ export default function App() {
             cards.forEach(card => {
               const postId = card.getAttribute('data-post-id');
               const post = window.portfolioData.posts.find(p => String(p.id) === String(postId));
-              if (filter === 'all' || (post && post.states && post.states.includes(filter))) {
+              const postStatesLower = post && post.states ? post.states.map(s => String(s).toLowerCase()) : [];
+              if (filter === 'all' || postStatesLower.includes(String(filter).toLowerCase())) {
                 card.style.display = 'block';
               } else {
                 card.style.display = 'none';
@@ -1730,7 +1733,7 @@ export default function App() {
             // Render tags
             if (currentPost.states && currentPost.states.length > 0 && window.portfolioData.projectStates) {
               lightboxTags.innerHTML = currentPost.states.map(stateId => {
-                const state = window.portfolioData.projectStates.find(s => String(s.id) === String(stateId));
+                const state = window.portfolioData.projectStates.find(s => String(s.id).toLowerCase() === String(stateId).toLowerCase());
                 return state ? \`<span class="tag-label" style="background-color: \${state.muted}; border: 1px solid \${state.bright}; color: #fff; margin-right: 4px; margin-bottom: 4px; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">\${state.label}</span>\` : '';
               }).join('');
               lightboxTags.style.display = 'flex';

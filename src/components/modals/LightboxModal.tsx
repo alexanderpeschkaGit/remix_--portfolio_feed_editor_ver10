@@ -187,8 +187,8 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
           <h2 className="text-xl font-medium text-white mb-4">{currentLightboxPost.title}</h2>
           {currentLightboxPost.states && currentLightboxPost.states.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-4">
-              {currentLightboxPost.states.map(stateId => {
-                const state = PROJECT_STATES.find(s => s.id === stateId);
+              {currentLightboxPost.states.map((stateId: string) => {
+                const state = PROJECT_STATES.find(s => String(s.id).toLowerCase() === String(stateId).toLowerCase());
                 return state ? (
                   <span 
                     key={stateId}
