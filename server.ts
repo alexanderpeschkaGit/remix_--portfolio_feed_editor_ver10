@@ -1209,6 +1209,39 @@ async function startServer() {
     }
   });
 
+  // API route to update a single item (used by rendering script AI)
+  app.post("/api/item/update", async (req, res) => {
+    try {
+      const { id, title, description, states } = req.body;
+      if (!id) return res.status(400).json({ error: 'ID required' });
+
+      const statePath = path.join(DATA_DIR, 'state.json');
+      const stateData = await fs.readFile(statePath, 'utf-8');
+      const state = JSON.parse(stateData);
+
+      const itemIndex = state.items.findIndex((item: any) => String(item.id) === String(id));
+      if (itemIndex === -1) {
+        return res.status(404).json({ error: 'Item not found' });
+      }
+
+      // Update fields if provided
+      if (title !== undefined) state.items[itemIndex].title = title;
+      if (description !== undefined) state.items[itemIndex].description = description;
+      if (states !== undefined) state.items[itemIndex].states = states;
+      
+      // Update the lastUpdated timestamp so the frontend can detect the change
+      state.lastUpdated = new Date().toISOString();
+
+      await backupState();
+      await fs.writeFile(statePath, JSON.stringify(state, null, 2));
+      
+      res.json({ success: true, item: state.items[itemIndex] });
+    } catch (e: any) {
+      console.error("Failed to update item:", e);
+      res.status(500).json({ error: 'Failed to update item', details: e.message });
+    }
+  });
+
   // API route to delete a post (adds to blacklist)
   app.post("/api/state/delete", async (req, res) => {
     try {

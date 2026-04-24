@@ -184,6 +184,8 @@ export default function App() {
   const [activeUploads, setActiveUploads] = useState<Record<string, number>>({});
   const [showResolutions, setShowResolutions] = useState(false);
   const [showResolutionToast, setShowResolutionToast] = useState(false);
+  const [localLastUpdated, setLocalLastUpdated] = useState<string | null>(null);
+  const [hasCloudChanges, setHasCloudChanges] = useState(false);
 
   const uploadingCount = Object.values(activeUploads).reduce((sum: number, count: number) => sum + count, 0);
 
@@ -435,6 +437,28 @@ export default function App() {
     const interval = setInterval(fetchCloudflareUsage, 30000); // Update every 30s
     return () => clearInterval(interval);
   }, []);
+
+  // Poll for cloud changes from representation AI
+  useEffect(() => {
+    if (!isInitialized || !localLastUpdated) return;
+    
+    const checkCloudChanges = async () => {
+      try {
+        const res = await fetch('/api/r2-state');
+        if (res.ok) {
+          const cloudData = await res.json();
+          if (cloudData.lastUpdated && cloudData.lastUpdated !== localLastUpdated) {
+            setHasCloudChanges(true);
+          }
+        }
+      } catch (e) {
+        // ignore errors during background polling
+      }
+    };
+
+    const interval = setInterval(checkCloudChanges, 15000); // Check every 15s
+    return () => clearInterval(interval);
+  }, [isInitialized, localLastUpdated]);
 
   useEffect(() => {
     try {
@@ -715,6 +739,7 @@ export default function App() {
         }
         if (stateData.items && stateData.items.length > 0) {
           setFlickrPosts(stateData.items);
+          if (stateData.lastUpdated) setLocalLastUpdated(stateData.lastUpdated);
           setLoading(false);
           setIsInitialized(true);
           return;
@@ -746,6 +771,8 @@ export default function App() {
             }
             
             const items = r2Data.items || r2Data.posts || [];
+            if (r2Data.lastUpdated) setLocalLastUpdated(r2Data.lastUpdated);
+            
             if (items.length > 0) {
               const baseUrl = R2_CONFIG.publicDomain.endsWith('/') ? R2_CONFIG.publicDomain.slice(0, -1) : R2_CONFIG.publicDomain;
               const absoluteItems = items.map((item: any) => ({
@@ -1932,6 +1959,8 @@ export default function App() {
           })) : item.mergedMedia
         }));
         setFlickrPosts(absoluteItems);
+        if (r2Data.lastUpdated) setLocalLastUpdated(r2Data.lastUpdated);
+        setHasCloudChanges(false);
         
         // Save this R2 state to our local backend so we can edit it
         try {
@@ -1995,6 +2024,10 @@ export default function App() {
         bio: portfolioBio,
         lastUpdated: new Date().toISOString()
       });
+      const parsedData = JSON.parse(stateData);
+      setLocalLastUpdated(parsedData.lastUpdated);
+      setHasCloudChanges(false);
+      
       console.log('handleUpload: stateData generated, items count:', currentPosts.length);
 
       setUploadProgress(20);
@@ -2727,6 +2760,7 @@ export default function App() {
         setShowBioEditor={setShowBioEditor}
         handleGetLatestInstagram={handleAddInstagramPost}
         handleGetLatestFlickr={handleAddFlickrPost}
+        hasCloudChanges={hasCloudChanges}
       />
 
       {uploadSuccess && (

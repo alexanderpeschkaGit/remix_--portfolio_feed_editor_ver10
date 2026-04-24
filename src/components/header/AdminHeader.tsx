@@ -51,6 +51,7 @@ interface AdminHeaderProps {
   setShowBioEditor: (v: boolean) => void;
   handleGetLatestInstagram: () => void;
   handleGetLatestFlickr: () => void;
+  hasCloudChanges?: boolean;
 }
 
 const AdminButton = ({ onClick, disabled, id, children, className = "", color = "bg-white/5 text-white/80 hover:bg-white/10 border-white/10", tooltip, active }: any) => (
@@ -126,6 +127,7 @@ export function AdminHeader({
   setShowBioEditor,
   handleGetLatestInstagram,
   handleGetLatestFlickr,
+  hasCloudChanges = false,
 }: AdminHeaderProps) {
   return (
     <header className="max-w-7xl mx-auto mb-12 relative">
@@ -254,7 +256,12 @@ export function AdminHeader({
           <span className="text-center">Cloud Sync</span>
         </AdminButton>
 
-        <AdminButton onClick={handleSyncFromCloudflare} disabled={isEditing || loading} tooltip="Aktuellen Stand von Cloudflare R2 laden (überschreibt lokale Änderungen)">
+        <AdminButton 
+          onClick={handleSyncFromCloudflare} 
+          disabled={isEditing || loading} 
+          tooltip="Aktuellen Stand von Cloudflare R2 laden (überschreibt lokale Änderungen)"
+          color={hasCloudChanges ? "bg-green-600/30 text-green-300 border-green-500/50 shadow-[0_0_10px_rgba(74,222,128,0.3)] animate-pulse" : "bg-white/5 text-white/80 hover:bg-white/10 border-white/10"}
+        >
           <Download className={`w-3 h-3 sm:w-4 sm:h-4 ${loading ? 'animate-spin text-blue-500' : ''}`} />
           <span className="text-center">Load Cloud</span>
         </AdminButton>
