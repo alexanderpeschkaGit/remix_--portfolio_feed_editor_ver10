@@ -196,8 +196,6 @@ export function usePortfolioSync({ updatePosts, setFallbackEnabled, setError }: 
       setError(e?.message || 'R2-Rebuild fehlgeschlagen');
     }
   };
-    }
-  };
 
   return {
     scrapeLogs, isScraping, showLogs, setShowLogs,

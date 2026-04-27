@@ -1235,9 +1235,13 @@ async function startServer() {
         return res.status(404).json({ error: 'Item not found' });
       }
 
-      // Update fields if provided
-      if (title !== undefined) state.items[itemIndex].title = title;
-      if (description !== undefined) state.items[itemIndex].description = description;
+      // Update fields if provided (ensure they are strings)
+      if (title !== undefined) {
+        state.items[itemIndex].title = typeof title === 'object' ? (title.title || JSON.stringify(title)) : String(title);
+      }
+      if (description !== undefined) {
+        state.items[itemIndex].description = typeof description === 'object' ? (description.description || description.text || JSON.stringify(description)) : String(description);
+      }
       if (states !== undefined) state.items[itemIndex].states = states;
       
       // Update the lastUpdated timestamp so the frontend can detect the change

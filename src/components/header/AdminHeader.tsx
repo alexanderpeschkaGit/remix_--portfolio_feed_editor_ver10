@@ -339,15 +339,26 @@ export function AdminHeader({
           <span className="text-center">Bio</span>
         </AdminButton>
 
-        <AdminButton onClick={handleGetLatestInstagram} disabled={isScraping} tooltip="Letzten Instagram Post hinzufügen">
-          <Instagram className="w-3 h-3 sm:w-4 sm:h-4 text-pink-500" /> 
-          <span className="text-center">+ Insta</span>
-        </AdminButton>
-
-        <AdminButton onClick={handleGetLatestFlickr} disabled={isScraping} tooltip="Letzten Flickr Post hinzufügen">
-          <Camera className="w-3 h-3 sm:w-4 sm:h-4 text-blue-400" /> 
-          <span className="text-center">+ Flickr</span>
-        </AdminButton>
+        <div className="col-span-1 flex gap-1">
+          <button 
+            onClick={handleGetLatestInstagram} 
+            disabled={isScraping}
+            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[10px] font-medium border border-white/10 bg-white/5 text-white/80 transition-all hover:bg-white/10 active:scale-95 disabled:opacity-30"
+            title="Letzten Instagram Post hinzufügen"
+          >
+            <Instagram className="w-3 h-3 text-pink-500" />
+            <span>+ Insta</span>
+          </button>
+          <button 
+            onClick={handleGetLatestFlickr} 
+            disabled={isScraping}
+            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[10px] font-medium border border-white/10 bg-white/5 text-white/80 transition-all hover:bg-white/10 active:scale-95 disabled:opacity-30"
+            title="Letzten Flickr Post hinzufügen"
+          >
+            <Camera className="w-3 h-3 text-blue-400" />
+            <span>+ Flickr</span>
+          </button>
+        </div>
 
         <AdminButton
           onClick={handleRestoreLatestPublish}

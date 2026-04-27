@@ -72,6 +72,13 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
 }) => {
   if (!currentLightboxPost) return null;
 
+  const getAsString = (val: any) => {
+    if (!val) return "";
+    if (typeof val === 'string') return val;
+    if (typeof val === 'object') return val.description || val.title || JSON.stringify(val);
+    return String(val);
+  };
+
   return (
     <div 
       className={`fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-4 md:p-8 backdrop-blur-sm ${isHoveringLightboxBg ? 'cursor-none' : ''}`}
@@ -172,7 +179,9 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
                     onLoad={(e) => handleImageLoad(`${currentLightboxPost.id}-${i}`, e)}
                     onError={(e) => {
                       const target = e.currentTarget as HTMLImageElement;
-                      if (media.image && target.src !== media.image) {
+                      if (target.src.includes('maxresdefault.jpg')) {
+                        target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+                      } else if (media.image && target.src !== getDisplayImage(media.image, isR2Fallback, isEmbeddedData) && target.src !== media.image) {
                         target.src = getDisplayImage(media.image, isR2Fallback, isEmbeddedData) || '';
                       }
                     }}
@@ -184,14 +193,14 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
         </div>
         
         <div className="w-full md:w-80 bg-[#111] p-6 rounded-xl border border-white/10 shrink-0 max-h-[80vh] overflow-y-auto custom-scrollbar">
-          <h2 className="text-xl font-medium text-white mb-4">{currentLightboxPost.title}</h2>
+          <h2 className="text-xl font-medium text-white mb-4">{getAsString(currentLightboxPost.title, 'title')}</h2>
           {currentLightboxPost.states && currentLightboxPost.states.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-4">
-              {currentLightboxPost.states.map((stateId: string) => {
+              {currentLightboxPost.states.map((stateId: string, idx: number) => {
                 const state = PROJECT_STATES.find(s => String(s.id).toLowerCase() === String(stateId).toLowerCase());
                 return state ? (
                   <span 
-                    key={stateId}
+                    key={`${stateId}-${idx}`}
                     className="px-3 py-1 rounded-full text-xs font-medium text-white"
                     style={{ backgroundColor: state.muted, border: `1px solid ${state.bright}` }}
                   >
@@ -204,7 +213,7 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
           {currentLightboxPost.description && (
             <div 
               className="text-sm text-white/70 space-y-2 mb-6"
-              dangerouslySetInnerHTML={{ __html: currentLightboxPost.description.replace(/\n/g, '<br/>') }}
+              dangerouslySetInnerHTML={{ __html: getAsString(currentLightboxPost.description).replace(/\n/g, '<br/>') }}
             />
           )}
           <div className="flex flex-col gap-2">

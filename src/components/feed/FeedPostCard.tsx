@@ -42,8 +42,15 @@ export function FeedPostCard({
     attributes, listeners, setNodeRef, transform, transition, isDragging
   } = useSortable({ id: post.id, disabled: !isEditing });
 
-  const [localTitle, setLocalTitle] = useState(post.title);
-  const [localDescription, setLocalDescription] = useState(post.description);
+  const getAsString = (val: any, fallbackKey?: string) => {
+    if (!val) return "";
+    if (typeof val === 'string') return val;
+    if (typeof val === 'object') return val[fallbackKey || ''] || val.description || val.title || val.text || JSON.stringify(val);
+    return String(val);
+  };
+
+  const [localTitle, setLocalTitle] = useState(() => getAsString(post.title, 'title'));
+  const [localDescription, setLocalDescription] = useState(() => getAsString(post.description, 'description'));
   const [hoveredState, setHoveredState] = useState<string | null>(null);
   const [feedImageDimensions, setFeedImageDimensions] = useState<string>('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -54,11 +61,13 @@ export function FeedPostCard({
   };
 
   useEffect(() => {
-    setLocalTitle(post.title);
+    console.log(`[FeedPostCard] Syncing title for ${post.id}`);
+    setLocalTitle(getAsString(post.title, 'title'));
   }, [post.title]);
 
   useEffect(() => {
-    setLocalDescription(post.description);
+    console.log(`[FeedPostCard] Syncing description for ${post.id}`);
+    setLocalDescription(getAsString(post.description, 'description'));
   }, [post.description]);
 
   useLayoutEffect(() => {
@@ -249,7 +258,7 @@ export function FeedPostCard({
                   </label>
                 )}
                 {media.image || media.image_preview || media.url ? (
-                  media.type === 'video' || (media.image && media.image.endsWith('.mp4')) ? (
+                  getVideoSrc(media) ? (
                     <video 
                       src={getDisplayImage(getVideoSrc(media) ?? undefined, isR2Fallback, isEmbeddedData)} 
                       className="w-full h-24 object-cover rounded cursor-pointer"
@@ -263,8 +272,11 @@ export function FeedPostCard({
                       className="w-full h-24 object-cover rounded cursor-pointer"
                       onClick={() => setSelectedImage(post)}
                       onError={(e) => {
-                        if (media.image_preview && e.currentTarget.src !== getDisplayImage(media.image_preview, isR2Fallback, isEmbeddedData)) {
-                          e.currentTarget.src = getDisplayImage(media.image_preview, isR2Fallback, isEmbeddedData) || '';
+                        const target = e.currentTarget;
+                        if (target.src.includes('maxresdefault.jpg')) {
+                          target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+                        } else if (media.image_preview && target.src !== getDisplayImage(media.image_preview, isR2Fallback, isEmbeddedData)) {
+                          target.src = getDisplayImage(media.image_preview, isR2Fallback, isEmbeddedData) || '';
                         }
                       }}
                     />
@@ -280,7 +292,7 @@ export function FeedPostCard({
         ) : (
           <>
             {displayMedia.image || displayMedia.image_preview || displayMedia.url ? (
-              displayMedia.type === 'video' || (displayMedia.image && displayMedia.image.endsWith('.mp4')) ? (
+              getVideoSrc(displayMedia) ? (
                 <video 
                   src={getDisplayImage(getVideoSrc(displayMedia) ?? undefined, isR2Fallback, isEmbeddedData)} 
                   className={`w-full h-full object-cover transition-transform duration-500 ease-out cursor-pointer ${!isEditing ? 'group-hover:scale-[1.03]' : ''}`}
@@ -297,8 +309,11 @@ export function FeedPostCard({
                   onLoad={handleFeedImageLoad}
                   onClick={() => setSelectedImage(post)}
                   onError={(e) => {
-                    if (displayMedia.image_preview && e.currentTarget.src !== getDisplayImage(displayMedia.image_preview, isR2Fallback, isEmbeddedData)) {
-                      e.currentTarget.src = getDisplayImage(displayMedia.image_preview, isR2Fallback, isEmbeddedData) || '';
+                    const target = e.currentTarget;
+                    if (target.src.includes('maxresdefault.jpg')) {
+                      target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+                    } else if (displayMedia.image_preview && target.src !== getDisplayImage(displayMedia.image_preview, isR2Fallback, isEmbeddedData)) {
+                      target.src = getDisplayImage(displayMedia.image_preview, isR2Fallback, isEmbeddedData) || '';
                     }
                   }}
                 />
@@ -353,7 +368,7 @@ export function FeedPostCard({
             />
             <div className="flex flex-wrap gap-1 mt-2">
               {PROJECT_STATES.map(s => {
-                const isActive = post.states?.map(state => String(state).toLowerCase()).includes(String(s.id).toLowerCase());
+                const isActive = (post.states || []).map((state: string) => String(state).toLowerCase()).includes(String(s.id).toLowerCase());
                 const isHovered = hoveredState === s.id;
                 const isBright = isActive || isHovered;
                 return (
@@ -403,13 +418,13 @@ export function FeedPostCard({
           </>
         ) : (
           <>
-            <h2 className="font-medium text-sm text-white/90 line-clamp-2" title={post.title}>
-              {post.title}
+            <h2 className="font-medium text-sm text-white/90 line-clamp-2" title={localTitle}>
+              {localTitle}
             </h2>
-            {post.description && (
+            {localDescription && (
               <div 
                 className="text-xs text-white/60 line-clamp-3 mt-1"
-                dangerouslySetInnerHTML={{ __html: formatDescription(post.description, post.title) }}
+                dangerouslySetInnerHTML={{ __html: formatDescription(localDescription, localTitle) }}
               />
             )}
             {post.states && post.states.length > 0 && (

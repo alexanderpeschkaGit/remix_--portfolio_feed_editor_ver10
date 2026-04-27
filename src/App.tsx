@@ -25,18 +25,31 @@ import { useBioFeature } from './hooks/useBioFeature';
 import { linkifyToHtml } from './utils/linkify';
 import { RearrangeModal } from './components/modals/RearrangeModal';
 import { LightboxModal } from './components/modals/LightboxModal';
+import { ConfirmSyncModal } from './components/modals/ConfirmSyncModal';
 import { BackupsModal } from './components/modals/BackupsModal';
 import { ScrapingLogsModal } from './components/modals/ScrapingLogsModal';
 import { UncertainMatchesModal } from './components/modals/UncertainMatchesModal';
 import { BioEditorModal } from './components/modals/BioEditorModal';
 import { PostCommitModal } from './components/modals/PostCommitModal';
+import { CloudSyncChangesModal } from './components/modals/CloudSyncChangesModal';
 import { FeedPostCard } from './components/feed/FeedPostCard';
 import { ThumbnailGalleryGrid } from './components/gallery/ThumbnailGalleryGrid';
 import { AdminHeader } from './components/header/AdminHeader';
 import { mergeIncomingPostsPreservingExisting } from './utils/mergePosts';
 
-const formatDescription = (description: string, title: string) => {
-  let text = description;
+const formatDescription = (description: any, title: string) => {
+  if (!description) return "";
+  
+  let text = "";
+  if (typeof description === 'string') {
+    text = description;
+  } else if (typeof description === 'object') {
+    // Handle corrupted data where description is an object (possibly the whole post)
+    text = description.description || description.text || JSON.stringify(description);
+    if (typeof text !== 'string') text = String(text);
+  } else {
+    text = String(description);
+  }
   
   // Remove emojis
   text = text.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1F1E0}-\u{1F1FF}]/gu, '');
@@ -45,12 +58,12 @@ const formatDescription = (description: string, title: string) => {
   text = text.replace(/#\w+/g, '');
   
   // Remove title if it appears
-  if (title) {
+  if (title && typeof text === 'string') {
     const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     text = text.replace(new RegExp(escapedTitle, 'gi'), '');
   }
   
-  return text.replace(/\s+/g, ' ').trim();
+  return typeof text === 'string' ? text.replace(/\s+/g, ' ').trim() : "";
 };
 
 const MergeConfirmationModal = ({ isOpen, group, onConfirm, onSkip }: any) => {
@@ -115,20 +128,37 @@ const isValidImageCandidate = (url?: string) => {
   if (!url) return false;
   if (url.startsWith('data:') || url.startsWith('blob:')) return true;
   if (url.startsWith('/data/') || url.startsWith('/originals/')) return true;
+  if (url.includes('img.youtube.com/vi/')) return true;
   return isDirectMediaFile(url);
 };
 
 const getImageSrc = (media: any, preferLarge = false) => {
+  // If it's a YouTube post, we can often generate the thumb even if image field is messy
+  if (media?.type === 'youtube' || media?.youtubeId) {
+    const id = media.youtubeId;
+    if (id) {
+      // Return the stored image if valid, otherwise fallback to generated thumb
+      const stored = preferLarge ? (media?.image_3k || media?.image_large || media?.image) : (media?.image || media?.image_preview);
+      if (isValidImageCandidate(stored)) return stored;
+      return `https://img.youtube.com/vi/${id}/maxresdefault.jpg`;
+    }
+  }
+
   const primary = preferLarge
     ? [media?.image_3k, media?.image_large, media?.imageLarge, media?.largeUrl, media?.image, media?.image_preview]
     : [media?.image, media?.image_preview, media?.image_3k, media?.image_large, media?.imageLarge, media?.largeUrl];
+    
   for (const candidate of primary) {
     if (isValidImageCandidate(candidate)) return candidate;
   }
+  
   return undefined;
 };
 
 const getVideoSrc = (media: any, preferLarge = false) => {
+  // YouTube is NOT a direct video file we can play in a <video> tag
+  if (media?.type === 'youtube' || media?.youtubeId) return undefined;
+
   const primary = preferLarge
     ? [media?.image_large, media?.imageLarge, media?.largeUrl, media?.image]
     : [media?.image, media?.image_preview, media?.image_large, media?.imageLarge];
@@ -186,6 +216,8 @@ export default function App() {
   const [showResolutionToast, setShowResolutionToast] = useState(false);
   const [localLastUpdated, setLocalLastUpdated] = useState<string | null>(null);
   const [hasCloudChanges, setHasCloudChanges] = useState(false);
+  const [cloudSyncChanges, setCloudSyncChanges] = useState<string[] | null>(null);
+  const [cloudSyncState, setCloudSyncState] = useState<{ changes: string[]; items: any[]; r2Data: any } | null>(null);
 
   const uploadingCount = Object.values(activeUploads).reduce((sum: number, count: number) => sum + count, 0);
 
@@ -952,8 +984,11 @@ export default function App() {
     updatePosts(posts => posts.map(post => {
       if (String(post.id) === String(postId)) {
         const states = post.states || [];
-        const newStates = states.includes(stateId) 
-          ? states.filter((s: string) => s !== stateId)
+        const stateIdLower = String(stateId).toLowerCase();
+        const hasState = states.some((s: string) => String(s).toLowerCase() === stateIdLower);
+        
+        const newStates = hasState 
+          ? states.filter((s: string) => String(s).toLowerCase() !== stateIdLower)
           : [...states, stateId];
         return { ...post, states: newStates };
       }
@@ -1333,7 +1368,7 @@ export default function App() {
           } else {
             const imageUrl = getProxiedUrl(getImageSrc(m, true) || getImageSrc(m));
             if (!imageUrl) return '';
-            return `<div class="block mb-2"><img src="${imageUrl}" alt="" loading="lazy" /></div>`;
+            return `<div class="block mb-2"><img src="${imageUrl}" alt="" loading="lazy" onerror="if(this.src.includes('maxresdefault.jpg')) this.src=this.src.replace('maxresdefault.jpg', 'hqdefault.jpg')" /></div>`;
           }
         }).join('') + `</div>`;
       } else {
@@ -1356,7 +1391,7 @@ export default function App() {
           if (imageUrl) {
             mediaHtml = `
               <div>
-                <img src="${imageUrl}" alt="${post.title.replace(/"/g, '&quot;')}" loading="lazy" />
+                <img src="${imageUrl}" alt="${post.title.replace(/"/g, '&quot;')}" loading="lazy" onerror="if(this.src.includes('maxresdefault.jpg')) this.src=this.src.replace('maxresdefault.jpg', 'hqdefault.jpg')" />
               </div>
             `;
           }
@@ -2012,9 +2047,64 @@ export default function App() {
         if (r2Data.scrapeConfig.igAccount) setIgAccount(r2Data.scrapeConfig.igAccount);
         if (r2Data.scrapeConfig.flickrUrl) setFlickrUrl(r2Data.scrapeConfig.flickrUrl);
       }
+      if (r2Data.bio) setPortfolioBio(r2Data.bio);
       
       const items = r2Data.items || r2Data.posts || [];
       if (items.length > 0) {
+        const changes: string[] = [];
+        
+        if (r2Data.title && portfolioTitle !== r2Data.title) changes.push(`~ Portfolio Titel [geändert]`);
+        if (r2Data.subtitle && portfolioSubtitle !== r2Data.subtitle) changes.push(`~ Portfolio Untertitel [geändert]`);
+        if (r2Data.bio && portfolioBio !== r2Data.bio) changes.push(`~ Portfolio Bio [geändert]`);
+
+        const newItems = items.filter((item: any) => !flickrPosts.find((p: any) => String(p.id) === String(item.id)));
+        if (newItems.length > 0) {
+          changes.push(`Neu hinzugefügt (${newItems.length}):`);
+          newItems.forEach((item: any) => changes.push(`+ ${item.title || 'Ohne Titel'}`));
+        }
+        
+        const deletedItems = flickrPosts.filter((p: any) => !items.find((item: any) => String(item.id) === String(p.id)));
+        if (deletedItems.length > 0) {
+          changes.push(`Gelöscht (${deletedItems.length}):`);
+          deletedItems.forEach((item: any) => changes.push(`- ${item.title || 'Ohne Titel'}`));
+        }
+
+        const updatedItems = items.filter((item: any) => {
+          const old = flickrPosts.find((p: any) => String(p.id) === String(item.id));
+          if (!old) return false;
+          // Simple compare omitting fields that are locally generated
+          const a = { ...old, image_preview: undefined, uploadId: undefined };
+          const b = { ...item, image_preview: undefined, uploadId: undefined };
+          return JSON.stringify(a) !== JSON.stringify(b);
+        });
+        
+        if (updatedItems.length > 0) {
+          changes.push(`Geändert (${updatedItems.length}):`);
+          updatedItems.forEach((item: any) => {
+            const old = flickrPosts.find((p: any) => String(p.id) === String(item.id));
+            const changedFields = [];
+            if (old.title !== item.title) changedFields.push('Titel');
+            if (old.description !== item.description) changedFields.push('Beschreibung');
+            if (JSON.stringify(old.states || []) !== JSON.stringify(item.states || [])) changedFields.push('Kategorien');
+            if (old.hidden !== item.hidden) changedFields.push('Sichtbarkeit');
+            
+            // For media, just do a basic length check or stringify
+            const oldMedia = old.mergedMedia ? old.mergedMedia.map((m: any) => ({...m, uploadId: undefined, image_preview: undefined})) : [];
+            const newMedia = item.mergedMedia ? item.mergedMedia.map((m: any) => ({...m, uploadId: undefined, image_preview: undefined})) : [];
+            if (JSON.stringify(oldMedia) !== JSON.stringify(newMedia)) changedFields.push('Medien');
+            
+            if (changedFields.length === 0) changedFields.push('Sonstiges');
+            
+            changes.push(`~ ${item.title || 'Ohne Titel'} [${changedFields.join(', ')}]`);
+          });
+        }
+
+        if (changes.length === 0) {
+          changes.push("Keine Änderungen an den Posts festgestellt.");
+        }
+        
+        setCloudSyncChanges(changes);
+
         const baseUrl = R2_CONFIG.publicDomain.endsWith('/') ? R2_CONFIG.publicDomain.slice(0, -1) : R2_CONFIG.publicDomain;
         const absoluteItems = items.map((item: any) => ({
           ...item,
@@ -2030,22 +2120,14 @@ export default function App() {
             largeUrl: m.largeUrl && !m.largeUrl.startsWith('http') ? `${baseUrl}/${m.largeUrl.startsWith('/') ? m.largeUrl.substring(1) : m.largeUrl}` : m.largeUrl
           })) : item.mergedMedia
         }));
-        setFlickrPosts(absoluteItems);
-        if (r2Data.lastUpdated) setLocalLastUpdated(r2Data.lastUpdated);
-        setHasCloudChanges(false);
         
-        // Save this R2 state to our local backend so we can edit it
-        try {
-          await fetch('/api/state', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(r2Data)
-          });
-        } catch (saveErr) {
-          console.error("Could not save R2 state locally:", saveErr);
-        }
+        // Instead of applying immediately, store in pending state for confirmation
+        setCloudSyncState({ 
+          changes: changes.length > 0 ? changes : ["Keine strukturellen Änderungen an den Posts festgestellt."], 
+          items: absoluteItems, 
+          r2Data 
+        });
       }
-      alert("Erfolgreich von Cloudflare R2 synchronisiert!");
     } catch (e) {
       console.error(e);
       alert("Fehler beim Laden von Cloudflare R2.");
@@ -2470,7 +2552,7 @@ export default function App() {
     setLightboxDraggedIdx(null);
   };
 
-  const currentLightboxPost = selectedImage ? flickrPosts.find(p => String(p.id) === String(selectedImage.id)) || selectedImage : null;
+  const currentLightboxPost = selectedImage ? (flickrPosts.find(p => String(p.id) === String(selectedImage.id)) || selectedImage) : null;
 
   const handleMerge = async () => {
     if (selectedThumbnails.length < 2) return;
@@ -2964,6 +3046,40 @@ export default function App() {
         source={commitPostSource}
         onClose={resetCommitState}
         onConfirm={handleConfirmCommitPost}
+      />
+
+      <ConfirmSyncModal
+        isOpen={cloudSyncState !== null}
+        onClose={() => setCloudSyncState(null)}
+        onConfirm={async () => {
+          if (!cloudSyncState) return;
+          const { items, r2Data } = cloudSyncState;
+          
+          console.log('[Sync] User confirmed. Applying cloud data to state:', items.length, 'items');
+          updatePosts(items);
+          
+          if (r2Data.lastUpdated) setLocalLastUpdated(r2Data.lastUpdated);
+          setHasCloudChanges(false);
+          
+          try {
+            await fetch('/api/state', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(r2Data)
+            });
+          } catch (saveErr) {
+            console.error("Could not save R2 state locally:", saveErr);
+          }
+          
+          setCloudSyncState(null);
+        }}
+        changes={cloudSyncState?.changes || []}
+      />
+
+      <CloudSyncChangesModal
+        isOpen={cloudSyncChanges !== null}
+        onClose={() => setCloudSyncChanges(null)}
+        changes={cloudSyncChanges || []}
       />
 
       <LightboxModal
