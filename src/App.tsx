@@ -1319,17 +1319,22 @@ export default function App() {
     }
   };
 
-  const generateHTML = (posts: any[], title: string, subtitle: string, bio: string = '') => {
+  const generateHTML = (posts: any[], title: string, subtitle: string, bio: string = '', forPreview = false) => {
     console.log('Generating HTML, posts:', posts);
-    const baseUrl = R2_CONFIG.publicDomain.startsWith('http') ? R2_CONFIG.publicDomain : `https://${R2_CONFIG.publicDomain}`;
+    const domainFromState = publicDomain || R2_CONFIG.publicDomain;
+    const baseUrl = domainFromState.startsWith('http') ? domainFromState : `https://${domainFromState}`;
 
     const getProxiedUrl = (url: string) => {
       if (!url) return '';
       if (url.startsWith('http') || url.startsWith('blob:') || url.startsWith('data:')) return url;
-      // Keep root-relative local paths for preview/local runtime (e.g. /data/...)
-      if (url.startsWith('/')) return url;
+      
+      // If we are in preview mode and the path is a local root-relative path, keep it as is
+      // so the local dev server can serve it.
+      if (forPreview && url.startsWith('/')) return url;
       
       let cleanUrl = url;
+      // Strip leading slash if it exists so we can safely join with baseUrl
+      if (cleanUrl.startsWith('/')) cleanUrl = cleanUrl.substring(1);
       if (cleanUrl.startsWith('./')) cleanUrl = cleanUrl.substring(2);
       
       const domain = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
@@ -2138,7 +2143,7 @@ export default function App() {
 
   const handlePreview = async () => {
     try {
-      const html = generateHTML(flickrPosts, portfolioTitle, portfolioSubtitle, portfolioBio);
+      const html = generateHTML(flickrPosts, portfolioTitle, portfolioSubtitle, portfolioBio, true);
       const response = await fetch('/api/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2168,7 +2173,7 @@ export default function App() {
     console.log('handleUpload: currentPosts IDs in order:', currentPosts.map(p => p.id));
     
     try {
-      const htmlContent = generateHTML(currentPosts, portfolioTitle, portfolioSubtitle, portfolioBio);
+      const htmlContent = generateHTML(currentPosts, portfolioTitle, portfolioSubtitle, portfolioBio, false);
       console.log('handleUpload: htmlContent generated, length:', htmlContent.length);
       
       const stateData = JSON.stringify({
