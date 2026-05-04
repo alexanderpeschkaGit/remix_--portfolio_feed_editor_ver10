@@ -3117,6 +3117,7 @@ export default function App() {
         handleLightboxDragStart={handleLightboxDragStart}
         handleLightboxDragOver={handleLightboxDragOver}
         handleLightboxDrop={handleLightboxDrop}
+        handlePostChange={handlePostChange}
       />
       <RearrangeModal
         isReorderView={isReorderView}

@@ -45,7 +45,7 @@ interface LightboxModalProps {
   handleImageLoad: (id: string, e: React.SyntheticEvent<HTMLImageElement>) => void;
   handleLightboxDragStart: (e: React.DragEvent, i: number) => void;
   handleLightboxDragOver: (e: React.DragEvent) => void;
-  handleLightboxDrop: (e: React.DragEvent, i: number, postId: string) => void;
+  handlePostChange: (id: string, field: string, value: string) => void;
 }
 
 export const LightboxModal: React.FC<LightboxModalProps> = ({
@@ -69,6 +69,7 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
   handleLightboxDragStart,
   handleLightboxDragOver,
   handleLightboxDrop,
+  handlePostChange,
 }) => {
   if (!currentLightboxPost) return null;
 
@@ -193,7 +194,17 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
         </div>
         
         <div className="w-full md:w-80 bg-[#111] p-6 rounded-xl border border-white/10 shrink-0 max-h-[80vh] overflow-y-auto custom-scrollbar">
-          <h2 className="text-xl font-medium text-white mb-4">{getAsString(currentLightboxPost.title, 'title')}</h2>
+          {isEditing ? (
+            <input 
+              className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-lg font-medium text-white mb-4 focus:border-blue-500 focus:outline-none"
+              value={getAsString(currentLightboxPost.title)}
+              onChange={(e) => handlePostChange(currentLightboxPost.id, 'title', e.target.value)}
+              placeholder="Titel..."
+            />
+          ) : (
+            <h2 className="text-xl font-medium text-white mb-4">{getAsString(currentLightboxPost.title)}</h2>
+          )}
+          
           {currentLightboxPost.states && currentLightboxPost.states.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-4">
               {currentLightboxPost.states.map((stateId: string, idx: number) => {
@@ -210,7 +221,15 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
               })}
             </div>
           )}
-          {currentLightboxPost.description && (
+          
+          {isEditing ? (
+            <textarea 
+              className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-white/70 mb-6 focus:border-blue-500 focus:outline-none min-h-[120px] custom-scrollbar resize-none"
+              value={getAsString(currentLightboxPost.description)}
+              onChange={(e) => handlePostChange(currentLightboxPost.id, 'description', e.target.value)}
+              placeholder="Beschreibung..."
+            />
+          ) : currentLightboxPost.description && (
             <div 
               className="text-sm text-white/70 space-y-2 mb-6"
               dangerouslySetInnerHTML={{ __html: getAsString(currentLightboxPost.description).replace(/\n/g, '<br/>') }}
