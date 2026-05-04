@@ -68,8 +68,8 @@ async function startServer() {
         // Keep only last 50 data backups
         const files = await fs.readdir(DATA_BACKUPS_DIR);
         const backups = files.filter(f => f.startsWith('state_') && f.endsWith('.json')).sort().reverse();
-        if (backups.length > 50) {
-          for (const f of backups.slice(50)) {
+        if (backups.length > 100) { // Increased to 100 for more safety
+          for (const f of backups.slice(100)) {
             await fs.unlink(path.join(DATA_BACKUPS_DIR, f)).catch(() => {});
           }
         }
@@ -78,6 +78,20 @@ async function startServer() {
       console.error("Backup failed:", e);
     }
   }
+
+  // One-time cleanup: Move loose .bak files from data/ to backups/data/
+  async function cleanupLooseBakFiles() {
+    try {
+      const files = await fs.readdir(DATA_DIR);
+      const bakFiles = files.filter(f => f.includes('.bak'));
+      for (const f of bakFiles) {
+        const oldPath = path.join(DATA_DIR, f);
+        const newPath = path.join(DATA_BACKUPS_DIR, f.replace('.json.bak.', '_bak_').replace('.bak.', '_bak_'));
+        await fs.rename(oldPath, newPath).catch(() => {});
+      }
+    } catch (e) {}
+  }
+  cleanupLooseBakFiles();
 
   const extractPortfolioDataFromHtml = (html: string) => {
     const fullStateMatch = html.match(/<script id="editor-state-backup" type="application\/json">([\s\S]*?)<\/script>/);
@@ -1370,15 +1384,45 @@ async function startServer() {
   // API route to list backups
   app.get("/api/backups", async (req, res) => {
     try {
-      const files = await fs.readdir(BACKUPS_DIR);
-      const htmlFiles = files.filter(f => f.endsWith('.html')).sort().reverse();
-      res.json({ files: htmlFiles });
+      // 1. Get HTML backups (Full backups)
+      const htmlFiles = await fs.readdir(BACKUPS_DIR);
+      const fullBackups = htmlFiles
+        .filter(f => f.endsWith('.html'))
+        .map(f => ({ filename: f, type: 'full' }));
+
+      // 2. Get JSON backups (Data backups)
+      const jsonFiles = await fs.readdir(DATA_BACKUPS_DIR);
+      const dataBackups = jsonFiles
+        .filter(f => f.endsWith('.json'))
+        .map(f => ({ filename: `data/${f}`, type: 'data' }));
+
+      // Combine and sort by date (newest first)
+      const allBackups = [...fullBackups, ...dataBackups].sort((a, b) => {
+        // Extract timestamp from filename
+        const getTime = (name: string) => {
+          const match = name.match(/(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})/);
+          return match ? match[1] : name;
+        };
+        return getTime(b.filename).localeCompare(getTime(a.filename));
+      });
+
+      res.json({ files: allBackups });
     } catch (e) {
       res.json({ files: [] });
     }
   });
 
   // API route to download a backup
+  app.get("/api/backups/:folder/:filename", async (req, res) => {
+    try {
+      const { folder, filename } = req.params;
+      const filepath = path.join(BACKUPS_DIR, folder, filename);
+      res.download(filepath);
+    } catch (e) {
+      res.status(404).json({ error: 'Backup not found' });
+    }
+  });
+
   app.get("/api/backups/:filename", async (req, res) => {
     try {
       const filepath = path.join(BACKUPS_DIR, req.params.filename);

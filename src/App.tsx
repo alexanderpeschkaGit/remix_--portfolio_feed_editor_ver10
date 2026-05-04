@@ -343,7 +343,7 @@ export default function App() {
   const [activeUploadId, setActiveUploadId] = useState<string | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const [showBackups, setShowBackups] = useState(false);
-  const [backupsList, setBackupsList] = useState<string[]>([]);
+  const [backupsList, setBackupsList] = useState<any[]>([]);
   const [isResettingAll, setIsResettingAll] = useState(false);
   const [isRestoring, setIsRestoring] = useState<string | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
@@ -2480,16 +2480,25 @@ export default function App() {
     try {
       const res = await fetch(`/api/backups/${filename}`);
       if (!res.ok) throw new Error(`Download fehlgeschlagen: ${res.statusText}`);
-      const html = await res.text();
       
-      // Extract data from script tag (try editor full state first, fallback to public portfolio data)
-      const fullStateMatch = html.match(/<script id="editor-state-backup" type="application\/json">([\s\S]*?)<\/script>/);
-      const publicMatch = html.match(/<script id="portfolio-data" type="application\/json">([\s\S]*?)<\/script>/);
+      let data: any = null;
+      const isJson = filename.endsWith('.json');
       
-      const match = fullStateMatch || publicMatch;
+      if (isJson) {
+        data = await res.json();
+      } else {
+        const html = await res.text();
+        // Extract data from script tag (try editor full state first, fallback to public portfolio data)
+        const fullStateMatch = html.match(/<script id="editor-state-backup" type="application\/json">([\s\S]*?)<\/script>/);
+        const publicMatch = html.match(/<script id="portfolio-data" type="application\/json">([\s\S]*?)<\/script>/);
+        
+        const match = fullStateMatch || publicMatch;
+        if (match && match[1]) {
+          data = JSON.parse(match[1]);
+        }
+      }
       
-      if (match && match[1]) {
-        const data = JSON.parse(match[1]);
+      if (data) {
         const items = data.items || data.posts;
         if (items) {
           // Use the functional update to ensure we have the latest state for history
@@ -2516,7 +2525,7 @@ export default function App() {
           throw new Error("Keine Daten im Backup gefunden.");
         }
       } else {
-        throw new Error("Backup-Format ungültig (Script-Tag fehlt).");
+        throw new Error(isJson ? "JSON-Daten ungültig." : "Backup-Format ungültig (Script-Tag fehlt).");
       }
     } catch (e: any) {
       console.error("Restore failed:", e);
