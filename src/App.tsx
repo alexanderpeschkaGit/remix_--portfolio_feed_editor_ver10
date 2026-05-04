@@ -1353,15 +1353,7 @@ export default function App() {
       let mediaHtml = '';
       
       if (post.mergedMedia && post.mergedMedia.length > 0) {
-        // Sort media: videos first
-        const sortedMedia = [...post.mergedMedia].sort((a, b) => {
-          const aYid = a.youtubeId || getYoutubeId(a.url || a.link);
-          const aIsVideo = a.type === 'video' || a.type === 'youtube' || aYid || (a.image && a.image.endsWith('.mp4')) || ((a.url || a.link) && (a.url || a.link).endsWith('.mp4'));
-          const bYid = b.youtubeId || getYoutubeId(b.url || b.link);
-          const bIsVideo = b.type === 'video' || b.type === 'youtube' || bYid || (b.image && b.image.endsWith('.mp4')) || ((b.url || b.link) && (b.url || b.link).endsWith('.mp4'));
-          return (bIsVideo ? 1 : 0) - (aIsVideo ? 1 : 0);
-        });
-
+        const sortedMedia = [...post.mergedMedia];
         mediaHtml = `<div class="media-stack">` + sortedMedia.map((m: any) => {
           const yid = m.youtubeId || getYoutubeId(m.url || m.link);
           if (yid) {
@@ -1761,9 +1753,9 @@ export default function App() {
             
             currentPostMedia = [];
             if (currentPost.mergedMedia && currentPost.mergedMedia.length > 0) {
-              currentPostMedia = [...currentPost.mergedMedia];
+              currentPostMedia = currentPost.mergedMedia.filter(m => getImageSrc(m, true) || getImageSrc(m) || getVideoSrc(m, true) || getVideoSrc(m) || m.youtubeId || getYoutubeId(m.url || m.link));
             } else {
-              currentPostMedia = [currentPost];
+              currentPostMedia = [currentPost].filter(m => getImageSrc(m, true) || getImageSrc(m) || getVideoSrc(m, true) || getVideoSrc(m) || m.youtubeId || getYoutubeId(m.url || m.link));
             }
             
             currentMediaIndex = 0;
