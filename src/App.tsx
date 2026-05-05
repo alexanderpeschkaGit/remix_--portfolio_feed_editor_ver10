@@ -189,8 +189,12 @@ const EDITOR_FAVICON_DATA_URI = `data:image/svg+xml,${encodeURIComponent(EDITOR_
 
 export default function App() {
   const [flickrPosts, setFlickrPosts] = useState<any[]>([]);
-  const [past, setPast] = useState<any[][]>([]);
-  const [future, setFuture] = useState<any[][]>([]);
+  const flickrPostsRef = useRef<any[]>([]);
+  const portfolioTitleRef = useRef<string>('');
+  const portfolioSubtitleRef = useRef<string>('');
+  const portfolioBioRef = useRef<string>('');
+  const [past, setPast] = useState<{posts: any[], action: string}[]>([]);
+  const [future, setFuture] = useState<{posts: any[], action: string}[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [restoringLatestPublish, setRestoringLatestPublish] = useState(false);
@@ -470,6 +474,22 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    flickrPostsRef.current = flickrPosts;
+  }, [flickrPosts]);
+
+  useEffect(() => {
+    portfolioTitleRef.current = portfolioTitle;
+  }, [portfolioTitle]);
+
+  useEffect(() => {
+    portfolioSubtitleRef.current = portfolioSubtitle;
+  }, [portfolioSubtitle]);
+
+  useEffect(() => {
+    portfolioBioRef.current = portfolioBio;
+  }, [portfolioBio]);
+
   // Poll for cloud changes from representation AI
   useEffect(() => {
     if (!isInitialized) return; // Wait for initialization, but poll even if localLastUpdated is missing
@@ -481,7 +501,30 @@ export default function App() {
           const cloudData = await res.json();
           // Trigger flash if cloud has a timestamp and it differs from local (or local has none)
           if (cloudData.lastUpdated && cloudData.lastUpdated !== localLastUpdated) {
-            setHasCloudChanges(true);
+            // Validate that actual content has changed, not just the timestamp
+            const cloudItems = cloudData.items || cloudData.posts || [];
+            
+            const headerChanged = 
+              (cloudData.title && cloudData.title !== portfolioTitleRef.current) ||
+              (cloudData.subtitle && cloudData.subtitle !== portfolioSubtitleRef.current) ||
+              (cloudData.bio && cloudData.bio !== portfolioBioRef.current);
+
+            const newItems = cloudItems.filter((item: any) => !flickrPostsRef.current.find((p: any) => String(p.id) === String(item.id)));
+            const deletedItems = flickrPostsRef.current.filter((p: any) => !cloudItems.find((item: any) => String(item.id) === String(p.id)));
+            const updatedItems = cloudItems.filter((item: any) => {
+              const old = flickrPostsRef.current.find((p: any) => String(p.id) === String(item.id));
+              if (!old) return false;
+              const a = { ...old, image_preview: undefined, uploadId: undefined };
+              const b = { ...item, image_preview: undefined, uploadId: undefined };
+              return JSON.stringify(a) !== JSON.stringify(b);
+            });
+
+            if (headerChanged || newItems.length > 0 || deletedItems.length > 0 || updatedItems.length > 0) {
+              setHasCloudChanges(true);
+            } else {
+              // Automatically sync the timestamp locally if content matches to avoid further polling checks
+              setLocalLastUpdated(cloudData.lastUpdated);
+            }
           }
         }
       } catch (e) {
@@ -944,10 +987,10 @@ export default function App() {
     };
   }, [flickrPosts, portfolioTitle, portfolioSubtitle]);
 
-  const updatePosts = (newPosts: any[] | ((p: any[]) => any[])) => {
+  const updatePosts = (newPosts: any[] | ((p: any[]) => any[]), actionDescription: string = 'Aktion durchgeführt') => {
     setFlickrPosts(current => {
       const next = typeof newPosts === 'function' ? newPosts(current) : newPosts;
-      setPast(p => [...p, current].slice(-50)); // Keep last 50 states
+      setPast(p => [...p, { posts: current, action: actionDescription }].slice(-50)); // Keep last 50 states
       setFuture([]); // Clear future on new action
       return next;
     });
@@ -956,31 +999,33 @@ export default function App() {
   const handleUndo = () => {
     if (past.length === 0) return;
     const current = flickrPosts;
-    const previous = past[past.length - 1];
+    const previousState = past[past.length - 1];
     setPast(p => p.slice(0, -1));
-    setFuture(f => [...f, current].slice(-50));
-    setFlickrPosts(previous);
+    setFuture(f => [...f, { posts: current, action: previousState.action }].slice(-50));
+    setFlickrPosts(previousState.posts);
   };
 
   const handleRedo = () => {
     if (future.length === 0) return;
     const current = flickrPosts;
-    const next = future[future.length - 1];
+    const nextState = future[future.length - 1];
     setFuture(f => f.slice(0, -1));
-    setPast(p => [...p, current].slice(-50));
-    setFlickrPosts(next);
+    setPast(p => [...p, { posts: current, action: nextState.action }].slice(-50));
+    setFlickrPosts(nextState.posts);
   };
 
   const handleToggleHidden = (postId: string) => {
+    const targetTitle = flickrPosts.find(p => String(p.id) === String(postId))?.title || 'Unbenannt';
     updatePosts(posts => posts.map(post => {
       if (String(post.id) === String(postId)) {
         return { ...post, hidden: !post.hidden };
       }
       return post;
-    }));
+    }), `Sichtbarkeit geändert (${targetTitle})`);
   };
 
   const handleStateToggle = (postId: string, stateId: string) => {
+    const targetTitle = flickrPosts.find(p => String(p.id) === String(postId))?.title || 'Unbenannt';
     updatePosts(posts => posts.map(post => {
       if (String(post.id) === String(postId)) {
         const states = post.states || [];
@@ -993,13 +1038,14 @@ export default function App() {
         return { ...post, states: newStates };
       }
       return post;
-    }));
+    }), `Kategorie geändert (${targetTitle})`);
   };
 
   const handlePostChange = (id: string, field: string, value: string) => {
+    const targetTitle = flickrPosts.find(p => String(p.id) === String(id))?.title || 'Unbenannt';
     updatePosts(posts => posts.map(post => 
       String(post.id) === String(id) ? { ...post, [field]: value } : post
-    ));
+    ), `Textfeld bearbeitet (${targetTitle})`);
   };
 
   const handleAddNewPost = () => {
@@ -1013,16 +1059,18 @@ export default function App() {
       network_name: 'Custom',
       type: 'image'
     };
-    updatePosts([newPost, ...flickrPosts]);
+    updatePosts([newPost, ...flickrPosts], 'Neuen Post hinzugefügt');
     setIsEditing(true);
   };
 
   const handleDeletePost = (id: string) => {
+    const targetTitle = flickrPosts.find(p => String(p.id) === String(id))?.title || 'Unbenannt';
     const deletedIds = [String(id)];
-    updatePosts(posts => sanitizePostsAfterDeletion(posts, deletedIds));
+    updatePosts(posts => sanitizePostsAfterDeletion(posts, deletedIds), `Post gelöscht (${targetTitle})`);
   };
 
   const handleMergeDown = (index: number) => {
+    const targetTitle = flickrPosts[index]?.title || 'Unbenannt';
     updatePosts(posts => {
       const newPosts = [...posts];
       const current = newPosts[index];
@@ -1045,10 +1093,11 @@ export default function App() {
 
       newPosts.splice(index + 1, 1);
       return newPosts;
-    });
+    }, `Posts zusammengeführt (${targetTitle})`);
   };
 
   const handleUpdatePostMedia = (id: string, newMedia: any[]) => {
+    const targetTitle = flickrPosts.find(p => String(p.id) === String(id))?.title || 'Unbenannt';
     updatePosts(posts => posts.map(post => {
       if (String(post.id) === String(id)) {
         const updatedPost = { ...post, mergedMedia: newMedia };
@@ -1066,7 +1115,7 @@ export default function App() {
         return updatedPost;
       }
       return post;
-    }));
+    }), `Post Medien aktualisiert (${targetTitle})`);
   };
 
   const handleMoveToTarget = (targetId: string) => {
@@ -1077,7 +1126,7 @@ export default function App() {
     
     if (targetIndex === -1) {
       // If target not found, just append to the end
-      updatePosts([...remainingPosts, ...selectedPosts]);
+      updatePosts([...remainingPosts, ...selectedPosts], `Posts verschoben (${selectedPosts.length} Elemente)`);
     } else {
       // Insert selected items AFTER the target item
       const newPosts = [
@@ -1085,7 +1134,7 @@ export default function App() {
         ...selectedPosts,
         ...remainingPosts.slice(targetIndex + 1)
       ];
-      updatePosts(newPosts);
+      updatePosts(newPosts, `Posts verschoben (${selectedPosts.length} Elemente)`);
     }
     
     setIsMoving(false);
@@ -1218,7 +1267,7 @@ export default function App() {
         return { ...cleanOldUrls(post), image: localUrl, image_large: localUrl, image_preview: localUrl, image_3k: localUrl, type: 'image' };
       }
       return post;
-    }));
+    }), `Lokales Bild hinzugefügt (${flickrPosts.find(p => String(p.id) === String(id))?.title || 'Unbenannt'})`);
 
     try {
       const formData = new FormData();
@@ -1280,7 +1329,7 @@ export default function App() {
           };
         }
         return post;
-      }));
+      }), `Bild hochgeladen (${flickrPosts.find(p => String(p.id) === String(id))?.title || 'Unbenannt'})`);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -1313,7 +1362,7 @@ export default function App() {
           type: 'youtube',
           url: url
         } : post
-      ));
+      ), `YouTube Link hinzugefügt (${flickrPosts.find(p => String(p.id) === String(id))?.title || 'Unbenannt'})`);
     } else {
       handlePostChange(id, 'youtubeUrl', url);
     }
@@ -2450,12 +2499,13 @@ export default function App() {
     setActiveId(null);
 
     if (over && active.id !== over.id) {
+      const targetTitle = flickrPosts.find(p => String(p.id) === String(active.id))?.title || 'Unbenannt';
       updatePosts((items) => {
         const oldIndex = items.findIndex((item) => item.id === active.id);
         const newIndex = items.findIndex((item) => item.id === over.id);
         
         return arrayMove(items, oldIndex, newIndex);
-      });
+      }, `Post verschoben (${targetTitle})`);
     }
   };
 
@@ -2622,7 +2672,7 @@ export default function App() {
     updatePosts(prev => {
       const filtered = prev.filter(p => !selectedThumbnails.includes(p.id) || p.id === mainPost.id);
       return filtered.map(p => p.id === mainPost.id ? mainPost : p);
-    });
+    }, `Posts zusammengeführt (${mainPost.title || 'Unbenannt'})`);
 
     // Stay in rearrange mode and select the newly merged post
     setSelectedThumbnails([mainPost.id]);
@@ -2645,7 +2695,7 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         // Remove from local state and clean dangling merged media refs
-        updatePosts(prev => sanitizePostsAfterDeletion(prev, idsToDelete));
+        updatePosts(prev => sanitizePostsAfterDeletion(prev, idsToDelete), 'Mehrere Posts gelöscht');
         setSelectedThumbnails([]);
         alert(`${data.deletedCount} Element(e) und ${data.filesDeleted} Datei(en) erfolgreich gelöscht.`);
       } else {
@@ -3062,7 +3112,7 @@ export default function App() {
           const { items, r2Data } = cloudSyncState;
           
           console.log('[Sync] User confirmed. Applying cloud data to state:', items.length, 'items');
-          updatePosts(items);
+          updatePosts(items, 'Aus Cloud geladen');
           
           if (r2Data.lastUpdated) setLocalLastUpdated(r2Data.lastUpdated);
           setHasCloudChanges(false);

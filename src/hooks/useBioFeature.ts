@@ -13,7 +13,7 @@ interface UseBioFeatureReturn {
   setCommitPostSource: (source: 'instagram' | 'flickr' | null) => void;
   handleGetLatestInstagram: (flickrPosts: any[]) => void;
   handleGetLatestFlickr: (flickrPosts: any[]) => void;
-  handleCommitPostToPortfolio: (updatePosts: (posts: any[]) => void, flickrPosts: any[]) => void;
+  handleCommitPostToPortfolio: (updatePosts: (posts: any[], actionDescription?: string) => void, flickrPosts: any[]) => void;
   resetCommitState: () => void;
 }
 
@@ -53,7 +53,7 @@ export function useBioFeature(): UseBioFeatureReturn {
   };
 
   const handleCommitPostToPortfolio = (
-    updatePosts: (posts: any[]) => void,
+    updatePosts: (posts: any[], actionDescription?: string) => void,
     flickrPosts: any[]
   ) => {
     if (!selectedPostForCommit) return;
@@ -63,7 +63,7 @@ export function useBioFeature(): UseBioFeatureReturn {
       id: `committed-${Date.now()}-${Math.random()}`
     };
 
-    updatePosts([newPost, ...flickrPosts]);
+    updatePosts([newPost, ...flickrPosts], 'Letzten Post hinzugefügt');
     resetCommitState();
   };
 

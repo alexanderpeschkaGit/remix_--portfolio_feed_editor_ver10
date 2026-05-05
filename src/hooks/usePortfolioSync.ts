@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from 'react';
 import { mergeIncomingPostsPreservingExisting } from '../utils/mergePosts';
 
 interface SyncProps {
-  updatePosts: (newPosts: any[] | ((p: any[]) => any[])) => void;
+  updatePosts: (newPosts: any[] | ((p: any[]) => any[]), actionDescription?: string) => void;
   setFallbackEnabled: (enabled: boolean) => void;
   setError: (error: string) => void;
 }
@@ -66,7 +66,7 @@ export function usePortfolioSync({ updatePosts, setFallbackEnabled, setError }: 
               setScrapeLogs(prev => [...prev, "Fertig! Lade neue Daten..."]);
               const stateRes = await fetch('/api/state');
               const stateData = await stateRes.json();
-              updatePosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items));
+              updatePosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items), 'Scraping beendet');
               
               if (autoUpload) {
                 setTimeout(() => document.getElementById('upload-btn')?.click(), 500);
@@ -111,7 +111,7 @@ export function usePortfolioSync({ updatePosts, setFallbackEnabled, setError }: 
               
               const stateRes = await fetch('/api/state');
               const stateData = await stateRes.json();
-              updatePosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items));
+              updatePosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items), 'High-Res Sync beendet');
             }
           }
         } catch (e) { console.error("Polling error:", e); }
@@ -160,7 +160,7 @@ export function usePortfolioSync({ updatePosts, setFallbackEnabled, setError }: 
         setUncertainMatches(prev => prev.filter(m => m.postId !== match.postId));
         const stateRes = await fetch('/api/state');
         const stateData = await stateRes.json();
-        updatePosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items));
+        updatePosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items), 'High-Res Match bestätigt');
       }
     } catch (e) { console.error("Confirm match error:", e); }
   };

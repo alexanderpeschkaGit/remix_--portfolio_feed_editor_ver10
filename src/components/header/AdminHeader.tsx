@@ -22,8 +22,8 @@ interface AdminHeaderProps {
   legacyDupCleanupRunning: boolean;
   uploading: boolean;
   uploadProgress: number | null;
-  past: any[];
-  future: any[];
+  past: { posts: any[], action: string }[];
+  future: { posts: any[], action: string }[];
   autoUpload: boolean;
   setAutoUpload: (v: boolean) => void;
   uncertainMatches: any[];
@@ -375,20 +375,28 @@ export function AdminHeader({
           <button 
             onClick={handleUndo} 
             disabled={past.length === 0} 
-            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[10px] font-medium border border-white/10 bg-white/5 text-white/80 transition-all hover:bg-white/10 hover:border-white/20 active:scale-95 disabled:opacity-30"
-            title="Undo (Strg+Z)"
+            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[10px] font-medium border border-white/10 bg-white/5 text-white/80 transition-all hover:bg-white/10 hover:border-white/20 active:scale-95 disabled:opacity-30 relative group"
           >
             <Undo2 className="w-3 h-3" />
             <span>Undo</span>
+            {past.length > 0 && (
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none whitespace-nowrap z-[60] shadow-xl">
+                Undo: {past[past.length - 1].action}
+              </div>
+            )}
           </button>
           <button 
             onClick={handleRedo} 
             disabled={future.length === 0} 
-            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[10px] font-medium border border-white/10 bg-white/5 text-white/80 transition-all hover:bg-white/10 hover:border-white/20 active:scale-95 disabled:opacity-30"
-            title="Redo (Strg+Y)"
+            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[10px] font-medium border border-white/10 bg-white/5 text-white/80 transition-all hover:bg-white/10 hover:border-white/20 active:scale-95 disabled:opacity-30 relative group"
           >
             <Redo2 className="w-3 h-3" />
             <span>Redo</span>
+            {future.length > 0 && (
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none whitespace-nowrap z-[60] shadow-xl">
+                Redo: {future[future.length - 1].action}
+              </div>
+            )}
           </button>
         </div>
 

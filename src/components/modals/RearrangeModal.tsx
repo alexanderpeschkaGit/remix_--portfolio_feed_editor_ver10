@@ -13,8 +13,8 @@ interface RearrangeModalProps {
   isMoving: boolean;
   setIsMoving: (v: boolean) => void;
   flickrPosts: any[];
-  past: any[][];
-  future: any[][];
+  past: { posts: any[], action: string }[];
+  future: { posts: any[], action: string }[];
   activeId: string | null;
   setActiveId: (id: string | null) => void;
   sensors: any;
@@ -165,13 +165,27 @@ export const RearrangeModal: React.FC<RearrangeModalProps> = (props) => {
               <button
                 onClick={handleUndo}
                 disabled={past.length === 0}
-                className="p-2 bg-white/5 hover:bg-white/10 text-white rounded-lg disabled:opacity-30 transition-all"
-              ><Undo2 className="w-4 h-4" /></button>
+                className="p-2 bg-white/5 hover:bg-white/10 text-white rounded-lg disabled:opacity-30 transition-all relative group"
+              >
+                <Undo2 className="w-4 h-4" />
+                {past.length > 0 && (
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-1 bg-white text-black text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none whitespace-nowrap z-[60] shadow-xl">
+                    Undo: {past[past.length - 1].action}
+                  </div>
+                )}
+              </button>
               <button
                 onClick={handleRedo}
                 disabled={future.length === 0}
-                className="p-2 bg-white/5 hover:bg-white/10 text-white rounded-lg disabled:opacity-30 transition-all"
-              ><Redo2 className="w-4 h-4" /></button>
+                className="p-2 bg-white/5 hover:bg-white/10 text-white rounded-lg disabled:opacity-30 transition-all relative group"
+              >
+                <Redo2 className="w-4 h-4" />
+                {future.length > 0 && (
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-1 bg-white text-black text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none whitespace-nowrap z-[60] shadow-xl">
+                    Redo: {future[future.length - 1].action}
+                  </div>
+                )}
+              </button>
             </div>
           )}
 
