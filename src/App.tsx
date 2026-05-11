@@ -955,7 +955,10 @@ export default function App() {
             if (cleanM.image_3k?.startsWith('blob:')) cleanM.image_3k = '';
             if (cleanM.uploadId) delete cleanM.uploadId;
             return cleanM;
-          });
+          }).filter((m: any) => m.type === 'youtube' || !!(m.image || m.image_large || m.image_3k || m.youtubeId || m.youtubeUrl || m.link || m.url));
+          if (cleanPost.mergedMedia.length === 0) {
+            delete cleanPost.mergedMedia;
+          }
         }
         return cleanPost;
       });
@@ -968,6 +971,7 @@ export default function App() {
           title: portfolioTitle, 
           subtitle: portfolioSubtitle,
           bio: portfolioBio,
+          projectStates: PROJECT_STATES,
           scrapeConfig: {
             igAccount,
             flickrUrl
@@ -1096,7 +1100,8 @@ export default function App() {
     }, `Posts zusammengeführt (${targetTitle})`);
   };
 
-  const handleUpdatePostMedia = (id: string, newMedia: any[]) => {
+  const handleUpdatePostMedia = (id: string, newMediaRaw: any[]) => {
+    const newMedia = newMediaRaw.filter(m => m.type === 'youtube' || !!(m.image || m.image_large || m.image_preview || m.image_3k || m.uploadId || m.youtubeId));
     const targetTitle = flickrPosts.find(p => String(p.id) === String(id))?.title || 'Unbenannt';
     updatePosts(posts => posts.map(post => {
       if (String(post.id) === String(id)) {
@@ -1223,7 +1228,7 @@ export default function App() {
             : hasPrimaryMedia(post)
               ? [postToMediaItem(post)]
               : [];
-          const newMedia = [...existingMedia, newItem];
+          const newMedia = [...existingMedia, newItem].filter((m: any) => m.type === 'youtube' || !!(m.image || m.image_large || m.image_preview || m.image_3k || m.uploadId || m.youtubeId));
           const primaryMedia = newMedia[0] || newItem;
 
           return {
@@ -1252,8 +1257,9 @@ export default function App() {
             mergedMedia: newMedia 
           } : { ...post, mergedMedia: newMedia };
         } else if (mediaIndex !== undefined && !post.mergedMedia) {
-          const newMedia = [{ type: post.type || 'image', image: post.image, image_large: post.image_large, youtubeId: post.youtubeId, link: post.url }];
-          newMedia[mediaIndex] = { ...cleanOldUrls(newMedia[mediaIndex]), uploadId, image: localUrl, image_large: localUrl, image_preview: localUrl, image_3k: localUrl, type: 'image' } as any;
+          const newMediaRaw = [{ type: post.type || 'image', image: post.image, image_large: post.image_large, youtubeId: post.youtubeId, link: post.url }];
+          newMediaRaw[mediaIndex] = { ...cleanOldUrls(newMediaRaw[mediaIndex]), uploadId, image: localUrl, image_large: localUrl, image_preview: localUrl, image_3k: localUrl, type: 'image' } as any;
+          const newMedia = newMediaRaw.filter((m: any) => m.type === 'youtube' || !!(m.image || m.image_large || m.image_preview || m.image_3k || m.uploadId || m.youtubeId));
           const updateBase = mediaIndex === 0;
           return updateBase ? { 
             ...cleanOldUrls(post), 
@@ -2208,8 +2214,18 @@ export default function App() {
     setError('');
     setUploadProgress(0);
     
-    // Create a copy to ensure we have the current state
-    const currentPosts = [...flickrPosts];
+    // Create a copy to ensure we have the current state, and filter out any empty frames
+    const currentPosts = flickrPosts.map(post => {
+      if (post.mergedMedia) {
+        const filteredMedia = post.mergedMedia.filter((m: any) => m.type === 'youtube' || !!(m.image || m.image_large || m.image_preview || m.image_3k || m.uploadId || m.youtubeId || m.youtubeUrl || m.link || m.url));
+        if (filteredMedia.length === 0) {
+          const { mergedMedia, ...rest } = post;
+          return rest as any;
+        }
+        return { ...post, mergedMedia: filteredMedia };
+      }
+      return post;
+    });
     console.log('handleUpload: currentPosts count:', currentPosts.length);
     console.log('handleUpload: currentPosts IDs in order:', currentPosts.map(p => p.id));
     
@@ -2222,6 +2238,7 @@ export default function App() {
         title: portfolioTitle,
         subtitle: portfolioSubtitle,
         bio: portfolioBio,
+        projectStates: PROJECT_STATES,
         scrapeConfig: { igAccount, flickrUrl },
         lastUpdated: new Date().toISOString()
       });

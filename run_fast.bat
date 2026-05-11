@@ -1,5 +1,6 @@
 @echo off
 echo Starting Portfolio Editor (Fast Mode - No Dependency Check)...
+cd /d "%~dp0"
 start "Portfolio Server" cmd /c "npm run dev"
 echo Server started in background.
 

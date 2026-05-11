@@ -2,7 +2,7 @@
 echo ==========================================
 echo Starting Portfolio Editor (Windows Mode)
 echo ==========================================
-
+cd /d "%~dp0"
 :: Check if node_modules exists, if not run npm install
 IF NOT EXIST "node_modules\" (
     echo Installing dependencies...
