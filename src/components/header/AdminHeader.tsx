@@ -52,6 +52,7 @@ interface AdminHeaderProps {
   handleGetLatestInstagram: () => void;
   handleGetLatestFlickr: () => void;
   hasCloudChanges?: boolean;
+  hasUnpublishedChanges?: boolean;
 }
 
 const AdminButton = ({ onClick, disabled, id, children, className = "", color = "bg-white/5 text-white/80 hover:bg-white/10 border-white/10", tooltip, active }: any) => (
@@ -128,6 +129,7 @@ export function AdminHeader({
   handleGetLatestInstagram,
   handleGetLatestFlickr,
   hasCloudChanges = false,
+  hasUnpublishedChanges = false,
 }: AdminHeaderProps) {
   return (
     <header className="max-w-7xl mx-auto mb-12 relative">
@@ -420,6 +422,7 @@ export function AdminHeader({
             onClick={handleUpload} 
             disabled={uploading || flickrPosts.length === 0} 
             tooltip="Änderungen auf die Live-Website übertragen"
+            color={hasUnpublishedChanges ? "bg-green-600/30 text-green-300 border-green-500/50 shadow-[0_0_10px_rgba(74,222,128,0.3)] animate-pulse" : "bg-white/5 text-white/80 hover:bg-white/10 border-white/10"}
           >
             {uploading ? <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 animate-spin" /> : <UploadCloud className="w-3 h-3 sm:w-4 sm:h-4" />}
             <span className="text-center font-black tracking-tighter">{uploading ? '...' : 'PUBLISH'}</span>

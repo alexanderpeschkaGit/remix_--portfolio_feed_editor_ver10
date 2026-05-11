@@ -220,8 +220,10 @@ export default function App() {
   const [showResolutionToast, setShowResolutionToast] = useState(false);
   const [localLastUpdated, setLocalLastUpdated] = useState<string | null>(null);
   const [hasCloudChanges, setHasCloudChanges] = useState(false);
+  const ignoreCloudChangesRef = useRef(false);
   const [cloudSyncChanges, setCloudSyncChanges] = useState<string[] | null>(null);
   const [cloudSyncState, setCloudSyncState] = useState<{ changes: string[]; items: any[]; r2Data: any } | null>(null);
+  const [hasUnpublishedChanges, setHasUnpublishedChanges] = useState(false);
 
   const uploadingCount = Object.values(activeUploads).reduce((sum: number, count: number) => sum + count, 0);
 
@@ -520,7 +522,9 @@ export default function App() {
             });
 
             if (headerChanged || newItems.length > 0 || deletedItems.length > 0 || updatedItems.length > 0) {
-              setHasCloudChanges(true);
+              if (!ignoreCloudChangesRef.current) {
+                setHasCloudChanges(true);
+              }
             } else {
               // Automatically sync the timestamp locally if content matches to avoid further polling checks
               setLocalLastUpdated(cloudData.lastUpdated);
@@ -996,6 +1000,7 @@ export default function App() {
       const next = typeof newPosts === 'function' ? newPosts(current) : newPosts;
       setPast(p => [...p, { posts: current, action: actionDescription }].slice(-50)); // Keep last 50 states
       setFuture([]); // Clear future on new action
+      setHasUnpublishedChanges(true);
       return next;
     });
   };
@@ -1567,6 +1572,9 @@ export default function App() {
             console.log('portfolioDataEl found');
             try {
               window.portfolioData = JSON.parse(portfolioDataEl.textContent);
+              if (window.portfolioData.items && !window.portfolioData.posts) {
+                window.portfolioData.posts = window.portfolioData.items.filter(p => !p.hidden);
+              }
               console.log('Portfolio data parsed:', window.portfolioData);
               if (window.portfolioData && window.portfolioData.publicDomain) {
                 publicDomain = window.portfolioData.publicDomain;
@@ -1734,7 +1742,14 @@ export default function App() {
               const postId = card.getAttribute('data-post-id');
               const post = window.portfolioData.posts.find(p => String(p.id) === String(postId));
               const postStatesLower = post && post.states ? post.states.map(s => String(s).toLowerCase()) : [];
-              if (filter === 'all' || postStatesLower.includes(String(filter).toLowerCase())) {
+              
+              if (filter === 'all') {
+                if (postStatesLower.includes('-all')) {
+                  card.style.display = 'none';
+                } else {
+                  card.style.display = 'block';
+                }
+              } else if (postStatesLower.includes(String(filter).toLowerCase())) {
                 card.style.display = 'block';
               } else {
                 card.style.display = 'none';
@@ -2020,6 +2035,9 @@ export default function App() {
             }
           });
         }
+        
+        const activeBtn = document.querySelector('.filter-btn.active');
+        if (activeBtn) activeBtn.click();
       }
       if (document.readyState === 'complete' || document.readyState === 'interactive') {
         init();
@@ -2155,7 +2173,6 @@ export default function App() {
           changes.push("Keine Änderungen an den Posts festgestellt.");
         }
         
-        setCloudSyncChanges(changes);
 
         const baseUrl = R2_CONFIG.publicDomain.endsWith('/') ? R2_CONFIG.publicDomain.slice(0, -1) : R2_CONFIG.publicDomain;
         const absoluteItems = items.map((item: any) => ({
@@ -2179,6 +2196,8 @@ export default function App() {
           items: absoluteItems, 
           r2Data 
         });
+        
+        ignoreCloudChangesRef.current = false;
       }
     } catch (e) {
       console.error(e);
@@ -2272,6 +2291,7 @@ export default function App() {
           console.log('handleUpload: POST response data:', data);
           setUploadProgress(100);
           setUploadSuccess({ url: data.url });
+          setHasUnpublishedChanges(false);
           setTimeout(() => setUploadProgress(null), 2000);
           setUploading(false);
           return;
@@ -2309,6 +2329,7 @@ export default function App() {
       
       setUploadProgress(100);
       setUploadSuccess({ url: `${R2_CONFIG.publicDomain}/index.html` });
+      setHasUnpublishedChanges(false);
       setTimeout(() => setUploadProgress(null), 2000);
       setUploading(false);
     } catch (err: any) {
@@ -2391,41 +2412,52 @@ export default function App() {
       setScrapeLogs(previewLogs);
 
       if (!previewData.orphanedCount) {
+        setR2CleanupRunning(false);
         return;
       }
 
-      const confirmed = window.confirm(
-        `${previewData.orphanedCount} verwaiste R2-Dateien gefunden.\n` +
-        `Geschätzte Freigabe: ${formatBytes(previewData.totalBytes || 0)}.\n\n` +
-        `Jetzt wirklich löschen?`
-      );
+      setTimeout(async () => {
+        try {
+          const confirmed = window.confirm(
+            `${previewData.orphanedCount} verwaiste R2-Dateien gefunden.\n` +
+            `Geschätzte Freigabe: ${formatBytes(previewData.totalBytes || 0)}.\n\n` +
+            `Jetzt wirklich löschen?`
+          );
 
-      if (!confirmed) {
-        setScrapeLogs(prev => [...prev, 'Löschen abgebrochen.']);
-        return;
-      }
+          if (!confirmed) {
+            setScrapeLogs(prev => [...prev, 'Löschen abgebrochen.']);
+            setR2CleanupRunning(false);
+            return;
+          }
 
-      setScrapeLogs(prev => [...prev, 'Starte Löschen der verwaisten Dateien...']);
-      const executeResponse = await fetch('/api/r2-cleanup/execute', { method: 'POST' });
-      const executeData = await executeResponse.json().catch(() => ({}));
+          setScrapeLogs(prev => [...prev, 'Starte Löschen der verwaisten Dateien...']);
+          const executeResponse = await fetch('/api/r2-cleanup/execute', { method: 'POST' });
+          const executeData = await executeResponse.json().catch(() => ({}));
 
-      if (!executeResponse.ok) {
-        throw new Error(executeData.error || 'Cleanup fehlgeschlagen');
-      }
+          if (!executeResponse.ok) {
+            throw new Error(executeData.error || 'Cleanup fehlgeschlagen');
+          }
 
-      setScrapeLogs(prev => [
-        ...prev,
-        `Cleanup abgeschlossen.`,
-        `Gelöschte Dateien: ${executeData.deletedCount || 0}`,
-        `Freigegebener Speicher: ${formatBytes(executeData.deletedBytes || 0)}`
-      ]);
+          setScrapeLogs(prev => [
+            ...prev,
+            `Cleanup abgeschlossen.`,
+            `Gelöschte Dateien: ${executeData.deletedCount || 0}`,
+            `Freigegebener Speicher: ${formatBytes(executeData.deletedBytes || 0)}`
+          ]);
 
-      await fetchCloudflareUsage();
+          await fetchCloudflareUsage();
+        } catch (err: any) {
+          const message = err.message || 'Cleanup fehlgeschlagen';
+          setError(message);
+          setScrapeLogs(prev => [...prev, `FEHLER: ${message}`]);
+        } finally {
+          setR2CleanupRunning(false);
+        }
+      }, 100);
     } catch (err: any) {
       const message = err.message || 'Cleanup fehlgeschlagen';
       setError(message);
       setScrapeLogs(prev => [...prev, `FEHLER: ${message}`]);
-    } finally {
       setR2CleanupRunning(false);
     }
   };
@@ -2461,41 +2493,52 @@ export default function App() {
       setScrapeLogs(previewLogs);
 
       if (!previewData.duplicateCount) {
+        setLegacyDupCleanupRunning(false);
         return;
       }
 
-      const confirmed = window.confirm(
-        `${previewData.duplicateCount} sichere Legacy-Duplikate gefunden.\n` +
-        `Geschätzte Freigabe: ${formatBytes(previewData.totalBytes || 0)}.\n\n` +
-        `Nur diese alten uploads/... Duplikate jetzt löschen?`
-      );
+      setTimeout(async () => {
+        try {
+          const confirmed = window.confirm(
+            `${previewData.duplicateCount} sichere Legacy-Duplikate gefunden.\n` +
+            `Geschätzte Freigabe: ${formatBytes(previewData.totalBytes || 0)}.\n\n` +
+            `Nur diese alten uploads/... Duplikate jetzt löschen?`
+          );
 
-      if (!confirmed) {
-        setScrapeLogs(prev => [...prev, 'Löschen abgebrochen.']);
-        return;
-      }
+          if (!confirmed) {
+            setScrapeLogs(prev => [...prev, 'Löschen abgebrochen.']);
+            setLegacyDupCleanupRunning(false);
+            return;
+          }
 
-      setScrapeLogs(prev => [...prev, 'Starte Löschen der sicheren Legacy-Duplikate...']);
-      const executeResponse = await fetch('/api/r2-cleanup/execute-legacy-uploads', { method: 'POST' });
-      const executeData = await executeResponse.json().catch(() => ({}));
+          setScrapeLogs(prev => [...prev, 'Starte Löschen der sicheren Legacy-Duplikate...']);
+          const executeResponse = await fetch('/api/r2-cleanup/execute-legacy-uploads', { method: 'POST' });
+          const executeData = await executeResponse.json().catch(() => ({}));
 
-      if (!executeResponse.ok) {
-        throw new Error(executeData.error || 'Duplikat-Cleanup fehlgeschlagen');
-      }
+          if (!executeResponse.ok) {
+            throw new Error(executeData.error || 'Duplikat-Cleanup fehlgeschlagen');
+          }
 
-      setScrapeLogs(prev => [
-        ...prev,
-        `Legacy-Duplikat-Cleanup abgeschlossen.`,
-        `Gelöschte Dateien: ${executeData.deletedCount || 0}`,
-        `Freigegebener Speicher: ${formatBytes(executeData.deletedBytes || 0)}`
-      ]);
+          setScrapeLogs(prev => [
+            ...prev,
+            `Legacy-Duplikat-Cleanup abgeschlossen.`,
+            `Gelöschte Dateien: ${executeData.deletedCount || 0}`,
+            `Freigegebener Speicher: ${formatBytes(executeData.deletedBytes || 0)}`
+          ]);
 
-      await fetchCloudflareUsage();
+          await fetchCloudflareUsage();
+        } catch (err: any) {
+          const message = err.message || 'Duplikat-Cleanup fehlgeschlagen';
+          setError(message);
+          setScrapeLogs(prev => [...prev, `FEHLER: ${message}`]);
+        } finally {
+          setLegacyDupCleanupRunning(false);
+        }
+      }, 100);
     } catch (err: any) {
       const message = err.message || 'Duplikat-Cleanup fehlgeschlagen';
       setError(message);
       setScrapeLogs(prev => [...prev, `FEHLER: ${message}`]);
-    } finally {
       setLegacyDupCleanupRunning(false);
     }
   };
@@ -2585,6 +2628,9 @@ export default function App() {
             setShowBackups(false);
             setIsRestoring(null);
           }, 500);
+          
+          ignoreCloudChangesRef.current = true;
+          setHasCloudChanges(false);
         } else {
           throw new Error("Keine Daten im Backup gefunden.");
         }
@@ -2998,6 +3044,7 @@ export default function App() {
         handleGetLatestInstagram={handleAddInstagramPost}
         handleGetLatestFlickr={handleAddFlickrPost}
         hasCloudChanges={hasCloudChanges}
+        hasUnpublishedChanges={hasUnpublishedChanges}
       />
 
       {uploadSuccess && (
@@ -3133,6 +3180,7 @@ export default function App() {
           
           if (r2Data.lastUpdated) setLocalLastUpdated(r2Data.lastUpdated);
           setHasCloudChanges(false);
+          setHasUnpublishedChanges(false);
           
           try {
             await fetch('/api/state', {

@@ -482,7 +482,12 @@ async function startServer() {
     if (!value) return null;
 
     const fromPath = (pathname: string) => {
-      const normalized = pathname.replace(/^\/+/, '');
+      let normalized = pathname.replace(/^\/+/, '');
+      try {
+        normalized = decodeURIComponent(normalized);
+      } catch (e) {
+        // Fallback to original if decoding fails
+      }
       if (!normalized) return null;
       if (
         normalized.startsWith('data/') ||
@@ -513,7 +518,21 @@ async function startServer() {
 
   const localUrlToSyncTarget = (url?: string) => {
     if (!url) return null;
-    const cleanUrl = url.split('?')[0];
+    let cleanUrl = url.split('?')[0];
+
+    if (/^https?:\/\//i.test(cleanUrl)) {
+      try {
+        const parsed = new URL(cleanUrl);
+        cleanUrl = parsed.pathname;
+      } catch {
+        return null;
+      }
+    }
+
+    try {
+      cleanUrl = decodeURIComponent(cleanUrl);
+    } catch (e) {}
+
     if (cleanUrl.startsWith('/data/')) {
       return {
         localPath: path.join(DATA_DIR, cleanUrl.replace('/data/', '')),

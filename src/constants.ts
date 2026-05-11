@@ -7,4 +7,5 @@ export const PROJECT_STATES = [
   { id: 'conscious', label: 'Conscious', muted: '#a78bfa', bright: '#7c3aed', tooltip: 'Conscious Events - Ecstatic dances, Intentional festivals, global beats, live Trance' },
   { id: 'slide', label: 'Slide', muted: '#c084fc', bright: '#9333ea' },
   { id: 'aiArt', label: 'AI Art', muted: '#22d3ee', bright: '#0891b2' },
+  { id: '-all', label: '-All', muted: '#ef4444', bright: '#dc2626', tooltip: 'Von der Alle-Ansicht ausschließen' },
 ];
