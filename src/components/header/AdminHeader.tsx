@@ -49,8 +49,9 @@ interface AdminHeaderProps {
   setShowBioEditor: (v: boolean) => void;
   handleGetLatestInstagram: () => void;
   handleGetLatestFlickr: () => void;
-  hasCloudChanges?: boolean;
-  hasUnpublishedChanges?: boolean;
+  hasCloudChanges: boolean;
+  hasUnsyncedMedia: boolean;
+  hasUnpublishedChanges: boolean;
 }
 
 const AdminButton = ({ onClick, disabled, id, children, className = "", color = "bg-white/5 text-white/80 hover:bg-white/10 border-white/10", tooltip, active }: any) => (
@@ -125,6 +126,7 @@ export function AdminHeader({
   handleGetLatestInstagram,
   handleGetLatestFlickr,
   hasCloudChanges = false,
+  hasUnsyncedMedia = false,
   hasUnpublishedChanges = false,
 }: AdminHeaderProps) {
   return (
@@ -235,9 +237,14 @@ export function AdminHeader({
           <span className="text-center">{isResettingAll ? 'Rebuild...' : 'Rebuild R2'}</span>
         </AdminButton>
 
-        <AdminButton onClick={handleFullR2Sync} disabled={fullR2SyncStatus.running} tooltip="Alle lokalen Bilder (Uploads, Flickr, etc.) zu Cloudflare R2 spiegeln">
+        <AdminButton 
+          onClick={handleFullR2Sync} 
+          disabled={fullR2SyncStatus.running} 
+          color={hasUnsyncedMedia ? "bg-green-600/30 text-green-300 border-green-500/50 shadow-[0_0_10px_rgba(74,222,128,0.3)] animate-pulse" : "bg-white/5 text-white/80 hover:bg-white/10 border-white/10"}
+          tooltip="Alle lokalen Bilder (Uploads, Flickr, etc.) zu Cloudflare R2 spiegeln"
+        >
           <UploadCloud className={`w-3 h-3 sm:w-4 sm:h-4 ${fullR2SyncStatus.running ? 'animate-spin text-blue-500' : ''}`} />
-          <span className="text-center">Cloud Sync</span>
+          <span className="text-center">{fullR2SyncStatus.running ? 'Syncing...' : 'Cloud Sync'}</span>
         </AdminButton>
 
         <AdminButton 

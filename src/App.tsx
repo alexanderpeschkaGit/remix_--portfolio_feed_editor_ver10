@@ -223,6 +223,7 @@ export default function App() {
   const ignoreCloudChangesRef = useRef(false);
   const [cloudSyncChanges, setCloudSyncChanges] = useState<string[] | null>(null);
   const [cloudSyncState, setCloudSyncState] = useState<{ changes: string[]; items: any[]; r2Data: any } | null>(null);
+  const [hasUnsyncedMedia, setHasUnsyncedMedia] = useState(false);
   const [hasUnpublishedChanges, setHasUnpublishedChanges] = useState(false);
 
   const uploadingCount = Object.values(activeUploads).reduce((sum: number, count: number) => sum + count, 0);
@@ -362,6 +363,7 @@ export default function App() {
   const [showUncertain, setShowUncertain] = useState(false);
 
   const handleFullR2Sync = async () => {
+    setHasUnsyncedMedia(false);
     setFullR2SyncStatus({ running: true, logs: ["Starte Cloudflare R2 Full Sync..."], done: false, error: null, progress: 0, total: 0 });
     setShowLogs(true);
     
@@ -481,15 +483,18 @@ export default function App() {
 
   useEffect(() => {
     portfolioTitleRef.current = portfolioTitle;
-  }, [portfolioTitle]);
+    if (isInitialized) setHasUnpublishedChanges(true);
+  }, [portfolioTitle, isInitialized]);
 
   useEffect(() => {
     portfolioSubtitleRef.current = portfolioSubtitle;
-  }, [portfolioSubtitle]);
+    if (isInitialized) setHasUnpublishedChanges(true);
+  }, [portfolioSubtitle, isInitialized]);
 
   useEffect(() => {
     portfolioBioRef.current = portfolioBio;
-  }, [portfolioBio]);
+    if (isInitialized) setHasUnpublishedChanges(true);
+  }, [portfolioBio, isInitialized]);
 
   // Poll for cloud changes from representation AI
   useEffect(() => {
@@ -1054,11 +1059,9 @@ export default function App() {
       id: `custom-${Date.now()}`,
       title: '',
       description: '',
-      image: '',
-      image_large: '',
-      url: '',
       network_name: 'Custom',
-      type: 'image'
+      type: 'image',
+      states: ['-all']
     };
     updatePosts([newPost, ...flickrPosts], 'Neuen Post hinzugefügt');
     setIsEditing(true);
@@ -1192,6 +1195,7 @@ export default function App() {
   const handleImageUpload = async (id: string, file: File, mediaIndex?: number, isNew?: boolean) => {
     if (!file) return;
     setActiveUploads(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
+    setHasUnsyncedMedia(true);
     
     const localUrl = URL.createObjectURL(file);
     const uploadId = Math.random().toString(36).substring(7); // Unique ID for this specific upload
@@ -1218,14 +1222,22 @@ export default function App() {
     
     updatePosts(posts => posts.map(post => {
       if (String(post.id) === String(id)) {
-        if (isNew) {
+        // If isNew is true or if we don't have a specific mediaIndex, we treat it as adding a new item to the gallery
+        if (isNew || mediaIndex === undefined) {
           const newItem: any = { uploadId, type: 'image', image: localUrl, image_large: localUrl, image_preview: localUrl, image_3k: localUrl };
-          const existingMedia = post.mergedMedia
-            ? [...post.mergedMedia]
-            : hasPrimaryMedia(post)
-              ? [postToMediaItem(post)]
-              : [];
-          const newMedia = [...existingMedia, newItem].filter((m: any) => m.type === 'youtube' || !!(m.image || m.image_large || m.image_preview || m.image_3k || m.uploadId || m.youtubeId));
+          
+          // Start with existing media, or if none, try to convert the primary post image (if it's not empty)
+          let existingMedia = post.mergedMedia ? [...post.mergedMedia] : [];
+          
+          if (existingMedia.length === 0 && hasPrimaryMedia(post)) {
+            existingMedia = [postToMediaItem(post)];
+          }
+          
+          // Filter out any items that have no actual image/video data to prevent "empty picture" ghost items
+          const newMedia = [...existingMedia, newItem].filter((m: any) => 
+            m.type === 'youtube' || 
+            !!(m.image || m.image_large || m.image_preview || m.image_3k || m.uploadId || m.youtubeId)
+          );
           const primaryMedia = newMedia[0] || newItem;
 
           return {
@@ -1510,7 +1522,7 @@ export default function App() {
         .lightbox.active { display: flex; }
         .lightbox-main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; padding: 20px; min-width: 0; }
         .lightbox-sidebar { width: 320px; background: #111; border-left: 1px solid #333; display: flex; flex-direction: column; padding: 24px; overflow-y: auto; flex-shrink: 0; }
-        .lightbox-close { position: absolute; top: 20px; right: 20px; color: white; font-size: 30px; cursor: pointer; background: rgba(0,0,0,0.5); border: none; width: 40px; height: 40px; border-radius: 50%; z-index: 10; display: flex; align-items: center; justify-content: center; line-height: 1; }
+        .lightbox-close { position: fixed; top: 20px; right: 20px; color: white; font-size: 30px; cursor: pointer; background: rgba(0,0,0,0.5); border: none; width: 40px; height: 40px; border-radius: 50%; z-index: 10; display: flex; align-items: center; justify-content: center; line-height: 1; }
         .lightbox-content { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
         .lightbox-content img, .lightbox-content video, .lightbox-content iframe { max-width: 100%; max-height: 85vh; object-fit: contain; box-shadow: 0 20px 50px rgba(0,0,0,0.5); border-radius: 4px; }
         .lightbox-nav { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,0.1); color: white; border: none; padding: 15px; cursor: pointer; font-size: 20px; border-radius: 50%; transition: all 0.3s; z-index: 5; }
@@ -2227,15 +2239,46 @@ export default function App() {
     
     // Create a copy to ensure we have the current state, and filter out any empty frames
     const currentPosts = flickrPosts.map(post => {
-      if (post.mergedMedia) {
-        const filteredMedia = post.mergedMedia.filter((m: any) => m.type === 'youtube' || !!(m.image || m.image_large || m.image_preview || m.image_3k || m.uploadId || m.youtubeId || m.youtubeUrl || m.link || m.url));
-        if (filteredMedia.length === 0) {
-          const { mergedMedia, ...rest } = post;
-          return rest as any;
+      const cleanedPost = { ...post };
+      
+      // 1. Filter mergedMedia for valid items only
+      if (cleanedPost.mergedMedia) {
+        cleanedPost.mergedMedia = cleanedPost.mergedMedia.filter((m: any) => 
+          m.type === 'youtube' || 
+          !!(m.image || m.image_large || m.image_preview || m.image_3k || m.uploadId || m.youtubeId || m.youtubeUrl || m.link || m.url)
+        );
+        
+        // If mergedMedia became empty, remove the field
+        if (cleanedPost.mergedMedia.length === 0) {
+          delete (cleanedPost as any).mergedMedia;
         }
-        return { ...post, mergedMedia: filteredMedia };
       }
-      return post;
+      
+      // 2. Synchronize top-level fields with mergedMedia (Source of Truth)
+      // This prevents external scripts from seeing "3 images" (top-level + 2 in mergedMedia) 
+      // if they don't deduplicate by URL, by at least ensuring they match.
+      if (cleanedPost.mergedMedia && cleanedPost.mergedMedia.length > 0) {
+        const primary = cleanedPost.mergedMedia[0];
+        cleanedPost.type = primary.type || cleanedPost.type || 'image';
+        cleanedPost.image = primary.image || cleanedPost.image;
+        cleanedPost.image_large = primary.image_large || primary.image || cleanedPost.image_large;
+        cleanedPost.image_3k = primary.image_3k || primary.image_large || primary.image || cleanedPost.image_3k;
+        cleanedPost.youtubeId = primary.youtubeId || cleanedPost.youtubeId;
+      }
+      
+      // 3. Final cleanup: Remove empty strings that might be misinterpreted as "empty pictures"
+      const fieldsToCleanup = ['image', 'image_large', 'image_3k', 'url', 'youtubeId', 'youtubeUrl'];
+      fieldsToCleanup.forEach(field => {
+        if ((cleanedPost as any)[field] === '') {
+          delete (cleanedPost as any)[field];
+        }
+      });
+
+      return cleanedPost;
+    }).filter(post => {
+      // Only publish posts that have either a title, a description, or at least one piece of media
+      const hasMedia = !!(post.image || (post.mergedMedia && post.mergedMedia.length > 0) || post.youtubeId);
+      return hasMedia || post.title.trim() !== '' || post.description.trim() !== '';
     });
     console.log('handleUpload: currentPosts count:', currentPosts.length);
     console.log('handleUpload: currentPosts IDs in order:', currentPosts.map(p => p.id));
@@ -2256,6 +2299,7 @@ export default function App() {
       const parsedData = JSON.parse(stateData);
       setLocalLastUpdated(parsedData.lastUpdated);
       setHasCloudChanges(false);
+      setHasUnsyncedMedia(false);
       
       console.log('handleUpload: stateData generated, items count:', currentPosts.length);
 
@@ -2343,6 +2387,7 @@ export default function App() {
     setRestoringLatestPublish(true);
     setError('');
 
+    setHasUnsyncedMedia(false);
     try {
       const response = await fetch('/api/backups/restore-latest-publish', {
         method: 'POST'
@@ -2783,47 +2828,6 @@ export default function App() {
     );
   };
 
-  const sanitizePostsAfterDeletion = (posts: any[], deletedIds: string[]) => {
-    const deletedSet = new Set(deletedIds.map(String));
-
-    return posts
-      .filter(post => !deletedSet.has(String(post.id)))
-      .map(post => {
-        if (!post.mergedMedia || !Array.isArray(post.mergedMedia)) return post;
-
-        const mergedMedia = post.mergedMedia.filter((media: any) => !deletedSet.has(String(media?.id)));
-        const primaryMedia = mergedMedia[0];
-
-        // Keep base post fields aligned with first remaining media item
-        if (primaryMedia) {
-          return {
-            ...post,
-            mergedMedia,
-            type: primaryMedia.type || post.type,
-            image: primaryMedia.image || post.image,
-            image_large: primaryMedia.image_large || post.image_large,
-            url: primaryMedia.url || primaryMedia.link || post.url,
-            youtubeId: primaryMedia.youtubeId || post.youtubeId
-          };
-        }
-
-        return {
-          ...post,
-          mergedMedia: []
-        };
-      })
-      .filter(post => {
-        const hasMedia =
-          !!post.image ||
-          !!post.image_preview ||
-          !!post.url ||
-          !!post.youtubeId ||
-          (Array.isArray(post.mergedMedia) && post.mergedMedia.length > 0);
-        const hasText = !!post.title || !!post.description;
-        return hasMedia || hasText;
-      });
-  };
-
   const AdminButton = ({ onClick, disabled, id, children, className = "", color = "bg-white/5 text-white/80 hover:bg-white/10 border-white/10", tooltip, active }: any) => (
     <div className="relative group w-full h-full">
       <button
@@ -3034,6 +3038,7 @@ export default function App() {
         handleGetLatestInstagram={handleAddInstagramPost}
         handleGetLatestFlickr={handleAddFlickrPost}
         hasCloudChanges={hasCloudChanges}
+        hasUnsyncedMedia={hasUnsyncedMedia}
         hasUnpublishedChanges={hasUnpublishedChanges}
       />
 
