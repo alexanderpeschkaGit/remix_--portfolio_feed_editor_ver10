@@ -24,8 +24,6 @@ interface AdminHeaderProps {
   uploadProgress: number | null;
   past: { posts: any[], action: string }[];
   future: { posts: any[], action: string }[];
-  autoUpload: boolean;
-  setAutoUpload: (v: boolean) => void;
   uncertainMatches: any[];
   publicDomain: string | null;
   flickrPosts: any[];
@@ -101,8 +99,6 @@ export function AdminHeader({
   uploadProgress,
   past,
   future,
-  autoUpload,
-  setAutoUpload,
   uncertainMatches,
   publicDomain,
   flickrPosts,
@@ -217,20 +213,6 @@ export function AdminHeader({
           <span className="text-center">HTML</span>
         </AdminButton>
 
-        <label className={`relative group w-full h-full cursor-pointer`}>
-          <div className="flex flex-col items-center justify-center gap-2 px-2 py-3 rounded-xl text-[10px] sm:text-xs font-medium border border-white/10 bg-white/5 text-white/80 transition-all duration-300 hover:bg-white/10 w-full h-full">
-            <input 
-              type="checkbox" 
-              checked={autoUpload} 
-              onChange={(e) => setAutoUpload(e.target.checked)}
-              className="rounded border-white/20 bg-black/50 text-blue-500 focus:ring-blue-500/50"
-            />
-            <span className="text-center">Auto-Up</span>
-          </div>
-          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none whitespace-nowrap z-[60] shadow-xl">
-            Automatisch veröffentlichen nach Scraping
-          </div>
-        </label>
 
         {/* Row 2 */}
         <AdminButton onClick={handleHighResSync} disabled={syncStatus.running} tooltip="Scrape Originals Ordner für bessere Auflösungen (inkl. Unterordner)">
@@ -299,10 +281,6 @@ export function AdminHeader({
         </AdminButton>
 
         {/* Row 3 */}
-        <AdminButton onClick={handlePreview} tooltip="Voransicht der generierten HTML-Seite">
-          <Eye className="w-3 h-3 sm:w-4 sm:h-4" />
-          <span className="text-center">Voransicht</span>
-        </AdminButton>
 
         <AdminButton 
           onClick={() => setIsEditing(!isEditing)} 
@@ -402,19 +380,30 @@ export function AdminHeader({
           </button>
         </div>
 
-        {publicDomain && (
-          <a 
-            href={isEditing ? undefined : `https://${publicDomain}/index.html`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`w-full h-full flex ${isEditing ? 'pointer-events-none' : ''}`}
+        <div className="col-span-1 flex gap-1 h-full">
+          <AdminButton 
+            onClick={handlePreview} 
+            tooltip="Voransicht der generierten HTML-Seite"
+            className="flex-1"
           >
-            <AdminButton className="w-full" disabled={isEditing} tooltip="Live Website in neuem Tab öffnen">
-              <ExternalLink className="w-3 h-3 sm:w-4 sm:h-4" />
-              <span className="text-center">Live</span>
-            </AdminButton>
-          </a>
-        )}
+            <Eye className="w-3 h-3 sm:w-4 sm:h-4" />
+            <span className="text-center">Voransicht</span>
+          </AdminButton>
+
+          {publicDomain && (
+            <a 
+              href={isEditing ? undefined : `https://${publicDomain}/index.html`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`flex-1 flex ${isEditing ? 'pointer-events-none' : ''}`}
+            >
+              <AdminButton className="w-full" disabled={isEditing} tooltip="Live Website in neuem Tab öffnen">
+                <ExternalLink className="w-3 h-3 sm:w-4 sm:h-4" />
+                <span className="text-center">Live</span>
+              </AdminButton>
+            </a>
+          )}
+        </div>
 
         <div className="relative col-span-1">
           <AdminButton 

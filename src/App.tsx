@@ -353,7 +353,6 @@ export default function App() {
   const [isResettingAll, setIsResettingAll] = useState(false);
   const [isRestoring, setIsRestoring] = useState<string | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
-  const [autoUpload, setAutoUpload] = useState(false);
   const [scrapeLogs, setScrapeLogs] = useState<string[]>([]);
   const [isScraping, setIsScraping] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
@@ -670,13 +669,6 @@ export default function App() {
                 updatePosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items));
                 setIsFlickrFallback(false);
                 
-                if (autoUpload) {
-                  setScrapeLogs(prev => [...prev, "Starte automatischen Upload..."]);
-                  setTimeout(() => {
-                    const uploadBtn = document.getElementById('upload-btn');
-                    if (uploadBtn) uploadBtn.click();
-                  }, 500);
-                }
                 
                 setScrapeLogs(prev => [...prev, "Log-Fenster bleibt offen. Bitte manuell schließen."]);
               } catch (e) {
@@ -3016,8 +3008,6 @@ export default function App() {
         uploadProgress={uploadProgress}
         past={past}
         future={future}
-        autoUpload={autoUpload}
-        setAutoUpload={setAutoUpload}
         uncertainMatches={uncertainMatches}
         publicDomain={publicDomain}
         flickrPosts={flickrPosts}
