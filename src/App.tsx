@@ -1069,8 +1069,10 @@ export default function App() {
 
   const handleDeletePost = (id: string) => {
     const targetTitle = flickrPosts.find(p => String(p.id) === String(id))?.title || 'Unbenannt';
-    const deletedIds = [String(id)];
-    updatePosts(posts => sanitizePostsAfterDeletion(posts, deletedIds), `Post gelöscht (${targetTitle})`);
+    updatePosts(
+      posts => posts.filter(post => String(post.id) !== String(id)),
+      `Post gelöscht (${targetTitle})`
+    );
   };
 
   const handleMergeDown = (index: number) => {
@@ -1082,10 +1084,17 @@ export default function App() {
       
       if (!next) return posts;
 
+      // FIX #2c: Merge-Operation - Strikte Filter-Logik
       const mergedMedia = [
         ...(current.mergedMedia || [{ type: current.type || 'image', image: current.image, image_large: current.image_large, youtubeId: current.youtubeId, link: current.url }]),
         ...(next.mergedMedia || [{ type: next.type || 'image', image: next.image, image_large: next.image_large, youtubeId: next.youtubeId, link: next.url }])
-      ].filter(m => m.image || m.youtubeId);
+      ].filter((m: any) => {
+        if (m.type === 'youtube') return true;
+        if (m.uploadId) {
+          return !!(m.image || m.image_large || m.image_3k);
+        }
+        return !!(m.image || m.youtubeId);
+      });
 
       const mergedDescription = [current.description, next.description].filter(Boolean).join('<br/><br/>');
 
@@ -1101,7 +1110,17 @@ export default function App() {
   };
 
   const handleUpdatePostMedia = (id: string, newMediaRaw: any[]) => {
-    const newMedia = newMediaRaw.filter(m => m.type === 'youtube' || !!(m.image || m.image_large || m.image_preview || m.image_3k || m.uploadId || m.youtubeId));
+    // FIX #3: Strikte Filter-Logik - Phantom-Elemente entfernen
+    // uploadId ist NUR während des Uploads erlaubt, danach müssen finale URLs vorhanden sein
+    const newMedia = newMediaRaw.filter(m => {
+      if (m.type === 'youtube') return true;
+      // Elemente mit uploadId MÜSSEN finale URLs haben (sonst: Phantom-Upload)
+      if (m.uploadId) {
+        return !!(m.image || m.image_large || m.image_3k || m.image_preview);
+      }
+      // Normale Elemente
+      return !!(m.image || m.image_large || m.image_preview || m.image_3k || m.youtubeId);
+    });
     const targetTitle = flickrPosts.find(p => String(p.id) === String(id))?.title || 'Unbenannt';
     updatePosts(posts => posts.map(post => {
       if (String(post.id) === String(id)) {
@@ -1226,18 +1245,27 @@ export default function App() {
         if (isNew || mediaIndex === undefined) {
           const newItem: any = { uploadId, type: 'image', image: localUrl, image_large: localUrl, image_preview: localUrl, image_3k: localUrl };
           
-          // Start with existing media, or if none, try to convert the primary post image (if it's not empty)
-          let existingMedia = post.mergedMedia ? [...post.mergedMedia] : [];
-          
-          if (existingMedia.length === 0 && hasPrimaryMedia(post)) {
-            existingMedia = [postToMediaItem(post)];
+          // FIX #1: Explizites Array-Clearing beim Hinzufügen neuer Bilder
+          // Nur bereits fertiggestellte Bilder mit finalen URLs behalten, keine uploadId-Only oder Phantom-Elemente
+          let validatedMedia: any[] = [];
+          if (post.mergedMedia && post.mergedMedia.length > 0) {
+            // Strikte Validierung: Nur Elemente mit echten finalen URLs beibehalten
+            validatedMedia = post.mergedMedia.filter((m: any) => {
+              if (m.type === 'youtube') return true;
+              // uploadId-Elemente MÜSSEN finale URLs haben
+              if (m.uploadId) {
+                return !!(m.image || m.image_large || m.image_3k);
+              }
+              // Normale Elemente
+              return !!(m.image || m.image_large || m.image_preview || m.image_3k || m.youtubeId);
+            });
+          } else if (hasPrimaryMedia(post)) {
+            // Falls keine mergedMedia aber primäre Post-Daten vorhanden: Diese als Basis verwenden
+            validatedMedia = [postToMediaItem(post)];
           }
           
-          // Filter out any items that have no actual image/video data to prevent "empty picture" ghost items
-          const newMedia = [...existingMedia, newItem].filter((m: any) => 
-            m.type === 'youtube' || 
-            !!(m.image || m.image_large || m.image_preview || m.image_3k || m.uploadId || m.youtubeId)
-          );
+          // Neues Array: Nur validierte alte Elemente + neues Item
+          const newMedia = [...validatedMedia, newItem];
           const primaryMedia = newMedia[0] || newItem;
 
           return {
@@ -1306,11 +1334,13 @@ export default function App() {
       
       updatePosts(posts => posts.map(post => {
         if (String(post.id) === String(id)) {
-          if (post.mergedMedia) {
+          if (post.mergedMedia && post.mergedMedia.length > 0) {
             const newMedia = [...post.mergedMedia];
             const itemIdx = newMedia.findIndex(m => m.uploadId === uploadId);
             
-            if (itemIdx !== -1) {
+            // FIX #2: Strikte Index-Validierung und Cleanup nach Upload
+            if (itemIdx !== -1 && itemIdx < newMedia.length) {
+              // Element mit matching uploadId gefunden: aktualisieren mit finalen URLs
               newMedia[itemIdx] = { 
                 ...cleanOldUrls(newMedia[itemIdx]), 
                 image: thumbUrl, 
@@ -1330,18 +1360,50 @@ export default function App() {
                 image_preview: localUrl,
                 mergedMedia: newMedia 
               } : { ...post, mergedMedia: newMedia };
+            } else {
+              // CLEANUP: uploadId nicht gefunden oder Index-Problem
+              // Entferne alle uploadId-Elemente ohne finale URLs (Phantom-Uploads)
+              const cleanedMedia = newMedia.filter(m => {
+                if (m.uploadId && !m.image && !m.image_large && !m.image_3k) {
+                  // Phantom-Element: uploadId aber keine finale URL - entfernen
+                  return false;
+                }
+                return true;
+              });
+              
+              // Wenn das neue Upload nicht eingefügt wurde, versuche es noch einmal
+              if (cleanedMedia.length === newMedia.length) {
+                // Element mit uploadId wurde nicht aktualisiert - füge direkt hinzu
+                const uploadedItem = { 
+                  type: 'image', 
+                  image: thumbUrl, 
+                  image_large: highResUrl, 
+                  image_3k: highResUrl,
+                  image_preview: localUrl 
+                };
+                cleanedMedia.push(uploadedItem);
+              }
+              
+              return { ...post, mergedMedia: cleanedMedia };
             }
+          } else {
+            // Keine mergedMedia - erstelle neue
+            return { 
+              ...cleanOldUrls(post), 
+              image: thumbUrl, 
+              image_large: highResUrl, 
+              image_3k: highResUrl,
+              image_preview: localUrl,
+              mergedMedia: [{
+                type: 'image',
+                image: thumbUrl,
+                image_large: highResUrl,
+                image_3k: highResUrl,
+                image_preview: localUrl
+              }],
+              type: 'image' 
+            };
           }
-          
-          // Fallback if not found in mergedMedia or no mergedMedia
-          return { 
-            ...cleanOldUrls(post), 
-            image: thumbUrl, 
-            image_large: highResUrl, 
-            image_3k: highResUrl,
-            image_preview: localUrl, 
-            type: 'image' 
-          };
         }
         return post;
       }), `Bild hochgeladen (${flickrPosts.find(p => String(p.id) === String(id))?.title || 'Unbenannt'})`);
@@ -2238,15 +2300,20 @@ export default function App() {
     setUploadProgress(0);
     
     // Create a copy to ensure we have the current state, and filter out any empty frames
-    const currentPosts = flickrPosts.map(post => {
+    let currentPosts = flickrPosts.map(post => {
       const cleanedPost = { ...post };
       
-      // 1. Filter mergedMedia for valid items only
+      // 1. Filter mergedMedia for valid items only (FIX #2b: Konsistent mit handleUpdatePostMedia)
       if (cleanedPost.mergedMedia) {
-        cleanedPost.mergedMedia = cleanedPost.mergedMedia.filter((m: any) => 
-          m.type === 'youtube' || 
-          !!(m.image || m.image_large || m.image_preview || m.image_3k || m.uploadId || m.youtubeId || m.youtubeUrl || m.link || m.url)
-        );
+        cleanedPost.mergedMedia = cleanedPost.mergedMedia.filter((m: any) => {
+          if (m.type === 'youtube') return true;
+          // uploadId-Elemente MÜSSEN finale URLs haben (keine Phantom-Uploads)
+          if (m.uploadId) {
+            return !!(m.image || m.image_large || m.image_3k || m.image_preview);
+          }
+          // Normale Elemente
+          return !!(m.image || m.image_large || m.image_preview || m.image_3k || m.youtubeId || m.youtubeUrl || m.link || m.url);
+        });
         
         // If mergedMedia became empty, remove the field
         if (cleanedPost.mergedMedia.length === 0) {
@@ -2255,15 +2322,29 @@ export default function App() {
       }
       
       // 2. Synchronize top-level fields with mergedMedia (Source of Truth)
-      // This prevents external scripts from seeing "3 images" (top-level + 2 in mergedMedia) 
-      // if they don't deduplicate by URL, by at least ensuring they match.
+      // Deduplicate mergedMedia by URL to avoid phantom/duplicate entries
       if (cleanedPost.mergedMedia && cleanedPost.mergedMedia.length > 0) {
-        const primary = cleanedPost.mergedMedia[0];
-        cleanedPost.type = primary.type || cleanedPost.type || 'image';
-        cleanedPost.image = primary.image || cleanedPost.image;
-        cleanedPost.image_large = primary.image_large || primary.image || cleanedPost.image_large;
-        cleanedPost.image_3k = primary.image_3k || primary.image_large || primary.image || cleanedPost.image_3k;
-        cleanedPost.youtubeId = primary.youtubeId || cleanedPost.youtubeId;
+        const seenUrls = new Set<string>();
+        cleanedPost.mergedMedia = cleanedPost.mergedMedia.filter((m: any) => {
+          // YouTube entries are valid even without an image
+          if (m.type === 'youtube' && m.youtubeId) return true;
+          const key = m.image || m.image_large || m.image_3k || m.url || '';
+          if (!key) return false; // drop items without any usable URL
+          if (seenUrls.has(key)) return false; // duplicate
+          seenUrls.add(key);
+          return true;
+        });
+
+        if (cleanedPost.mergedMedia.length === 0) {
+          delete (cleanedPost as any).mergedMedia;
+        } else {
+          const primary = cleanedPost.mergedMedia[0];
+          cleanedPost.type = primary.type || cleanedPost.type || 'image';
+          cleanedPost.image = primary.image || cleanedPost.image;
+          cleanedPost.image_large = primary.image_large || primary.image || cleanedPost.image_large;
+          cleanedPost.image_3k = primary.image_3k || primary.image_large || primary.image || cleanedPost.image_3k;
+          cleanedPost.youtubeId = primary.youtubeId || cleanedPost.youtubeId;
+        }
       }
       
       // 3. Final cleanup: Remove empty strings that might be misinterpreted as "empty pictures"
@@ -2280,6 +2361,21 @@ export default function App() {
       const hasMedia = !!(post.image || (post.mergedMedia && post.mergedMedia.length > 0) || post.youtubeId);
       return hasMedia || post.title.trim() !== '' || post.description.trim() !== '';
     });
+
+    // Deduplicate posts by id in case duplicates slipped in earlier
+    const seenIds = new Set<string>();
+    const dedupedPosts: any[] = [];
+    for (const p of currentPosts) {
+      const idStr = String(p.id);
+      if (!seenIds.has(idStr)) {
+        seenIds.add(idStr);
+        dedupedPosts.push(p);
+      } else {
+        console.warn('handleUpload: duplicate post removed', idStr);
+      }
+    }
+    currentPosts = dedupedPosts;
+
     console.log('handleUpload: currentPosts count:', currentPosts.length);
     console.log('handleUpload: currentPosts IDs in order:', currentPosts.map(p => p.id));
     
@@ -2794,8 +2890,11 @@ export default function App() {
       
       const data = await res.json();
       if (data.success) {
-        // Remove from local state and clean dangling merged media refs
-        updatePosts(prev => sanitizePostsAfterDeletion(prev, idsToDelete), 'Mehrere Posts gelöscht');
+        // Remove from local state - filter out deleted posts by id
+        updatePosts(
+          prev => prev.filter(post => !idsToDelete.includes(String(post.id))),
+          'Mehrere Posts gelöscht'
+        );
         setSelectedThumbnails([]);
         alert(`${data.deletedCount} Element(e) und ${data.filesDeleted} Datei(en) erfolgreich gelöscht.`);
       } else {
