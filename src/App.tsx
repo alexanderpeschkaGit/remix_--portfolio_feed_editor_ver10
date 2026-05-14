@@ -500,6 +500,70 @@ export default function App() {
   useEffect(() => {
     if (!isInitialized) return; // Wait for initialization, but poll even if localLastUpdated is missing
     
+    const toStableJson = (value: any): string => {
+      const normalize = (v: any): any => {
+        if (v === null || v === undefined) return v;
+        if (Array.isArray(v)) return v.map(normalize);
+        if (typeof v !== 'object') return v;
+        const out: Record<string, any> = {};
+        for (const key of Object.keys(v).sort()) {
+          const next = normalize(v[key]);
+          if (next !== undefined) out[key] = next;
+        }
+        return out;
+      };
+      return JSON.stringify(normalize(value));
+    };
+
+    const normalizeMediaForCloudCompare = (media: any) => {
+      if (!media || typeof media !== 'object') return media;
+      const m: any = { ...media };
+      delete m.image_preview;
+      delete m.uploadId;
+      delete m.largeUrl;
+      delete m.url_o;
+      delete m.url_l;
+      delete m.url_q;
+      delete m.url_sq;
+      delete m.url_m;
+      delete m.local_highres;
+      delete m.localUrl;
+      delete m.local_large_variant;
+      if (m.link && !m.url) m.url = m.link;
+      delete m.link;
+      for (const k of Object.keys(m)) {
+        if (m[k] === '') delete m[k];
+      }
+      return m;
+    };
+
+    const normalizePostForCloudCompare = (post: any) => {
+      if (!post || typeof post !== 'object') return post;
+      const p: any = { ...post };
+      delete p.image_preview;
+      delete p.uploadId;
+      delete p.largeUrl;
+      delete p.url_o;
+      delete p.url_l;
+      delete p.url_q;
+      delete p.url_sq;
+      delete p.url_m;
+      delete p.local_highres;
+      delete p.localUrl;
+      delete p.local_large_variant;
+      if (p.link && !p.url) p.url = p.link;
+      delete p.link;
+      for (const k of Object.keys(p)) {
+        if (p[k] === '') delete p[k];
+      }
+      if (Array.isArray(p.mergedMedia)) {
+        p.mergedMedia = p.mergedMedia.map(normalizeMediaForCloudCompare);
+      }
+      return p;
+    };
+
+    const getPostSignature = (post: any) => toStableJson(normalizePostForCloudCompare(post));
+
     const checkCloudChanges = async () => {
       try {
         const res = await fetch(`/api/r2-state?t=${Date.now()}`);
@@ -520,9 +584,7 @@ export default function App() {
             const updatedItems = cloudItems.filter((item: any) => {
               const old = flickrPostsRef.current.find((p: any) => String(p.id) === String(item.id));
               if (!old) return false;
-              const a = { ...old, image_preview: undefined, uploadId: undefined };
-              const b = { ...item, image_preview: undefined, uploadId: undefined };
-              return JSON.stringify(a) !== JSON.stringify(b);
+              return getPostSignature(old) !== getPostSignature(item);
             });
 
             if (headerChanged || newItems.length > 0 || deletedItems.length > 0 || updatedItems.length > 0) {
@@ -2394,6 +2456,7 @@ export default function App() {
       });
       const parsedData = JSON.parse(stateData);
       setLocalLastUpdated(parsedData.lastUpdated);
+      flickrPostsRef.current = currentPosts;
       setHasCloudChanges(false);
       setHasUnsyncedMedia(false);
       

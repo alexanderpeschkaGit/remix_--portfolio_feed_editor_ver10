@@ -45,6 +45,7 @@ interface LightboxModalProps {
   handleImageLoad: (id: string, e: React.SyntheticEvent<HTMLImageElement>) => void;
   handleLightboxDragStart: (e: React.DragEvent, i: number) => void;
   handleLightboxDragOver: (e: React.DragEvent) => void;
+  handleLightboxDrop: (e: React.DragEvent, index: number, postId: string) => void;
   handlePostChange: (id: string, field: string, value: string) => void;
 }
 
@@ -79,6 +80,20 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
     if (typeof val === 'object') return val.description || val.title || JSON.stringify(val);
     return String(val);
   };
+
+  const isRenderableMedia = (media: any) => {
+    if (!media) return false;
+    const hasImage = !!(media.image || media.image_large || media.image_preview || media.image_3k);
+    const hasUrl = !!(media.url || media.link);
+    if (media.type === 'youtube') return !!(media.youtubeId || media.youtubeUrl || hasImage || hasUrl);
+    return hasImage || hasUrl || !!media.youtubeId;
+  };
+
+  const rawMediaList = (currentLightboxPost.mergedMedia && currentLightboxPost.mergedMedia.length > 0)
+    ? currentLightboxPost.mergedMedia
+    : [currentLightboxPost];
+
+  const mediaList = isEditing ? rawMediaList : rawMediaList.filter(isRenderableMedia);
 
   return (
     <div 
@@ -124,7 +139,7 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
         onMouseEnter={() => setIsHoveringLightboxBg(false)}
       >
         <div className="relative flex-1 flex flex-col items-center justify-start min-h-0 w-full max-h-[85vh] overflow-y-auto gap-4 custom-scrollbar pr-2">
-          {(currentLightboxPost.mergedMedia && currentLightboxPost.mergedMedia.length > 0 ? currentLightboxPost.mergedMedia : [currentLightboxPost]).map((media: Media, i: number) => (
+          {mediaList.map((media: Media, i: number) => (
             <div 
               key={i} 
               className={`w-full flex justify-center relative ${isEditing ? 'cursor-grab active:cursor-grabbing border-2 border-transparent hover:border-white/20 rounded-lg p-2' : ''}`}
@@ -238,7 +253,7 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
           <div className="flex flex-col gap-2">
             <div className="text-xs text-white/40 uppercase tracking-wider mb-2">Medien sortieren (Drag & Drop)</div>
             <div className="grid grid-cols-4 gap-2 mb-6">
-              {(currentLightboxPost.mergedMedia && currentLightboxPost.mergedMedia.length > 0 ? currentLightboxPost.mergedMedia : [currentLightboxPost]).map((media: Media, i: number) => (
+              {mediaList.map((media: Media, i: number) => (
                 <div 
                   key={i}
                   draggable={isEditing}
@@ -261,7 +276,7 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
             </div>
 
             <div className="text-xs text-white/40 uppercase tracking-wider mb-2">Links</div>
-            {(currentLightboxPost.mergedMedia && currentLightboxPost.mergedMedia.length > 0 ? currentLightboxPost.mergedMedia : [currentLightboxPost]).map((media: Media, i: number) => (
+            {mediaList.map((media: Media, i: number) => (
               media.url || media.link ? (
                 <a 
                   key={i}

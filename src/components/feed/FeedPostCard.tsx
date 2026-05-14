@@ -84,8 +84,21 @@ export function FeedPostCard({
     opacity: isDragging ? 0.8 : 1,
   };
 
-  const displayMedia = post.mergedMedia && post.mergedMedia.length > 0 ? post.mergedMedia[0] : post;
-  const mediaItems = post.mergedMedia || [{ type: post.type || 'image', image: post.image, image_large: post.image_large, youtubeId: post.youtubeId, youtubeUrl: post.youtubeUrl, link: post.url }];
+  const isRenderableMedia = (media: any) => {
+    if (!media) return false;
+    const hasImage = !!(media.image || media.image_large || media.image_preview || media.image_3k);
+    const hasUrl = !!(media.url || media.link);
+    if (media.type === 'youtube') return !!(media.youtubeId || media.youtubeUrl || hasImage || hasUrl);
+    return hasImage || hasUrl || !!media.youtubeId;
+  };
+
+  const rawMediaItems = (post.mergedMedia && post.mergedMedia.length > 0)
+    ? post.mergedMedia
+    : [{ type: post.type || 'image', image: post.image, image_large: post.image_large, youtubeId: post.youtubeId, youtubeUrl: post.youtubeUrl, link: post.url }];
+
+  const mediaItems = isEditing ? rawMediaItems : rawMediaItems.filter(isRenderableMedia);
+  const renderedMediaCount = mediaItems.length;
+  const displayMedia = mediaItems[0] || post;
   const [draggedMediaIdx, setDraggedMediaIdx] = useState<number | null>(null);
 
   const updateMediaItem = (i: number, field: string, value: any) => {
@@ -154,7 +167,7 @@ export function FeedPostCard({
         </div>
       )}
       <div 
-        className={`relative ${(!isEditing && post.mergedMedia && post.mergedMedia.length > 1) || isEditing ? 'h-auto min-h-[300px] max-h-[600px] overflow-y-auto custom-scrollbar' : 'aspect-[4/3] overflow-hidden'} cursor-pointer bg-black/50 shrink-0 ${isEditing && post.hidden ? 'grayscale brightness-50' : ''}`}
+        className={`relative ${(!isEditing && renderedMediaCount > 1) || isEditing ? 'h-auto min-h-[300px] max-h-[600px] overflow-y-auto custom-scrollbar' : 'aspect-[4/3] overflow-hidden'} cursor-pointer bg-black/50 shrink-0 ${isEditing && post.hidden ? 'grayscale brightness-50' : ''}`}
         onClick={() => {
           if (!isEditing) setSelectedImage(post);
         }}
@@ -332,9 +345,9 @@ export function FeedPostCard({
               </div>
             )}
 
-            {post.mergedMedia && post.mergedMedia.length > 1 && (
+            {!isEditing && renderedMediaCount > 1 && (
               <div className="absolute top-2 left-2 bg-black/70 text-white text-xs px-2 py-1 rounded-full z-10">
-                +{post.mergedMedia.length - 1}
+                +{renderedMediaCount - 1}
               </div>
             )}
           </>
@@ -429,12 +442,12 @@ export function FeedPostCard({
             )}
             {post.states && post.states.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-2">
-                {post.states.map((stateId: string) => {
+                {post.states.map((stateId: string, idx: number) => {
                   const state = PROJECT_STATES.find(s => String(s.id).toLowerCase() === String(stateId).toLowerCase());
                   if (!state) return null;
                   return (
                     <span 
-                      key={state.id}
+                      key={`${stateId}-${idx}`}
                       className="px-2 py-0.5 rounded text-[10px] font-medium text-white"
                       title={state.tooltip}
                       style={{ backgroundColor: state.bright }}
