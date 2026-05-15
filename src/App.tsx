@@ -853,6 +853,7 @@ export default function App() {
             setFlickrPosts(data.posts);
             setLoading(false);
             setIsInitialized(true);
+            setHasUnpublishedChanges(false);
             return;
           }
         } catch (e) {
@@ -882,6 +883,7 @@ export default function App() {
           setLocalLastUpdated(stateData.lastUpdated || new Date(0).toISOString());
           setLoading(false);
           setIsInitialized(true);
+          setHasUnpublishedChanges(false);
           return;
         } else {
           throw new Error('Local state is empty');
@@ -932,6 +934,7 @@ export default function App() {
               setFlickrPosts(absoluteItems);
               setLoading(false);
               setIsInitialized(true);
+              setHasUnpublishedChanges(false);
               
               // Save this R2 state to our local backend so we can edit it
               try {
@@ -954,6 +957,7 @@ export default function App() {
         if (!fallbackEnabled) {
           setLoading(false);
           setIsInitialized(true);
+          setHasUnpublishedChanges(false);
           return;
         }
         console.log("Loading from Flickr as fallback (Test Data)");
@@ -992,6 +996,7 @@ export default function App() {
       } finally {
         setLoading(false);
         setIsInitialized(true);
+        setHasUnpublishedChanges(false);
       }
     };
 
@@ -2487,6 +2492,7 @@ export default function App() {
           setUploadProgress(100);
           setUploadSuccess({ url: data.url });
           setHasUnpublishedChanges(false);
+          setLocalLastUpdated(parsedData.lastUpdated);
           setTimeout(() => setUploadProgress(null), 2000);
           setUploading(false);
           return;
@@ -2525,6 +2531,7 @@ export default function App() {
       setUploadProgress(100);
       setUploadSuccess({ url: `${R2_CONFIG.publicDomain}/index.html` });
       setHasUnpublishedChanges(false);
+      setLocalLastUpdated(parsedData.lastUpdated);
       setTimeout(() => setUploadProgress(null), 2000);
       setUploading(false);
     } catch (err: any) {

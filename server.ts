@@ -1985,6 +1985,9 @@ async function startServer() {
       // 2. Upload index.html and state.json to R2
       await publishHtmlAndState(htmlContent, finalStateData);
 
+      // 3. Also save the published state locally so /api/state stays in sync
+      await fs.writeFile(path.join(DATA_DIR, 'state.json'), finalStateData, 'utf-8');
+
     const baseUrl = R2_CONFIG.publicDomain.startsWith('http') ? R2_CONFIG.publicDomain : `https://${R2_CONFIG.publicDomain}`;
     const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
     const url = `${cleanBaseUrl}/index.html`;
