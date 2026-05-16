@@ -53,7 +53,12 @@ export function FeedPostCard({
   const [localDescription, setLocalDescription] = useState(() => getAsString(post.description, 'description'));
   const [hoveredState, setHoveredState] = useState<string | null>(null);
   const [feedImageDimensions, setFeedImageDimensions] = useState<string>('');
+  const [thumbAvailability, setThumbAvailability] = useState<Record<number, boolean>>({});
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const rawMediaItems = (post.mergedMedia && post.mergedMedia.length > 0)
+    ? post.mergedMedia
+    : [{ type: post.type || 'image', image: post.image, image_large: post.image_large, youtubeId: post.youtubeId, youtubeUrl: post.youtubeUrl, link: post.url }];
 
   const handleFeedImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
@@ -77,6 +82,33 @@ export function FeedPostCard({
     }
   }, [localDescription, isEditing]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const checkThumbs = async () => {
+      const entries = await Promise.all(rawMediaItems.map(async (media: any, index: number) => {
+        const thumbUrl = media?.image_thumb;
+        if (!thumbUrl || media?.type === 'youtube') return [index, false] as const;
+        try {
+          const response = await fetch(`/api/media/exists?url=${encodeURIComponent(thumbUrl)}`);
+          const data = await response.json();
+          return [index, !!data.exists] as const;
+        } catch {
+          return [index, false] as const;
+        }
+      }));
+
+      if (!cancelled) {
+        setThumbAvailability(Object.fromEntries(entries));
+      }
+    };
+
+    checkThumbs();
+    return () => {
+      cancelled = true;
+    };
+  }, [rawMediaItems]);
+
   const style = {
     transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
     transition,
@@ -91,10 +123,6 @@ export function FeedPostCard({
     if (media.type === 'youtube') return !!(media.youtubeId || media.youtubeUrl || hasImage || hasUrl);
     return hasImage || hasUrl || !!media.youtubeId;
   };
-
-  const rawMediaItems = (post.mergedMedia && post.mergedMedia.length > 0)
-    ? post.mergedMedia
-    : [{ type: post.type || 'image', image: post.image, image_large: post.image_large, youtubeId: post.youtubeId, youtubeUrl: post.youtubeUrl, link: post.url }];
 
   const mediaItems = isEditing ? rawMediaItems : rawMediaItems.filter(isRenderableMedia);
   const renderedMediaCount = mediaItems.length;
@@ -137,6 +165,12 @@ export function FeedPostCard({
     newMedia.splice(index, 0, draggedItem);
     handleUpdatePostMedia(post.id, newMedia);
     setDraggedMediaIdx(null);
+  };
+
+  const openThumb = (thumbUrl?: string) => {
+    if (!thumbUrl) return;
+    const finalUrl = getDisplayImage(thumbUrl, isR2Fallback, isEmbeddedData) || thumbUrl;
+    window.open(finalUrl, '_blank', 'noopener,noreferrer');
   };
 
   return (
@@ -229,9 +263,22 @@ export function FeedPostCard({
                 >
                   <X className="w-3 h-3" />
                 </button>
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center gap-2 mb-2 pr-8">
                   <GripVertical className="w-4 h-4 text-white/30 cursor-grab" />
                   <span className="text-xs text-white/50">{media.type === 'youtube' ? 'YouTube' : 'Bild'}</span>
+                  {media.type !== 'youtube' && media.image_thumb && thumbAvailability[i] && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openThumb(media.image_thumb);
+                      }}
+                      className="w-5 h-5 rounded-md bg-white/10 hover:bg-white/20 text-white/70 flex items-center justify-center transition-colors border border-white/10"
+                      title="Thumbnail öffnen"
+                    >
+                      <ExternalLink className="w-2.5 h-2.5" />
+                    </button>
+                  )}
                 </div>
                 {media.type === 'youtube' ? (
                   <input

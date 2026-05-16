@@ -6,6 +6,7 @@ import sys
 from PIL import Image
 import imagehash
 import time
+from image_variants import build_variant_set_from_image
 
 # Ensure UTF-8 for console output to prevent 'charmap' errors on Windows
 if hasattr(sys.stdout, 'reconfigure'):
@@ -19,7 +20,7 @@ FLICKR_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     "Accept-Language": "en-US,en;q=0.9"
 }
-# Speichert Daten im Unterordner 'data/flickr'
+# Speichert JSON im Unterordner 'data/flickr'
 OUTPUT_DIR = os.path.join("data", "flickr")
 
 def sanitize_filename(name):
@@ -69,10 +70,7 @@ def scrape_flickr():
                 
         print(f"Found a total of {len(all_photos)} Flickr pictures!")
         
-        folder_1024 = os.path.join(OUTPUT_DIR, "flickr_1024")
-        folder_3k = os.path.join(OUTPUT_DIR, "flickr_3k")
-        os.makedirs(folder_1024, exist_ok=True)
-        os.makedirs(folder_3k, exist_ok=True)
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
         
         for i, photo in enumerate(all_photos, 1):
             try:
@@ -85,51 +83,59 @@ def scrape_flickr():
                 filename = f"{i:03d}_{safe_title}_{photo['id']}.jpg"
                 
                 url_1024 = photo.get('url_b') or photo.get('url_l') or photo.get('url_c')
-                # Prefer 3k directly, otherwise get best highres
                 url_highres = photo.get('url_3k') or photo.get('url_o') or photo.get('url_4k') or photo.get('url_k') or photo.get('url_h') or url_1024
                 
                 print(f"[Flickr {i}/{len(all_photos)}] Processing: {title}")
-                
-                filepath_1024 = os.path.join(folder_1024, filename)
-                if url_1024:
-                    if not os.path.exists(filepath_1024):
-                        r = requests.get(url_1024, stream=True)
-                        with open(filepath_1024, 'wb') as f:
-                            for chunk in r.iter_content(8192): f.write(chunk)
-                
-                if url_highres:
-                    filepath_3k = os.path.join(folder_3k, filename)
-                    if not os.path.exists(filepath_3k):
-                        r = requests.get(url_highres, stream=True)
-                        with open(filepath_3k, 'wb') as f:
-                            for chunk in r.iter_content(8192): f.write(chunk)
-                        
-                        # Resize logic: if > 4k, resize to 3k
-                        try:
-                            with Image.open(filepath_3k) as img:
-                                if img.width > 4096 or img.height > 4096:
-                                    print(f"  -> Resizing from {img.width}x{img.height} to 3k...")
-                                    img.thumbnail((3072, 3072), Image.Resampling.LANCZOS)
-                                    img.save(filepath_3k, quality=95, optimize=True)
-                        except Exception as res_err:
-                            print(f"  -> Error checking/resizing {filename}: {res_err}")
+                source_url = url_highres or url_1024
+                if not source_url:
+                    print(f"  -> No source URL found for {filename}")
+                    continue
+
+                temp_path = os.path.join(OUTPUT_DIR, f"_tmp_{filename}")
+                r = requests.get(source_url, stream=True)
+                r.raise_for_status()
+                with open(temp_path, 'wb') as f:
+                    for chunk in r.iter_content(8192):
+                        f.write(chunk)
+
+                variant_data = build_variant_set_from_image(temp_path, "flickr", f"{i:03d}_{safe_title}_{photo['id']}")
+                urls = variant_data["urls"]
                 
                 # Generate pHash
                 phash_str = ""
-                if os.path.exists(filepath_1024):
+                thumb_path = variant_data["local_paths"].get("image_1k") or variant_data["local_paths"].get("image_thumb")
+                if thumb_path and os.path.exists(thumb_path):
                     try:
-                        with Image.open(filepath_1024) as img:
+                        with Image.open(thumb_path) as img:
                             phash = imagehash.phash(img)
                             phash_str = str(phash)
                     except Exception as ph_err:
                         print(f"Error generating pHash for {filename}: {ph_err}")
 
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+
                 flickr_data.append({
                     'id': photo['id'],
                     'title': title,
                     'desc': desc,
-                    'img_1024': os.path.join("flickr_1024", filename),
-                    'img_3k': os.path.join("flickr_3k", filename),
+                    'description': desc,
+                    'link': f"https://www.flickr.com/photos/{user_id}/{photo['id']}/",
+                    'image': urls.get('image'),
+                    'image_thumb': urls.get('image_thumb', ''),
+                    'image_1k': urls.get('image_1k', ''),
+                    'image_2k': urls.get('image_2k', ''),
+                    'image_large': urls.get('image_large', ''),
+                    'image_3k': urls.get('image_3k', ''),
+                    'image_original': urls.get('image_original', ''),
+                    'media_list': [{
+                        'type': 'image',
+                        'link': f"https://www.flickr.com/photos/{user_id}/{photo['id']}/",
+                        **urls
+                    }],
+                    'missing_variants': variant_data['missing_variants'],
                     'phash': phash_str
                 })
                 

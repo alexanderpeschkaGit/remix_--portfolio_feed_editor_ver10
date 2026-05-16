@@ -21,6 +21,7 @@ async function startServer() {
   const upload = multer({ storage: multer.memoryStorage() });
 
   const DATA_DIR = path.join(process.cwd(), 'data');
+  const DATA_V2_DIR = path.join(process.cwd(), 'data_v2');
   const BACKUPS_DIR = path.join(process.cwd(), 'backups');
   const DATA_BACKUPS_DIR = path.join(BACKUPS_DIR, 'data');
   const ORIGINALS_DIR = path.join(process.cwd(), 'originals');
@@ -33,17 +34,35 @@ async function startServer() {
   const HIGHRES_DIR = path.join(DATA_DIR, 'highres');
   const PREVIEWS_DIR = path.join(DATA_DIR, 'previews');
   const SYNC_MANIFEST_KEY = '.sync-manifest.json';
+  const V2_PREFIX = 'v2/data';
+
+  const V2_MEDIA_GROUPS = {
+    uploads: path.join(DATA_V2_DIR, 'uploads'),
+    flickr: path.join(DATA_V2_DIR, 'flickr'),
+    instagram: path.join(DATA_V2_DIR, 'instagram'),
+    highres: path.join(DATA_V2_DIR, 'highres'),
+    previews: path.join(DATA_V2_DIR, 'previews'),
+  } as const;
+
+  const MEDIA_VARIANTS = [
+    { field: 'image_thumb', dir: 'thumbs400', suffix: 'thumb', maxSide: 400, quality: 74, alwaysCreate: true },
+    { field: 'image_1k', dir: '1k', suffix: '1k', maxSide: 1024, quality: 78, alwaysCreate: false },
+    { field: 'image_2k', dir: '2k', suffix: '2k', maxSide: 2048, quality: 80, alwaysCreate: false },
+    { field: 'image_3k', dir: '3k', suffix: '3k', maxSide: 3072, quality: 82, alwaysCreate: false },
+  ] as const;
   
   app.use('/data/preview.html', (req, res, next) => {
     res.setHeader("Content-Security-Policy", "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data: https://www.youtube.com https://s.ytimg.com;");
     next();
   });
   app.use('/data', express.static(DATA_DIR));
+  app.use('/data_v2', express.static(DATA_V2_DIR));
   app.use('/originals', express.static(ORIGINALS_DIR));
   app.use('/backups', express.static(BACKUPS_DIR));
   
   // Ensure directories exist
   await fs.mkdir(DATA_DIR, { recursive: true }).catch(() => {});
+  await fs.mkdir(DATA_V2_DIR, { recursive: true }).catch(() => {});
   await fs.mkdir(BACKUPS_DIR, { recursive: true }).catch(() => {});
   await fs.mkdir(DATA_BACKUPS_DIR, { recursive: true }).catch(() => {});
   await fs.mkdir(ORIGINALS_DIR, { recursive: true }).catch(() => {});
@@ -55,6 +74,13 @@ async function startServer() {
   await fs.mkdir(SYNC_DIR, { recursive: true }).catch(() => {});
   await fs.mkdir(HIGHRES_DIR, { recursive: true }).catch(() => {});
   await fs.mkdir(PREVIEWS_DIR, { recursive: true }).catch(() => {});
+  for (const groupDir of Object.values(V2_MEDIA_GROUPS)) {
+    await fs.mkdir(groupDir, { recursive: true }).catch(() => {});
+    await fs.mkdir(path.join(groupDir, 'originals'), { recursive: true }).catch(() => {});
+    for (const variant of MEDIA_VARIANTS) {
+      await fs.mkdir(path.join(groupDir, variant.dir), { recursive: true }).catch(() => {});
+    }
+  }
 
   async function backupState() {
     try {
@@ -102,6 +128,81 @@ async function startServer() {
       throw new Error('Backup-Format ungültig: Script-Tag fehlt.');
     }
     return JSON.parse(match[1]);
+  };
+
+  const toPosix = (value: string) => value.replace(/\\/g, '/');
+  const joinUrlPath = (...parts: string[]) => `/${parts.map(part => part.replace(/^\/+|\/+$/g, '')).filter(Boolean).join('/')}`;
+  const normalizeExt = (ext?: string) => {
+    const clean = (ext || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
+    return clean || 'jpg';
+  };
+  const getGroupBaseDir = (group: keyof typeof V2_MEDIA_GROUPS) => V2_MEDIA_GROUPS[group];
+  const getVariantLocalPath = (group: keyof typeof V2_MEDIA_GROUPS, dir: string, filename: string) =>
+    path.join(getGroupBaseDir(group), dir, filename);
+  const getVariantLocalUrl = (group: keyof typeof V2_MEDIA_GROUPS, dir: string, filename: string) =>
+    joinUrlPath('data_v2', group, dir, filename);
+  const getVariantR2Key = (group: keyof typeof V2_MEDIA_GROUPS, dir: string, filename: string) =>
+    `${V2_PREFIX}/${group}/${dir}/${filename}`;
+
+  const materializeVariantSet = async (
+    input: sharp.Sharp | Buffer | string,
+    options: {
+      group: keyof typeof V2_MEDIA_GROUPS;
+      baseName: string;
+      originalBuffer?: Buffer;
+      originalExt?: string;
+      uploadToCloud?: boolean;
+    }
+  ) => {
+    const source = sharp(input as any, { failOn: 'none' });
+    const metadata = await source.metadata();
+    const sourceMaxSide = Math.max(metadata.width || 0, metadata.height || 0);
+    const localUrls: Record<string, string> = {};
+    const remoteUrls: Record<string, string> = {};
+    const localPaths: Record<string, string> = {};
+    const missingVariants: string[] = [];
+    const manifestEntries: Array<{ r2Key: string; hash: string; size: number }> = [];
+
+    if (options.originalBuffer) {
+      const originalFilename = `${options.baseName}_original.${normalizeExt(options.originalExt)}`;
+      const originalPath = getVariantLocalPath(options.group, 'originals', originalFilename);
+      await fs.writeFile(originalPath, options.originalBuffer);
+      localPaths.image_original = originalPath;
+      localUrls.image_original = getVariantLocalUrl(options.group, 'originals', originalFilename);
+
+      if (options.uploadToCloud) {
+        const r2Key = getVariantR2Key(options.group, 'originals', originalFilename);
+        remoteUrls.image_original = await uploadToR2(options.originalBuffer, r2Key, getContentTypeForPath(originalFilename));
+        manifestEntries.push({ r2Key, hash: getBufferSha1(options.originalBuffer), size: options.originalBuffer.length });
+      }
+    }
+
+    for (const variant of MEDIA_VARIANTS) {
+      if (!variant.alwaysCreate && sourceMaxSide < variant.maxSide) {
+        missingVariants.push(variant.field);
+        continue;
+      }
+
+      const filename = `${options.baseName}_${variant.suffix}.jpg`;
+      const buffer = await sharp(input as any, { failOn: 'none' })
+        .resize(variant.maxSide, variant.maxSide, { fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: variant.quality })
+        .toBuffer();
+
+      const localPath = getVariantLocalPath(options.group, variant.dir, filename);
+      await fs.writeFile(localPath, buffer);
+
+      localPaths[variant.field] = localPath;
+      localUrls[variant.field] = getVariantLocalUrl(options.group, variant.dir, filename);
+
+      if (options.uploadToCloud) {
+        const r2Key = getVariantR2Key(options.group, variant.dir, filename);
+        remoteUrls[variant.field] = await uploadToR2(buffer, r2Key, 'image/jpeg');
+        manifestEntries.push({ r2Key, hash: getBufferSha1(buffer), size: buffer.length });
+      }
+    }
+
+    return { sourceMaxSide, localUrls, remoteUrls, localPaths, missingVariants, manifestEntries };
   };
 
   const publishHtmlAndState = async (htmlContent: string, stateData: string) => {
@@ -166,14 +267,48 @@ async function startServer() {
         for (const item of scraped) {
           const id = item.id;
           if (!existsInState(id) && !deletedIds.includes(id)) {
+            const mergedMedia = Array.isArray(item.media_list)
+              ? item.media_list.map((media: any) => {
+                  if (typeof media === 'string') {
+                    return { type: media.endsWith('.mp4') ? 'video' : 'image', image: media, image_large: media, link: item.link };
+                  }
+                  return {
+                    type: media.type || 'image',
+                    image: media.image || media.image_thumb || '',
+                    image_thumb: media.image_thumb || '',
+                    image_1k: media.image_1k || '',
+                    image_2k: media.image_2k || '',
+                    image_large: media.image_large || media.image_2k || media.image_3k || media.image_1k || media.image_thumb || '',
+                    image_3k: media.image_3k || '',
+                    image_original: media.image_original || '',
+                    link: media.link || item.link
+                  };
+                })
+              : (item.image ? [{
+                  type: 'image',
+                  image: item.image,
+                  image_thumb: item.image_thumb || item.image || '',
+                  image_1k: item.image_1k || '',
+                  image_2k: item.image_2k || '',
+                  image_large: item.image_large || item.image_2k || item.image_3k || item.image_1k || item.image_thumb || item.image || '',
+                  image_3k: item.image_3k || '',
+                  image_original: item.image_original || '',
+                  link: item.link
+                }] : []);
             newItems.push({
               id,
-              type: item.media_list && item.media_list[0] && item.media_list[0].endsWith('.mp4') ? 'video' : 'image',
+              type: mergedMedia[0]?.type === 'video' ? 'video' : 'image',
               source: 'instagram',
               title: item.title || '',
               description: item.description || '',
-              image: item.image,
-              mergedMedia: item.media_list ? item.media_list.map((url: string) => ({ type: url.endsWith('.mp4') ? 'video' : 'image', image: url, image_large: url, link: item.link })) : (item.image ? [{ type: 'image', image: item.image, image_large: item.image, link: item.link }] : []),
+              image: item.image || item.image_thumb || '',
+              image_thumb: item.image_thumb || item.image || '',
+              image_1k: item.image_1k || '',
+              image_2k: item.image_2k || '',
+              image_large: item.image_large || item.image_2k || item.image_3k || item.image_1k || item.image_thumb || '',
+              image_3k: item.image_3k || '',
+              image_original: item.image_original || '',
+              mergedMedia,
               url: item.link,
               date: item.timestamp || new Date().toISOString(),
               phash: item.phash
@@ -190,16 +325,50 @@ async function startServer() {
         for (const item of scraped) {
           const id = item.id;
           if (!existsInState(id) && !deletedIds.includes(id)) {
+            const fallbackThumb = item.image_thumb || item.image || (item.img_1024 ? `/data/flickr/${item.img_1024}` : '');
+            const fallback3k = item.image_3k || item.image_large || (item.img_3k ? `/data/flickr/${item.img_3k}` : '');
+            const mergedMedia = Array.isArray(item.media_list)
+              ? item.media_list.map((media: any) => {
+                  if (typeof media === 'string') {
+                    return { type: 'image', image: media, image_large: fallback3k || media, image_3k: fallback3k || media, link: item.link || `https://www.flickr.com/photos/23689211@N04/${id}/` };
+                  }
+                  return {
+                    type: media.type || 'image',
+                    image: media.image || media.image_thumb || fallbackThumb,
+                    image_thumb: media.image_thumb || '',
+                    image_1k: media.image_1k || '',
+                    image_2k: media.image_2k || '',
+                    image_large: media.image_large || media.image_2k || media.image_3k || media.image_1k || media.image_thumb || fallback3k || '',
+                    image_3k: media.image_3k || fallback3k || '',
+                    image_original: media.image_original || '',
+                    link: media.link || item.link || `https://www.flickr.com/photos/23689211@N04/${id}/`
+                  };
+                })
+              : [{
+                  type: 'image',
+                  image: fallbackThumb,
+                  image_thumb: item.image_thumb || fallbackThumb,
+                  image_1k: item.image_1k || '',
+                  image_2k: item.image_2k || '',
+                  image_large: item.image_large || item.image_2k || item.image_3k || fallback3k || '',
+                  image_3k: item.image_3k || fallback3k || '',
+                  image_original: item.image_original || '',
+                  link: item.link || `https://www.flickr.com/photos/23689211@N04/${id}/`
+                }];
             newItems.push({
               id,
               type: 'image',
               source: 'flickr',
               title: item.title || '',
               description: item.description || item.desc || '',
-              image: item.image || `/data/flickr/${item.img_1024}`,
-              image_large: item.image_large || `/data/flickr/${item.img_3k}`,
-              image_3k: item.image_large || `/data/flickr/${item.img_3k}`,
-              mergedMedia: item.media_list ? item.media_list.map((url: string) => ({ type: 'image', image: url, image_large: item.image_large || url, image_3k: item.image_large || url, link: item.link || `https://www.flickr.com/photos/23689211@N04/${id}/` })) : [{ type: 'image', image: item.image || `/data/flickr/${item.img_1024}`, image_large: item.image_large || `/data/flickr/${item.img_3k}`, image_3k: item.image_large || `/data/flickr/${item.img_3k}`, link: item.link || `https://www.flickr.com/photos/23689211@N04/${id}/` }],
+              image: fallbackThumb,
+              image_thumb: item.image_thumb || fallbackThumb,
+              image_1k: item.image_1k || '',
+              image_2k: item.image_2k || '',
+              image_large: item.image_large || item.image_2k || item.image_3k || fallback3k || '',
+              image_3k: item.image_3k || fallback3k || '',
+              image_original: item.image_original || '',
+              mergedMedia,
               url: item.link || `https://www.flickr.com/photos/23689211@N04/${id}/`,
               date: new Date().toISOString(),
               phash: item.phash
@@ -409,8 +578,12 @@ async function startServer() {
 
   const MEDIA_REFERENCE_FIELDS = [
     'image',
+    'image_thumb',
+    'image_1k',
+    'image_2k',
     'image_large',
     'image_3k',
+    'image_original',
     'image_preview',
     'imageLarge',
     'largeUrl',
@@ -491,6 +664,8 @@ async function startServer() {
       if (!normalized) return null;
       if (
         normalized.startsWith('data/') ||
+        normalized.startsWith('data_v2/') ||
+        normalized.startsWith('v2/data/') ||
         normalized.startsWith('uploads/') ||
         normalized.startsWith('highres/') ||
         normalized.startsWith('originals/')
@@ -533,6 +708,12 @@ async function startServer() {
       cleanUrl = decodeURIComponent(cleanUrl);
     } catch (e) {}
 
+    if (cleanUrl.startsWith('/data_v2/')) {
+      return {
+        localPath: path.join(process.cwd(), cleanUrl.replace(/^\/data_v2\//, 'data_v2/')),
+        r2Key: `${V2_PREFIX}/${toPosix(cleanUrl.replace(/^\/data_v2\//, ''))}`
+      };
+    }
     if (cleanUrl.startsWith('/data/')) {
       return {
         localPath: path.join(DATA_DIR, cleanUrl.replace('/data/', '')),
@@ -820,43 +1001,48 @@ async function startServer() {
 
           if (bestMatch && minDistance <= 5) {
             syncStatus.logs.push(`[MATCH] ${file} passt zu Post ${bestMatch.id} (Dist: ${minDistance})`);
-            
-            // Create 3K version locally
-            const buffer3k = await sharp(filePath)
-              .resize(3000, 3000, { fit: 'inside', withoutEnlargement: true })
-              .jpeg({ quality: 70 })
-              .toBuffer();
-            
-            const localFilename3k = `${baseName}_3k.jpg`;
-            const localPath3k = path.join(HIGHRES_DIR, localFilename3k);
-            await fs.writeFile(localPath3k, buffer3k);
-            
-            // Upload to R2
-            const url3k = await uploadToR2(buffer3k, `highres/${localFilename3k}`, 'image/jpeg');
-            
-            bestMatch.image_3k = url3k;
-            bestMatch.local_highres = `/data/highres/${localFilename3k}`;
+
+            const originalBuffer = await fs.readFile(filePath);
+            const variantSet = await materializeVariantSet(filePath, {
+              group: 'highres',
+              baseName,
+              originalBuffer,
+              originalExt: path.extname(file),
+              uploadToCloud: true,
+            });
+
+            bestMatch.image_thumb = variantSet.remoteUrls.image_thumb || variantSet.localUrls.image_thumb;
+            bestMatch.image_1k = variantSet.remoteUrls.image_1k || variantSet.localUrls.image_1k;
+            bestMatch.image_2k = variantSet.remoteUrls.image_2k || variantSet.localUrls.image_2k;
+            bestMatch.image_3k = variantSet.remoteUrls.image_3k || variantSet.localUrls.image_3k;
+            bestMatch.image_original = variantSet.remoteUrls.image_original || variantSet.localUrls.image_original;
+            bestMatch.image = bestMatch.image_thumb || bestMatch.image;
+            bestMatch.image_large = bestMatch.image_2k || bestMatch.image_3k || bestMatch.image_large;
+            bestMatch.local_highres = variantSet.localUrls.image_3k || variantSet.localUrls.image_2k || variantSet.localUrls.image_1k || '';
+            if (variantSet.manifestEntries.length > 0) {
+              await updateSyncManifestEntries(variantSet.manifestEntries);
+            }
+            if (variantSet.missingVariants.length > 0) {
+              syncStatus.logs.push(`[INFO] ${file}: ausgelassene Stufen wegen kleiner Quelle: ${variantSet.missingVariants.join(', ')}`);
+            }
             matchesFound++;
           } else if (bestMatch && minDistance <= 12) {
             syncStatus.logs.push(`[UNSICHER] ${file} ähnelt Post ${bestMatch.id} (Dist: ${minDistance})`);
-            
-            // Create 1024 preview locally
-            const buffer1024 = await sharp(filePath)
-              .resize(1024, 1024, { fit: 'inside', withoutEnlargement: true })
-              .jpeg({ quality: 70 })
-              .toBuffer();
-            
-            const localFilename1024 = `${baseName}_1024.jpg`;
-            const localPath1024 = path.join(PREVIEWS_DIR, localFilename1024);
-            await fs.writeFile(localPath1024, buffer1024);
-            
-            // Upload to R2 for comparison
-            const url1024 = await uploadToR2(buffer1024, `previews/${localFilename1024}`, 'image/jpeg');
+
+            const previewSet = await materializeVariantSet(filePath, {
+              group: 'previews',
+              baseName,
+              uploadToCloud: true,
+            });
+            const previewUrl = previewSet.remoteUrls.image_1k || previewSet.remoteUrls.image_thumb || previewSet.localUrls.image_1k || previewSet.localUrls.image_thumb;
+            if (previewSet.manifestEntries.length > 0) {
+              await updateSyncManifestEntries(previewSet.manifestEntries);
+            }
 
             uncertainMatches.push({
               postId: bestMatch.id,
               localFile: file,
-              previewUrl: url1024,
+              previewUrl,
               distance: minDistance,
               originalPath: filePath,
               baseName: baseName
@@ -952,6 +1138,17 @@ async function startServer() {
             allImageFiles = [...allImageFiles, ...mediaFiles];
           }
         }
+
+        for (const [sub, subDirPath] of Object.entries(V2_MEDIA_GROUPS)) {
+          if (await fs.access(subDirPath).then(() => true).catch(() => false)) {
+            const files = await getRecursiveFiles(subDirPath, subDirPath);
+            const mediaFiles = files.filter(f => /\.(jpg|jpeg|png|webp|json|mp4|webm|mov)$/i.test(f)).map(f => ({
+              localPath: path.join(subDirPath, f),
+              r2Key: `${V2_PREFIX}/${sub}/${toPosix(f)}`
+            }));
+            allImageFiles = [...allImageFiles, ...mediaFiles];
+          }
+        }
       }
 
       const dedupTargets = new Map<string, { localPath: string; r2Key: string }>();
@@ -1034,21 +1231,26 @@ async function startServer() {
       
       const item = state.items.find((i: any) => i.id === postId);
       if (item) {
-        // Create 3K version locally
-        const buffer3k = await sharp(originalPath)
-          .resize(3000, 3000, { fit: 'inside', withoutEnlargement: true })
-          .jpeg({ quality: 70 })
-          .toBuffer();
-        
-        const localFilename3k = `${baseName || item.id}_3k.jpg`;
-        const localPath3k = path.join(HIGHRES_DIR, localFilename3k);
-        await fs.writeFile(localPath3k, buffer3k);
-        
-        // Upload to R2
-        const url3k = await uploadToR2(buffer3k, `highres/${localFilename3k}`, 'image/jpeg');
-        
-        item.image_3k = url3k;
-        item.local_highres = `/data/highres/${localFilename3k}`;
+        const originalBuffer = await fs.readFile(originalPath);
+        const variantSet = await materializeVariantSet(originalPath, {
+          group: 'highres',
+          baseName: baseName || item.id,
+          originalBuffer,
+          originalExt: path.extname(originalPath),
+          uploadToCloud: true,
+        });
+
+        item.image_thumb = variantSet.remoteUrls.image_thumb || variantSet.localUrls.image_thumb;
+        item.image_1k = variantSet.remoteUrls.image_1k || variantSet.localUrls.image_1k;
+        item.image_2k = variantSet.remoteUrls.image_2k || variantSet.localUrls.image_2k;
+        item.image_3k = variantSet.remoteUrls.image_3k || variantSet.localUrls.image_3k;
+        item.image_original = variantSet.remoteUrls.image_original || variantSet.localUrls.image_original;
+        item.image = item.image_thumb || item.image;
+        item.image_large = item.image_2k || item.image_3k || item.image_large;
+        item.local_highres = variantSet.localUrls.image_3k || variantSet.localUrls.image_2k || variantSet.localUrls.image_1k || '';
+        if (variantSet.manifestEntries.length > 0) {
+          await updateSyncManifestEntries(variantSet.manifestEntries);
+        }
         
         await backupState();
         await fs.writeFile(statePath, JSON.stringify(state, null, 2));
@@ -1062,7 +1264,7 @@ async function startServer() {
           await fs.writeFile(uncertainPath, JSON.stringify(uncertain, null, 2));
         } catch (e) {}
         
-        res.json({ success: true, url: url3k });
+        res.json({ success: true, url: item.image_3k || item.image_2k || item.image_1k || item.image_thumb });
       } else {
         res.status(404).json({ error: 'Post not found' });
       }
@@ -1108,6 +1310,7 @@ async function startServer() {
         let skipped = 0;
 
         let allImageFiles = await collectReferencedSyncTargets();
+        const knownKeys = new Set(allImageFiles.map(file => file.r2Key));
 
         if (allImageFiles.length === 0) {
           fullR2SyncStatus.logs.push("Keine referenzierten Dateien in state.json gefunden. Fallback auf Verzeichnis-Scan...");
@@ -1121,8 +1324,33 @@ async function startServer() {
                 r2Key: `data/${sub}/${f}`
               }));
               allImageFiles = [...allImageFiles, ...images];
+              images.forEach(file => knownKeys.add(file.r2Key));
             }
           }
+        }
+
+        for (const [sub, subDirPath] of Object.entries(V2_MEDIA_GROUPS)) {
+          if (await fs.access(subDirPath).then(() => true).catch(() => false)) {
+            const files = await getRecursiveFiles(subDirPath, subDirPath);
+            const images = files
+              .filter(f => /\.(jpg|jpeg|png|webp|json|mp4|webm|mov)$/i.test(f))
+              .map(f => ({
+                localPath: path.join(subDirPath, f),
+                r2Key: `${V2_PREFIX}/${sub}/${toPosix(f)}`
+              }))
+              .filter(file => !knownKeys.has(file.r2Key));
+            allImageFiles = [...allImageFiles, ...images];
+            images.forEach(file => knownKeys.add(file.r2Key));
+          }
+        }
+
+        // Add Connect_front_back.md to sync for external AI access
+        const connectMdPath = path.join(process.cwd(), 'Connect_front_back.md');
+        if (await fs.access(connectMdPath).then(() => true).catch(() => false)) {
+          allImageFiles.push({
+            localPath: connectMdPath,
+            r2Key: 'v2/config/Connect_front_back.md'
+          });
         }
 
         fullR2SyncStatus.total = allImageFiles.length;
@@ -1226,6 +1454,40 @@ async function startServer() {
     } catch (e) {
       console.error("Failed to fetch R2 state:", e);
       res.status(500).json({ error: 'Failed to fetch R2 state' });
+    }
+  });
+
+  app.get("/api/media/exists", async (req, res) => {
+    try {
+      const rawUrl = typeof req.query.url === 'string' ? req.query.url : '';
+      if (!rawUrl) return res.json({ exists: false });
+
+      let normalized = rawUrl.split('?')[0];
+      if (/^https?:\/\//i.test(normalized)) {
+        try {
+          normalized = new URL(normalized).pathname;
+        } catch {
+          return res.json({ exists: false });
+        }
+      }
+
+      let targetPath: string | null = null;
+      if (normalized.startsWith('/data_v2/')) {
+        targetPath = path.join(DATA_V2_DIR, normalized.replace('/data_v2/', ''));
+      } else if (normalized.startsWith('/data/')) {
+        targetPath = path.join(DATA_DIR, normalized.replace('/data/', ''));
+      } else if (normalized.startsWith('/originals/')) {
+        targetPath = path.join(ORIGINALS_DIR, normalized.replace('/originals/', ''));
+      }
+
+      if (!targetPath) {
+        return res.json({ exists: false });
+      }
+
+      const stats = await fs.stat(targetPath).catch(() => null);
+      return res.json({ exists: !!(stats && stats.isFile()) });
+    } catch {
+      return res.json({ exists: false });
     }
   });
 
@@ -1353,6 +1615,9 @@ async function startServer() {
         if (!url) return null;
         // Remove query parameters
         const cleanUrl = url.split('?')[0];
+        if (cleanUrl.startsWith('/data_v2/')) {
+          return path.join(DATA_V2_DIR, cleanUrl.replace('/data_v2/', ''));
+        }
         if (cleanUrl.startsWith('/data/')) {
           return path.join(DATA_DIR, cleanUrl.replace('/data/', ''));
         } else if (cleanUrl.startsWith('/originals/')) {
@@ -1362,14 +1627,14 @@ async function startServer() {
       };
 
       for (const item of itemsToDelete) {
-        [item.image, item.image_large, item.image_3k].forEach(url => {
+        [item.image, item.image_thumb, item.image_1k, item.image_2k, item.image_large, item.image_3k, item.image_original].forEach(url => {
           const p = extractPath(url);
           if (p) filesToDelete.push(p);
         });
         
         if (item.mergedMedia) {
           for (const media of item.mergedMedia) {
-            [media.image, media.image_large, media.image_3k].forEach((url: string) => {
+            [media.image, media.image_thumb, media.image_1k, media.image_2k, media.image_large, media.image_3k, media.image_original].forEach((url: string) => {
               const p = extractPath(url);
               if (p) filesToDelete.push(p);
             });
@@ -2008,47 +2273,38 @@ async function startServer() {
 
       const ext = req.file.originalname.split('.').pop() || 'jpg';
       const baseName = `img-${Date.now()}`;
-      
-      // 1. Original
-      const originalFilename = `${baseName}_original.${ext}`;
-      await fs.writeFile(path.join(UPLOADS_ORIGINALS_DIR, originalFilename), req.file.buffer);
-      
-      const metadata = await sharp(req.file.buffer).metadata();
-      const maxSide = Math.max(metadata.width || 0, metadata.height || 0);
-      const use3k = maxSide > 2048;
-      const largeTarget = use3k ? 3072 : 2048;
-      const largeFolder = use3k ? '3k' : '2k';
-      const largeDir = use3k ? UPLOADS_3K_DIR : UPLOADS_2K_DIR;
-      const largeSuffix = use3k ? '3k' : '2k';
+      const variantSet = await materializeVariantSet(req.file.buffer, {
+        group: 'uploads',
+        baseName,
+        originalBuffer: req.file.buffer,
+        originalExt: ext,
+        uploadToCloud: false,
+      });
 
-      // 2. Large version (max 2048px or 3072px depending on source size)
-      const bufferLarge = await sharp(req.file.buffer)
-        .resize(largeTarget, largeTarget, { fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: 80 })
-        .toBuffer();
-      const filenameLarge = `${baseName}_${largeSuffix}.jpg`;
-      await fs.writeFile(path.join(largeDir, filenameLarge), bufferLarge);
-      
-      // 3. Thumb Version (max 1024px)
-      const bufferThumb = await sharp(req.file.buffer)
-        .resize(1024, 1024, { fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: 75 })
-        .toBuffer();
-      const filenameThumb = `${baseName}_thumb.jpg`;
-      await fs.writeFile(path.join(UPLOADS_THUMBS_DIR, filenameThumb), bufferThumb);
-
-      const basePublicUrl = '/data/uploads';
-      const localThumb = `${basePublicUrl}/thumbs/${filenameThumb}`;
-      const localLarge = `${basePublicUrl}/${largeFolder}/${filenameLarge}`;
-      const localOriginal = `${basePublicUrl}/originals/${originalFilename}`;
+      const localThumb = variantSet.localUrls.image_thumb || '';
+      const local1k = variantSet.localUrls.image_1k || '';
+      const local2k = variantSet.localUrls.image_2k || '';
+      const local3k = variantSet.localUrls.image_3k || '';
+      const localLarge = local2k || local3k || local1k || localThumb;
+      const localOriginal = variantSet.localUrls.image_original || '';
+      const localLargeVariant = local2k ? '2k' : (local3k ? '3k' : (local1k ? '1k' : 'thumb'));
 
       res.json({
         success: true, 
         // Manual uploads stay local until Cloud Sync mirrors only the changed files to R2.
         url: localThumb,
+        url_1k: local1k,
+        url_2k: local2k,
+        url_3k: local3k,
         url_large: localLarge,
         url_original: localOriginal,
-        local_large_variant: largeSuffix
+        image_thumb: localThumb,
+        image_1k: local1k,
+        image_2k: local2k,
+        image_3k: local3k,
+        image_original: localOriginal,
+        local_large_variant: localLargeVariant,
+        missing_variants: variantSet.missingVariants
       });
     } catch (error: any) {
       console.error("Error processing local image upload:", error);

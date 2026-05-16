@@ -20,11 +20,51 @@ This application must run flawlessly in TWO environments:
 
 ## Data Structure (`/data` directory)
 - `state.json`: The single source of truth for the portfolio. Contains all posts, titles, descriptions, and media links.
-- `uploads/`: Manually uploaded images.
-- `flickr/` & `instagram/`: Images scraped from social media.
+- `uploads/`: Legacy manually uploaded images.
+- `flickr/` & `instagram/`: Legacy images scraped from social media.
 - `originals/`: High-resolution source files placed manually by the user.
-- `highres/`: Processed 3K versions of the originals.
+- `highres/`: Legacy processed large versions of the originals.
 - `backups/`: Automated backups of `state.json`.
+
+## Media Variant Strategy (CURRENT)
+- New media processing must use these derived variants whenever a clean source image exists:
+  - `thumb400`: 400px longest edge
+  - `1k`: 1024px longest edge
+  - `2k`: 2048px longest edge
+  - `3k`: 3072px longest edge
+  - `original`: source/original file
+- Do **not** upscale images. If a source is too small for a target size, skip that variant and log the gap.
+- Preferred new JSON media fields:
+  - `image_thumb`
+  - `image_1k`
+  - `image_2k`
+  - `image_3k`
+  - `image_original`
+- Legacy fields must remain readable for compatibility:
+  - `image`
+  - `image_large`
+  - `image_3k`
+  - `url`
+  - `largeUrl`
+  - `link`
+
+## Versioned Storage Strategy
+- Keep the existing Cloudflare R2 bucket.
+- Store all newly generated media in a new versioned path prefix: `v2/`.
+- Never delete or overwrite legacy media only to migrate structure.
+- Frontend and backend should prefer `v2` assets, but remain compatible with legacy references.
+- Example local structure for new generated assets:
+  - `data_v2/uploads/thumbs400/...`
+  - `data_v2/uploads/1k/...`
+  - `data_v2/uploads/2k/...`
+  - `data_v2/uploads/3k/...`
+  - `data_v2/uploads/originals/...`
+- Example R2 structure for the same assets:
+  - `v2/data/uploads/thumbs400/...`
+  - `v2/data/uploads/1k/...`
+  - `v2/data/uploads/2k/...`
+  - `v2/data/uploads/3k/...`
+  - `v2/data/uploads/originals/...`
 
 ## Cloudflare R2 & GitHub Integration
 The app syncs data to a Cloudflare R2 bucket to serve the public portfolio.
@@ -32,12 +72,14 @@ The app syncs data to a Cloudflare R2 bucket to serve the public portfolio.
 - **Public Domain:** `https://pub-85bb68a84f3b4ba6b512b3d165c96497.r2.dev`
 - **Sync Logic:** The `server.ts` handles uploading files to R2 using the `@aws-sdk/client-s3` library. The `index.html` file generated during "Publish" is also uploaded here.
 - **GitHub Connection:** If Cloudflare R2 is unavailable or as an alternative backup, the system can sync the `state.json` and `index.html` to a GitHub repository. GitHub Pages can be used as an alternative hosting provider for the static portfolio.
+- **AI Exchange File:** `Connect_front_back.md` is the operational hand-off channel between frontend and backend/scraping AI agents. Use it for migration notes, missing-image reports, ratio/format changes, and frontend fallback requirements.
 
 ## Key Features & Workflows
 - **Scraping:** Fetches images from Flickr/Instagram and saves them locally.
 - **High-Res Sync:** Scans `data/originals/` for high-res versions of scraped images. Matches are based on filenames. Uncertain matches are flagged for manual review.
 - **Cloud Sync:** Mirrors all local images to Cloudflare R2.
 - **Publish:** Generates a static `index.html` injecting the current `state.json` data and uploads it to R2.
+- **Batch Migration:** Existing assets may be backfilled into the new variant structure. Missing or defective sources must be logged instead of silently upscaled.
 
 ## Batch Files
 - `start_windows.bat`: Checks for `node_modules`, installs dependencies if missing, and starts the server.
@@ -48,6 +90,9 @@ The app syncs data to a Cloudflare R2 bucket to serve the public portfolio.
 - `#exec [step]`: Execute a specific step from the plan.
 - `#review`: Analyze the chat history/code for errors or deviations from clean code principles.
 - `#check`: Assess the complexity of the current task (1-10). If > 7, recommend switching to a more advanced model.
+
+## Logging Rule For AI
+- If `Connect_front_back.md` is updated with new operational notes, missing files, or compatibility warnings, explicitly tell the user in the final response.
 
 ## Restart Recommendation Rule (ALWAYS)
 After every code change made by the AI, end the response with a bold restart recommendation line in this format:

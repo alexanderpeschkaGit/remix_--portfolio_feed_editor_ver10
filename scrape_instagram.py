@@ -6,6 +6,7 @@ import sys
 from PIL import Image
 import imagehash
 import glob
+from image_variants import build_media_payload_from_image
 
 # Ensure UTF-8 for console output to prevent 'charmap' errors on Windows
 if hasattr(sys.stdout, 'reconfigure'):
@@ -56,25 +57,56 @@ def scrape_instagram():
                 
                 phash_str = ""
                 image_path = ""
+                image_thumb = ""
+                image_1k = ""
+                image_2k = ""
+                image_3k = ""
+                image_original = ""
+                media_list = []
                 if image_files:
-                    # Sort by size or just take the first one (usually the main image)
                     image_files.sort(key=os.path.getmtime, reverse=True)
-                    main_image = image_files[0]
-                    image_path = os.path.join(IG_TARGET_ACCOUNT, os.path.basename(main_image))
-                    
-                    try:
-                        with Image.open(main_image) as img:
-                            phash = imagehash.phash(img)
-                            phash_str = str(phash)
-                    except Exception as ph_err:
-                        print(f"Error hashing {main_image}: {ph_err}")
+                    for idx, main_image in enumerate(image_files):
+                        base_name = f"{post.shortcode}_{idx + 1:02d}"
+                        media_payload = build_media_payload_from_image(
+                            main_image,
+                            "instagram",
+                            base_name,
+                            f"https://www.instagram.com/p/{post.shortcode}/",
+                        )
+                        media_list.append(media_payload)
+
+                    first_media = media_list[0]
+                    image_path = first_media.get("image", "")
+                    image_thumb = first_media.get("image_thumb", "")
+                    image_1k = first_media.get("image_1k", "")
+                    image_2k = first_media.get("image_2k", "")
+                    image_3k = first_media.get("image_3k", "")
+                    image_original = first_media.get("image_original", "")
+
+                    thumb_source = first_media.get("image_1k") or first_media.get("image_thumb")
+                    if thumb_source:
+                        thumb_path = thumb_source.lstrip("/").replace("/", os.sep)
+                        try:
+                            with Image.open(thumb_path) as img:
+                                phash = imagehash.phash(img)
+                                phash_str = str(phash)
+                        except Exception as ph_err:
+                            print(f"Error hashing {main_image}: {ph_err}")
 
                 insta_data.append({
                     "id": post.shortcode,
                     "title": post.caption[:100] if post.caption else "Instagram Post",
                     "description": post.caption if post.caption else "",
                     "link": f"https://www.instagram.com/p/{post.shortcode}/",
-                    "image": f"/data/instagram/{image_path.replace(os.sep, '/')}" if image_path else "",
+                    "image": image_path,
+                    "image_thumb": image_thumb,
+                    "image_1k": image_1k,
+                    "image_2k": image_2k,
+                    "image_large": image_2k or image_3k or image_1k or image_thumb,
+                    "image_3k": image_3k,
+                    "image_original": image_original,
+                    "media_list": media_list,
+                    "missing_variants": [m.get("missing_variants", []) for m in media_list],
                     "phash": phash_str,
                     "timestamp": post.date_utc.isoformat()
                 })

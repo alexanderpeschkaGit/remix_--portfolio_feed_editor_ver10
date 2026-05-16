@@ -5,6 +5,8 @@ import re
 import time
 import glob
 from PIL import Image
+import imagehash
+from image_variants import build_media_payload_from_image, build_variant_set_from_image
 
 # Ensure UTF-8 for console output to prevent 'charmap' errors on Windows
 if hasattr(sys.stdout, 'reconfigure'):
@@ -86,13 +88,41 @@ def scrape_instagram():
                 media_files = sorted([f for f in all_files if f.lower().endswith(('.jpg', '.mp4'))])
                 
                 image_path = ""
+                image_thumb = ""
+                image_1k = ""
+                image_2k = ""
+                image_3k = ""
+                image_original = ""
                 media_list = []
+                phash_str = ""
                 if media_files:
-                    for mf in media_files:
-                        rel_path = os.path.relpath(mf, "data")
-                        media_list.append(f"/data/{rel_path}".replace("\\", "/"))
-                    # Use the first media file as the main display image
-                    image_path = media_list[0]
+                    image_candidates = [mf for mf in media_files if mf.lower().endswith('.jpg')]
+                    for idx, mf in enumerate(image_candidates):
+                        media_payload = build_media_payload_from_image(
+                            mf,
+                            "instagram",
+                            f"{post.shortcode}_{idx + 1:02d}",
+                            f"https://www.instagram.com/p/{post.shortcode}/",
+                        )
+                        media_payload["missing_variants"] = []
+                        media_list.append(media_payload)
+
+                    if media_list:
+                        first_media = media_list[0]
+                        image_path = first_media.get("image", "")
+                        image_thumb = first_media.get("image_thumb", "")
+                        image_1k = first_media.get("image_1k", "")
+                        image_2k = first_media.get("image_2k", "")
+                        image_3k = first_media.get("image_3k", "")
+                        image_original = first_media.get("image_original", "")
+                        thumb_source = first_media.get("image_1k") or first_media.get("image_thumb")
+                        if thumb_source:
+                            thumb_path = thumb_source.lstrip("/").replace("/", os.sep)
+                            try:
+                                with Image.open(thumb_path) as img:
+                                    phash_str = str(imagehash.phash(img))
+                            except Exception as ph_err:
+                                print(f"Error hashing {thumb_path}: {ph_err}")
 
                 # Format for Node.js backend
                 insta_data.append({
@@ -101,8 +131,15 @@ def scrape_instagram():
                     "description": post.caption or "",
                     "link": f"https://www.instagram.com/p/{post.shortcode}/",
                     "image": image_path,
+                    "image_thumb": image_thumb,
+                    "image_1k": image_1k,
+                    "image_2k": image_2k,
+                    "image_large": image_2k or image_3k or image_1k or image_thumb,
+                    "image_3k": image_3k,
+                    "image_original": image_original,
                     "media_list": media_list,
-                    "phash": "",
+                    "missing_variants": [m.get("missing_variants", []) for m in media_list],
+                    "phash": phash_str,
                     "timestamp": post.date_utc.isoformat()
                 })
                 
@@ -174,10 +211,7 @@ def scrape_flickr():
                 
         print(f"Found a total of {len(all_photos)} Flickr pictures!")
         
-        folder_1024 = os.path.join(output_dir, "flickr_1024")
-        folder_3k = os.path.join(output_dir, "flickr_3k")
-        os.makedirs(folder_1024, exist_ok=True)
-        os.makedirs(folder_3k, exist_ok=True)
+        os.makedirs(output_dir, exist_ok=True)
         
         for i, photo in enumerate(all_photos, 1):
             try:
@@ -195,34 +229,32 @@ def scrape_flickr():
                 print(f"[Flickr {i}/{len(all_photos)}] Processing: {title}")
                 sys.stdout.flush()
                 
-                image_path = ""
-                if url_1024:
-                    filepath_1024 = os.path.join(folder_1024, filename)
-                    if not os.path.exists(filepath_1024):
-                        r = requests.get(url_1024, stream=True)
-                        with open(filepath_1024, 'wb') as f:
-                            for chunk in r.iter_content(8192): f.write(chunk)
-                    image_path = f"/data/flickr/flickr_1024/{filename}"
-                
-                image_large_path = ""
-                if url_highres:
-                    filepath_3k = os.path.join(folder_3k, filename)
-                    if not os.path.exists(filepath_3k):
-                        r = requests.get(url_highres, stream=True)
-                        with open(filepath_3k, 'wb') as f:
-                            for chunk in r.iter_content(8192): f.write(chunk)
-                        
-                        # Resize logic: if > 4k, resize to 3k
-                        try:
-                            with Image.open(filepath_3k) as img:
-                                if img.width > 4096 or img.height > 4096:
-                                    print(f"  -> Resizing from {img.width}x{img.height} to 3k...")
-                                    img.thumbnail((3072, 3072), Image.Resampling.LANCZOS)
-                                    img.save(filepath_3k, quality=95, optimize=True)
-                        except Exception as res_err:
-                            print(f"  -> Error checking/resizing {filename}: {res_err}")
-                    
-                    image_large_path = f"/data/flickr/flickr_3k/{filename}"
+                source_url = url_highres or url_1024
+                if not source_url:
+                    print(f"  -> No source URL found for {filename}")
+                    continue
+
+                temp_path = os.path.join(output_dir, f"_tmp_{filename}")
+                r = requests.get(source_url, stream=True)
+                r.raise_for_status()
+                with open(temp_path, 'wb') as f:
+                    for chunk in r.iter_content(8192):
+                        f.write(chunk)
+
+                variant_data = build_variant_set_from_image(temp_path, "flickr", f"{i:03d}_{safe_title}_{photo['id']}")
+                urls = variant_data["urls"]
+                phash_str = ""
+                thumb_path = variant_data["local_paths"].get("image_1k") or variant_data["local_paths"].get("image_thumb")
+                if thumb_path and os.path.exists(thumb_path):
+                    try:
+                        with Image.open(thumb_path) as img:
+                            phash_str = str(imagehash.phash(img))
+                    except Exception as ph_err:
+                        print(f"Error hashing {thumb_path}: {ph_err}")
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
                     
                 # Format for Node.js backend
                 flickr_data.append({
@@ -230,10 +262,20 @@ def scrape_flickr():
                     "title": title,
                     "description": desc,
                     "link": f"https://www.flickr.com/photos/{user_id}/{photo['id']}/",
-                    "image": image_path,
-                    "image_large": image_large_path,
-                    "media_list": [image_path] if image_path else [],
-                    "phash": "",
+                    "image": urls.get("image", ""),
+                    "image_thumb": urls.get("image_thumb", ""),
+                    "image_1k": urls.get("image_1k", ""),
+                    "image_2k": urls.get("image_2k", ""),
+                    "image_large": urls.get("image_large", ""),
+                    "image_3k": urls.get("image_3k", ""),
+                    "image_original": urls.get("image_original", ""),
+                    "media_list": [{
+                        "type": "image",
+                        "link": f"https://www.flickr.com/photos/{user_id}/{photo['id']}/",
+                        **urls
+                    }],
+                    "missing_variants": variant_data["missing_variants"],
+                    "phash": phash_str,
                     "timestamp": "" 
                 })
                 

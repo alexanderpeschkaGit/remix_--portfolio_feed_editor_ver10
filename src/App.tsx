@@ -105,10 +105,13 @@ const parseDimensions = (dimensions?: string) => {
 const getResolutionLabel = (m: any, dimensions?: string) => {
   if (m.type === 'youtube') return 'YouTube';
   
-  const url = m.image_3k || m.image_large || m.largeUrl || m.image || m.url || '';
+  const url = m.image_3k || m.image_2k || m.image_1k || m.image_thumb || m.image_large || m.largeUrl || m.image || m.url || '';
   const parsed = parseDimensions(dimensions);
   const maxSide = parsed?.maxSide || 0;
   
+  if (url.includes('_thumb.jpg') || url.includes('/thumbs400/')) return 'THUMB (400px)';
+  if (url.includes('_1k.jpg') || url.includes('/1k/')) return '1K (1024px)';
+  if (url.includes('_2k.jpg') || url.includes('/2k/')) return '2K (2048px)';
   if (url.includes('-3k.jpg') || url.includes('_3k.jpg') || url.includes('flickr_3k')) {
     return maxSide >= 3000 ? '3K (3072px)' : 'Large file (source < 3K)';
   }
@@ -127,7 +130,7 @@ const isDirectMediaFile = (url?: string) =>
 const isValidImageCandidate = (url?: string) => {
   if (!url) return false;
   if (url.startsWith('data:') || url.startsWith('blob:')) return true;
-  if (url.startsWith('/data/') || url.startsWith('/originals/')) return true;
+  if (url.startsWith('/data/') || url.startsWith('/data_v2/') || url.startsWith('/originals/')) return true;
   if (url.includes('img.youtube.com/vi/')) return true;
   return isDirectMediaFile(url);
 };
@@ -138,15 +141,17 @@ const getImageSrc = (media: any, preferLarge = false) => {
     const id = media.youtubeId;
     if (id) {
       // Return the stored image if valid, otherwise fallback to generated thumb
-      const stored = preferLarge ? (media?.image_3k || media?.image_large || media?.image) : (media?.image || media?.image_preview);
+      const stored = preferLarge
+        ? (media?.image_3k || media?.image_2k || media?.image_1k || media?.image_large || media?.image)
+        : (media?.image_thumb || media?.image || media?.image_preview);
       if (isValidImageCandidate(stored)) return stored;
       return `https://img.youtube.com/vi/${id}/maxresdefault.jpg`;
     }
   }
 
   const primary = preferLarge
-    ? [media?.image_3k, media?.image_large, media?.imageLarge, media?.largeUrl, media?.image, media?.image_preview]
-    : [media?.image, media?.image_preview, media?.image_3k, media?.image_large, media?.imageLarge, media?.largeUrl];
+    ? [media?.image_3k, media?.image_2k, media?.image_1k, media?.image_large, media?.imageLarge, media?.largeUrl, media?.image, media?.image_thumb, media?.image_preview]
+    : [media?.image_thumb, media?.image, media?.image_preview, media?.image_1k, media?.image_2k, media?.image_3k, media?.image_large, media?.imageLarge, media?.largeUrl];
     
   for (const candidate of primary) {
     if (isValidImageCandidate(candidate)) return candidate;
@@ -160,8 +165,8 @@ const getVideoSrc = (media: any, preferLarge = false) => {
   if (media?.type === 'youtube' || media?.youtubeId) return undefined;
 
   const primary = preferLarge
-    ? [media?.image_large, media?.imageLarge, media?.largeUrl, media?.image]
-    : [media?.image, media?.image_preview, media?.image_large, media?.imageLarge];
+    ? [media?.image_3k, media?.image_2k, media?.image_large, media?.imageLarge, media?.largeUrl, media?.image]
+    : [media?.image_thumb, media?.image, media?.image_preview, media?.image_1k, media?.image_large, media?.imageLarge];
   for (const candidate of primary) {
     if (isDirectMediaFile(candidate) && /\.(mp4|webm|mov)(\?.*)?$/i.test(candidate)) return candidate;
   }
@@ -1183,10 +1188,10 @@ export default function App() {
       if (m.type === 'youtube') return true;
       // Elemente mit uploadId MÜSSEN finale URLs haben (sonst: Phantom-Upload)
       if (m.uploadId) {
-        return !!(m.image || m.image_large || m.image_3k || m.image_preview);
+        return !!(m.image || m.image_thumb || m.image_1k || m.image_2k || m.image_large || m.image_3k || m.image_preview);
       }
       // Normale Elemente
-      return !!(m.image || m.image_large || m.image_preview || m.image_3k || m.youtubeId);
+      return !!(m.image || m.image_thumb || m.image_1k || m.image_2k || m.image_large || m.image_preview || m.image_3k || m.youtubeId);
     });
     const targetTitle = flickrPosts.find(p => String(p.id) === String(id))?.title || 'Unbenannt';
     updatePosts(posts => posts.map(post => {
@@ -1197,8 +1202,13 @@ export default function App() {
           return {
             ...updatedPost,
             type: primaryMedia.type || post.type,
-            image: primaryMedia.image || post.image,
-            image_large: primaryMedia.image_large || post.image_large,
+            image: primaryMedia.image || primaryMedia.image_thumb || post.image,
+            image_thumb: primaryMedia.image_thumb || primaryMedia.image || post.image_thumb,
+            image_1k: primaryMedia.image_1k || post.image_1k,
+            image_2k: primaryMedia.image_2k || post.image_2k,
+            image_large: primaryMedia.image_large || primaryMedia.image_2k || primaryMedia.image_3k || post.image_large,
+            image_3k: primaryMedia.image_3k || post.image_3k,
+            image_original: primaryMedia.image_original || post.image_original,
             url: primaryMedia.url || primaryMedia.link || post.url,
             youtubeId: primaryMedia.youtubeId || post.youtubeId
           };
@@ -1287,16 +1297,20 @@ export default function App() {
     const uploadId = Math.random().toString(36).substring(7); // Unique ID for this specific upload
     
     const cleanOldUrls = (obj: any) => {
-      const { largeUrl, url, url_o, url_l, url_q, url_sq, url_m, local_highres, image_3k, ...rest } = obj;
+      const { largeUrl, url, url_o, url_l, url_q, url_sq, url_m, local_highres, image_thumb, image_1k, image_2k, image_3k, image_original, ...rest } = obj;
       return rest;
     };
 
     const postToMediaItem = (post: any) => ({
       type: post.type || 'image',
       image: post.image,
+      image_thumb: post.image_thumb,
+      image_1k: post.image_1k,
+      image_2k: post.image_2k,
       image_large: post.image_large,
       image_preview: post.image_preview,
       image_3k: post.image_3k,
+      image_original: post.image_original,
       youtubeId: post.youtubeId,
       youtubeUrl: post.youtubeUrl,
       url: post.url,
@@ -1304,13 +1318,13 @@ export default function App() {
     });
 
     const hasPrimaryMedia = (post: any) =>
-      !!(post.image || post.image_large || post.image_preview || post.image_3k || post.youtubeId || post.youtubeUrl || post.url);
+      !!(post.image || post.image_thumb || post.image_1k || post.image_2k || post.image_large || post.image_preview || post.image_3k || post.youtubeId || post.youtubeUrl || post.url);
     
     updatePosts(posts => posts.map(post => {
       if (String(post.id) === String(id)) {
         // If isNew is true or if we don't have a specific mediaIndex, we treat it as adding a new item to the gallery
         if (isNew || mediaIndex === undefined) {
-          const newItem: any = { uploadId, type: 'image', image: localUrl, image_large: localUrl, image_preview: localUrl, image_3k: localUrl };
+          const newItem: any = { uploadId, type: 'image', image: localUrl, image_thumb: localUrl, image_1k: localUrl, image_2k: localUrl, image_large: localUrl, image_preview: localUrl, image_3k: localUrl, image_original: localUrl };
           
           // FIX #1: Explizites Array-Clearing beim Hinzufügen neuer Bilder
           // Nur bereits fertiggestellte Bilder mit finalen URLs behalten, keine uploadId-Only oder Phantom-Elemente
@@ -1321,10 +1335,10 @@ export default function App() {
               if (m.type === 'youtube') return true;
               // uploadId-Elemente MÜSSEN finale URLs haben
               if (m.uploadId) {
-                return !!(m.image || m.image_large || m.image_3k);
+                return !!(m.image || m.image_thumb || m.image_1k || m.image_2k || m.image_large || m.image_3k);
               }
               // Normale Elemente
-              return !!(m.image || m.image_large || m.image_preview || m.image_3k || m.youtubeId);
+              return !!(m.image || m.image_thumb || m.image_1k || m.image_2k || m.image_large || m.image_preview || m.image_3k || m.youtubeId);
             });
           } else if (hasPrimaryMedia(post)) {
             // Falls keine mergedMedia aber primäre Post-Daten vorhanden: Diese als Basis verwenden
@@ -1338,10 +1352,14 @@ export default function App() {
           return {
             ...cleanOldUrls(post),
             type: primaryMedia.type || 'image',
-            image: primaryMedia.image || '',
-            image_large: primaryMedia.image_large || primaryMedia.image || '',
+            image: primaryMedia.image || primaryMedia.image_thumb || '',
+            image_thumb: primaryMedia.image_thumb || primaryMedia.image || '',
+            image_1k: primaryMedia.image_1k || '',
+            image_2k: primaryMedia.image_2k || '',
+            image_large: primaryMedia.image_large || primaryMedia.image_2k || primaryMedia.image_3k || primaryMedia.image || '',
             image_preview: primaryMedia.image_preview,
             image_3k: primaryMedia.image_3k || primaryMedia.image_large || primaryMedia.image || '',
+            image_original: primaryMedia.image_original || '',
             url: primaryMedia.url || primaryMedia.link || post.url || '',
             youtubeId: primaryMedia.youtubeId || '',
             youtubeUrl: primaryMedia.youtubeUrl || '',
@@ -1350,31 +1368,39 @@ export default function App() {
         }
         if (mediaIndex !== undefined && post.mergedMedia) {
           const newMedia = [...post.mergedMedia];
-          newMedia[mediaIndex] = { ...cleanOldUrls(newMedia[mediaIndex]), uploadId, image: localUrl, image_large: localUrl, image_preview: localUrl, image_3k: localUrl, type: 'image' } as any;
+          newMedia[mediaIndex] = { ...cleanOldUrls(newMedia[mediaIndex]), uploadId, image: localUrl, image_thumb: localUrl, image_1k: localUrl, image_2k: localUrl, image_large: localUrl, image_preview: localUrl, image_3k: localUrl, image_original: localUrl, type: 'image' } as any;
           const updateBase = mediaIndex === 0;
           return updateBase ? { 
             ...cleanOldUrls(post), 
             image: localUrl, 
+            image_thumb: localUrl,
+            image_1k: localUrl,
+            image_2k: localUrl,
             image_large: localUrl, 
             image_preview: localUrl,
             image_3k: localUrl,
+            image_original: localUrl,
             mergedMedia: newMedia 
           } : { ...post, mergedMedia: newMedia };
         } else if (mediaIndex !== undefined && !post.mergedMedia) {
-          const newMediaRaw = [{ type: post.type || 'image', image: post.image, image_large: post.image_large, youtubeId: post.youtubeId, link: post.url }];
-          newMediaRaw[mediaIndex] = { ...cleanOldUrls(newMediaRaw[mediaIndex]), uploadId, image: localUrl, image_large: localUrl, image_preview: localUrl, image_3k: localUrl, type: 'image' } as any;
-          const newMedia = newMediaRaw.filter((m: any) => m.type === 'youtube' || !!(m.image || m.image_large || m.image_preview || m.image_3k || m.uploadId || m.youtubeId));
+          const newMediaRaw = [{ type: post.type || 'image', image: post.image, image_thumb: post.image_thumb, image_1k: post.image_1k, image_2k: post.image_2k, image_large: post.image_large, image_3k: post.image_3k, image_original: post.image_original, youtubeId: post.youtubeId, link: post.url }];
+          newMediaRaw[mediaIndex] = { ...cleanOldUrls(newMediaRaw[mediaIndex]), uploadId, image: localUrl, image_thumb: localUrl, image_1k: localUrl, image_2k: localUrl, image_large: localUrl, image_preview: localUrl, image_3k: localUrl, image_original: localUrl, type: 'image' } as any;
+          const newMedia = newMediaRaw.filter((m: any) => m.type === 'youtube' || !!(m.image || m.image_thumb || m.image_1k || m.image_2k || m.image_large || m.image_preview || m.image_3k || m.uploadId || m.youtubeId));
           const updateBase = mediaIndex === 0;
           return updateBase ? { 
             ...cleanOldUrls(post), 
             image: localUrl, 
+            image_thumb: localUrl,
+            image_1k: localUrl,
+            image_2k: localUrl,
             image_large: localUrl, 
             image_preview: localUrl,
             image_3k: localUrl,
+            image_original: localUrl,
             mergedMedia: newMedia 
           } : { ...post, mergedMedia: newMedia };
         }
-        return { ...cleanOldUrls(post), image: localUrl, image_large: localUrl, image_preview: localUrl, image_3k: localUrl, type: 'image' };
+        return { ...cleanOldUrls(post), image: localUrl, image_thumb: localUrl, image_1k: localUrl, image_2k: localUrl, image_large: localUrl, image_preview: localUrl, image_3k: localUrl, image_original: localUrl, type: 'image' };
       }
       return post;
     }), `Lokales Bild hinzugefügt (${flickrPosts.find(p => String(p.id) === String(id))?.title || 'Unbenannt'})`);
@@ -1394,8 +1420,12 @@ export default function App() {
       }
 
       const uploadData = await uploadRes.json();
-      const thumbUrl = uploadData.url;
-      const highResUrl = uploadData.url_large;
+      const thumbUrl = uploadData.image_thumb || uploadData.url;
+      const url1k = uploadData.image_1k || uploadData.url_1k || thumbUrl;
+      const url2k = uploadData.image_2k || uploadData.url_2k || '';
+      const url3k = uploadData.image_3k || uploadData.url_3k || '';
+      const originalUrl = uploadData.image_original || uploadData.url_original || '';
+      const highResUrl = uploadData.url_large || url2k || url3k || url1k || thumbUrl;
       
       console.log('Upload successful, thumb:', thumbUrl, 'large:', highResUrl, 'variant:', uploadData.local_large_variant);
       
@@ -1411,8 +1441,12 @@ export default function App() {
               newMedia[itemIdx] = { 
                 ...cleanOldUrls(newMedia[itemIdx]), 
                 image: thumbUrl, 
+                image_thumb: thumbUrl,
+                image_1k: url1k,
+                image_2k: url2k,
                 image_large: highResUrl, 
-                image_3k: highResUrl,
+                image_3k: url3k || highResUrl,
+                image_original: originalUrl,
                 image_preview: localUrl, 
                 type: 'image' 
               } as any;
@@ -1422,8 +1456,12 @@ export default function App() {
               return updateBase ? { 
                 ...cleanOldUrls(post), 
                 image: thumbUrl, 
+                image_thumb: thumbUrl,
+                image_1k: url1k,
+                image_2k: url2k,
                 image_large: highResUrl, 
-                image_3k: highResUrl,
+                image_3k: url3k || highResUrl,
+                image_original: originalUrl,
                 image_preview: localUrl,
                 mergedMedia: newMedia 
               } : { ...post, mergedMedia: newMedia };
@@ -1431,7 +1469,7 @@ export default function App() {
               // CLEANUP: uploadId nicht gefunden oder Index-Problem
               // Entferne alle uploadId-Elemente ohne finale URLs (Phantom-Uploads)
               const cleanedMedia = newMedia.filter(m => {
-                if (m.uploadId && !m.image && !m.image_large && !m.image_3k) {
+                if (m.uploadId && !m.image && !m.image_thumb && !m.image_1k && !m.image_2k && !m.image_large && !m.image_3k) {
                   // Phantom-Element: uploadId aber keine finale URL - entfernen
                   return false;
                 }
@@ -1444,8 +1482,12 @@ export default function App() {
                 const uploadedItem = { 
                   type: 'image', 
                   image: thumbUrl, 
+                  image_thumb: thumbUrl,
+                  image_1k: url1k,
+                  image_2k: url2k,
                   image_large: highResUrl, 
-                  image_3k: highResUrl,
+                  image_3k: url3k || highResUrl,
+                  image_original: originalUrl,
                   image_preview: localUrl 
                 };
                 cleanedMedia.push(uploadedItem);
@@ -1458,14 +1500,22 @@ export default function App() {
             return { 
               ...cleanOldUrls(post), 
               image: thumbUrl, 
+              image_thumb: thumbUrl,
+              image_1k: url1k,
+              image_2k: url2k,
               image_large: highResUrl, 
-              image_3k: highResUrl,
+              image_3k: url3k || highResUrl,
+              image_original: originalUrl,
               image_preview: localUrl,
               mergedMedia: [{
                 type: 'image',
                 image: thumbUrl,
+                image_thumb: thumbUrl,
+                image_1k: url1k,
+                image_2k: url2k,
                 image_large: highResUrl,
-                image_3k: highResUrl,
+                image_3k: url3k || highResUrl,
+                image_original: originalUrl,
                 image_preview: localUrl
               }],
               type: 'image' 
