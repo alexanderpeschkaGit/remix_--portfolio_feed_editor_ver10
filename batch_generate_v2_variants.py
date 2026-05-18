@@ -2,13 +2,19 @@ import json
 import os
 from datetime import datetime, UTC
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse, unquote
+from urllib.request import Request, urlopen
 
 from image_variants import build_variant_set_from_image
 
 STATE_PATH = os.path.join("data", "state.json")
 CONNECT_PATH = "Connect_front_back.md"
 SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff"}
+PUBLIC_BASE_URL = (
+    os.environ.get("CLOUDFLARE_PUBLIC_DOMAIN")
+    or "https://pub-85bb68a84f3b4ba6b512b3d165c96497.r2.dev"
+).rstrip("/")
 
 
 def infer_group_from_url(url: str) -> str:
@@ -41,7 +47,33 @@ def url_to_local_path(url: str) -> Optional[str]:
     return None
 
 
-def choose_source(media: Dict[str, Any]) -> Tuple[Optional[str], List[str]]:
+def to_public_source_url(url: str) -> Optional[str]:
+    if not url:
+        return None
+    clean = url.split("?")[0]
+    if clean.startswith("http://") or clean.startswith("https://"):
+        return clean
+    if clean.startswith("/"):
+        return f"{PUBLIC_BASE_URL}/{clean.lstrip('/')}"
+    return None
+
+
+def download_source_file(source_url: str, local_path: str) -> bool:
+    os.makedirs(os.path.dirname(local_path), exist_ok=True)
+    request = Request(source_url, headers={"User-Agent": "portfolio-feed-editor-batch/1.0"})
+    try:
+        with urlopen(request, timeout=45) as response:
+            data = response.read()
+        if not data:
+            return False
+        with open(local_path, "wb") as f:
+            f.write(data)
+        return True
+    except (HTTPError, URLError, TimeoutError):
+        return False
+
+
+def choose_source(media: Dict[str, Any], allow_download: bool = False) -> Tuple[Optional[str], List[str], Optional[str]]:
     checked = []
     for field in ["image_original", "image_3k", "image_2k", "image_large", "image_1k", "image_thumb", "image"]:
         value = media.get(field)
@@ -49,9 +81,15 @@ def choose_source(media: Dict[str, Any]) -> Tuple[Optional[str], List[str]]:
             continue
         checked.append(field)
         local_path = url_to_local_path(value)
-        if local_path and os.path.isfile(local_path):
-            return local_path, checked
-    return None, checked
+        if not local_path:
+            continue
+        if os.path.isfile(local_path):
+            return local_path, checked, None
+        if allow_download and is_supported_image_source(local_path):
+            source_url = to_public_source_url(value)
+            if source_url and download_source_file(source_url, local_path):
+                return local_path, checked, source_url
+    return None, checked, None
 
 
 def merge_variant_urls(media: Dict[str, Any], generated: Dict[str, str]) -> Dict[str, Any]:
@@ -88,13 +126,15 @@ def append_batch_report(lines: List[str]) -> None:
 
 
 def process_media(media: Dict[str, Any], base_name: str, fallback_group: str, report_lines: List[str]) -> Dict[str, Any]:
-    source_path, checked_fields = choose_source(media)
+    source_path, checked_fields, recovered_from_url = choose_source(media, allow_download=True)
     if not source_path:
         report_lines.append(f"{base_name}: keine lokale Quelle gefunden, geprueft {', '.join(checked_fields) or 'keine Felder'}")
         return media
     if not is_supported_image_source(source_path):
         report_lines.append(f"{base_name}: Quelle ist kein Bild und wurde uebersprungen ({os.path.basename(source_path)})")
         return media
+    if recovered_from_url:
+        report_lines.append(f"{base_name}: Quelle aus Cloud geladen ({recovered_from_url})")
 
     group = infer_group_from_url(media.get("image_original") or media.get("image") or media.get("image_thumb") or "")
     if not group:

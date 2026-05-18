@@ -1067,7 +1067,7 @@ export default function App() {
   const updatePosts = (newPosts: any[] | ((p: any[]) => any[]), actionDescription: string = 'Aktion durchgeführt') => {
     setFlickrPosts(current => {
       const next = typeof newPosts === 'function' ? newPosts(current) : newPosts;
-      setPast(p => [...p, { posts: current, action: actionDescription }].slice(-50)); // Keep last 50 states
+      setPast((p): typeof p => [...p, { posts: current, action: actionDescription }].slice(-50)); // Keep last 50 states
       setFuture([]); // Clear future on new action
       setHasUnpublishedChanges(true);
       return next;
@@ -1079,7 +1079,7 @@ export default function App() {
     const current = flickrPosts;
     const previousState = past[past.length - 1];
     setPast(p => p.slice(0, -1));
-    setFuture(f => [...f, { posts: current, action: previousState.action }].slice(-50));
+    setFuture((f): typeof f => [...f, { posts: current, action: previousState.action }].slice(-50));
     setFlickrPosts(previousState.posts);
   };
 
@@ -1088,7 +1088,7 @@ export default function App() {
     const current = flickrPosts;
     const nextState = future[future.length - 1];
     setFuture(f => f.slice(0, -1));
-    setPast(p => [...p, { posts: current, action: nextState.action }].slice(-50));
+    setPast((p): typeof p => [...p, { posts: current, action: nextState.action }].slice(-50));
     setFlickrPosts(nextState.posts);
   };
 
@@ -2863,7 +2863,7 @@ export default function App() {
         if (items) {
           // Use the functional update to ensure we have the latest state for history
           setFlickrPosts(current => {
-            setPast(p => [...p, current].slice(-50));
+            setPast((p): typeof p => [...p, current].slice(-50));
             setFuture([]);
             return items;
           });

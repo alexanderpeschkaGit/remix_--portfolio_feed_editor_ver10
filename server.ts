@@ -662,9 +662,11 @@ async function startServer() {
         // Fallback to original if decoding fails
       }
       if (!normalized) return null;
+      if (normalized.startsWith('data_v2/')) {
+        return `${V2_PREFIX}/${toPosix(normalized.replace(/^data_v2\//, ''))}`;
+      }
       if (
         normalized.startsWith('data/') ||
-        normalized.startsWith('data_v2/') ||
         normalized.startsWith('v2/data/') ||
         normalized.startsWith('uploads/') ||
         normalized.startsWith('highres/') ||
@@ -834,7 +836,7 @@ async function startServer() {
   };
 
   const buildR2CleanupReport = async () => {
-    const managedPrefixes = ['data/', 'uploads/', 'highres/', 'originals/'];
+    const managedPrefixes = ['data/', 'uploads/', 'highres/', 'originals/', 'v2/data/'];
     const referencedKeys = await collectReferencedR2Keys();
     const r2Objects = await listR2ObjectsForPrefixes(managedPrefixes);
     const referencedVideoStems = new Set(

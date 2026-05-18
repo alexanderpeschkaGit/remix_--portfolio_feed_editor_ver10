@@ -2,6 +2,10 @@
 
 This file provides context for any AI assistant (like Cursor, GitHub Copilot, or Gemini) working on this project.
 
+## TEMP Cleanup Reminder
+- Review `backups_app/r2_cleanup_candidates_2026-05-16_02-47-26.json` before any future R2 deletion.
+- This is a temporary reminder for later cleanup execution and should be removed from `.cursorrules` after the cleanup has been completed.
+
 ## Project Architecture
 - **Frontend:** React 18, Vite, Tailwind CSS, Lucide React (Icons), dnd-kit (Drag & Drop).
 - **Backend:** Express.js (Node.js) running on port 3000.
