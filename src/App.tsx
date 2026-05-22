@@ -104,23 +104,31 @@ const parseDimensions = (dimensions?: string) => {
 
 const getResolutionLabel = (m: any, dimensions?: string) => {
   if (m.type === 'youtube') return 'YouTube';
-  
-  const url = m.image_3k || m.image_2k || m.image_1k || m.image_thumb || m.image_large || m.largeUrl || m.image || m.url || '';
+
+  const url = String(
+    m.image_3k || m.image_2k || m.image_1k || m.image_original || m.image_large || m.imageLarge || m.largeUrl || m.image || m.image_thumb || m.image_preview || m.url || m.link || ''
+  ).toLowerCase();
   const parsed = parseDimensions(dimensions);
   const maxSide = parsed?.maxSide || 0;
-  
-  if (url.includes('_thumb.jpg') || url.includes('/thumbs400/')) return 'THUMB (400px)';
-  if (url.includes('_1k.jpg') || url.includes('/1k/')) return '1K (1024px)';
-  if (url.includes('_2k.jpg') || url.includes('/2k/')) return '2K (2048px)';
-  if (url.includes('-3k.jpg') || url.includes('_3k.jpg') || url.includes('flickr_3k')) {
-    return maxSide >= 3000 ? '3K (3072px)' : 'Large file (source < 3K)';
+
+  if (/(_thumb|thumb|_q\.jpg|_t\.jpg|\/thumbs400\/|\/s160x160\/|\/s320x320\/|\/s640x640\/)/.test(url)) {
+    return 'THUMB';
   }
-  if (url.includes('_4k.jpg')) return '4K (4096px)';
-  if (url.includes('_o.jpg')) return 'Original';
-  if (url.includes('_k.jpg')) return '2K (2048px)';
-  if (url.includes('-thumb.jpg') || url.includes('_q.jpg') || url.includes('_t.jpg') || url.includes('flickr_1024')) return 'THUMB (1024px)';
-  
-  if (m.network_name === 'Flickr' || m.image_large) return 'HD / Large';
+  if (/(_1k\.jpg|\/1k\/|_1024|_1024x1024|_1080x1080|_1080\.)/.test(url) || (maxSide >= 1024 && maxSide < 1800)) {
+    return '1K';
+  }
+  if (/(_2k\.jpg|\/2k\/|_2048|_2048x2048)/.test(url) || (maxSide >= 1800 && maxSide < 3000)) {
+    return '2K';
+  }
+  if (/(-3k\.jpg|_3k\.jpg|\/3k\/|flickr_3k|_k\.jpg|_original)/.test(url) || maxSide >= 3000) {
+    return '3K';
+  }
+  if (/(_4k\.jpg|_5k\.jpg|_6k\.jpg)/.test(url) || maxSide >= 3840) {
+    return '4K';
+  }
+  if (/(_o\.jpg|_original|original)/.test(url)) return 'Original';
+  if (m.network_name === 'Flickr' || m.image_large || m.image_original) return 'HD / Large';
+  if (maxSide) return `${maxSide}px`;
   return 'Original';
 };
 
@@ -132,7 +140,7 @@ const isValidImageCandidate = (url?: string) => {
   if (url.startsWith('data:') || url.startsWith('blob:')) return true;
   if (url.startsWith('/data/') || url.startsWith('/data_v2/') || url.startsWith('/originals/')) return true;
   if (url.includes('img.youtube.com/vi/')) return true;
-  return isDirectMediaFile(url);
+  return !!url.match(/\.(jpe?g|png|webp|gif|avif|bmp)(\?.*)?$/i);
 };
 
 const getImageSrc = (media: any, preferLarge = false) => {
@@ -140,18 +148,17 @@ const getImageSrc = (media: any, preferLarge = false) => {
   if (media?.type === 'youtube' || media?.youtubeId) {
     const id = media.youtubeId;
     if (id) {
-      // Return the stored image if valid, otherwise fallback to generated thumb
       const stored = preferLarge
-        ? (media?.image_3k || media?.image_2k || media?.image_1k || media?.image_large || media?.image)
-        : (media?.image_thumb || media?.image || media?.image_preview);
+        ? (media?.image_3k || media?.image_2k || media?.image_original || media?.image_1k || media?.image_large || media?.imageLarge || media?.image)
+        : (media?.image_thumb || media?.image_preview || media?.image_original || media?.image);
       if (isValidImageCandidate(stored)) return stored;
       return `https://img.youtube.com/vi/${id}/maxresdefault.jpg`;
     }
   }
 
   const primary = preferLarge
-    ? [media?.image_3k, media?.image_2k, media?.image_1k, media?.image_large, media?.imageLarge, media?.largeUrl, media?.image, media?.image_thumb, media?.image_preview]
-    : [media?.image_thumb, media?.image, media?.image_preview, media?.image_1k, media?.image_2k, media?.image_3k, media?.image_large, media?.imageLarge, media?.largeUrl];
+    ? [media?.image_3k, media?.image_2k, media?.image_original, media?.image_1k, media?.image_large, media?.imageLarge, media?.largeUrl, media?.image, media?.image_preview, media?.image_thumb, media?.url, media?.link]
+    : [media?.image_thumb, media?.image_preview, media?.image, media?.image_original, media?.image_1k, media?.image_2k, media?.image_3k, media?.image_large, media?.imageLarge, media?.largeUrl, media?.url, media?.link];
     
   for (const candidate of primary) {
     if (isValidImageCandidate(candidate)) return candidate;
@@ -161,12 +168,11 @@ const getImageSrc = (media: any, preferLarge = false) => {
 };
 
 const getVideoSrc = (media: any, preferLarge = false) => {
-  // YouTube is NOT a direct video file we can play in a <video> tag
   if (media?.type === 'youtube' || media?.youtubeId) return undefined;
 
   const primary = preferLarge
-    ? [media?.image_3k, media?.image_2k, media?.image_large, media?.imageLarge, media?.largeUrl, media?.image]
-    : [media?.image_thumb, media?.image, media?.image_preview, media?.image_1k, media?.image_large, media?.imageLarge];
+    ? [media?.video, media?.video_large, media?.image_3k, media?.image_2k, media?.image_large, media?.imageLarge, media?.largeUrl, media?.image, media?.url, media?.link]
+    : [media?.video, media?.video_large, media?.image, media?.image_preview, media?.image_thumb, media?.image_1k, media?.image_large, media?.imageLarge, media?.url, media?.link];
   for (const candidate of primary) {
     if (isDirectMediaFile(candidate) && /\.(mp4|webm|mov)(\?.*)?$/i.test(candidate)) return candidate;
   }
@@ -208,12 +214,19 @@ export default function App() {
   const [selectedImage, setSelectedImage] = useState<any | null>(null);
   const [imageDimensions, setImageDimensions] = useState<Record<string, string>>({});
 
+  const getMediaDimensionsKey = (postId: string, mediaIndex: number) => `${postId}-${mediaIndex}`;
+
+  const setImageDimensionForKey = (key: string, width: number, height: number) => {
+    setImageDimensions(prev => {
+      const value = `${width} x ${height} px`;
+      if (prev[key] === value) return prev;
+      return { ...prev, [key]: value };
+    });
+  };
+
   const handleImageLoad = (id: string, e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
-    setImageDimensions(prev => ({
-      ...prev,
-      [id]: `${img.naturalWidth} x ${img.naturalHeight} px`
-    }));
+    setImageDimensionForKey(id, img.naturalWidth, img.naturalHeight);
   };
   const [isEditing, setIsEditing] = useState(false);
   const [mediaIndex, setMediaIndex] = useState(0);
@@ -1372,6 +1385,7 @@ export default function App() {
           const updateBase = mediaIndex === 0;
           return updateBase ? { 
             ...cleanOldUrls(post), 
+            url: post.url,
             image: localUrl, 
             image_thumb: localUrl,
             image_1k: localUrl,
@@ -1389,6 +1403,7 @@ export default function App() {
           const updateBase = mediaIndex === 0;
           return updateBase ? { 
             ...cleanOldUrls(post), 
+            url: post.url,
             image: localUrl, 
             image_thumb: localUrl,
             image_1k: localUrl,
@@ -1440,6 +1455,7 @@ export default function App() {
               // Element mit matching uploadId gefunden: aktualisieren mit finalen URLs
               newMedia[itemIdx] = { 
                 ...cleanOldUrls(newMedia[itemIdx]), 
+                url: uploadData.url || newMedia[itemIdx].url,
                 image: thumbUrl, 
                 image_thumb: thumbUrl,
                 image_1k: url1k,
@@ -1455,6 +1471,7 @@ export default function App() {
               const updateBase = itemIdx === 0;
               return updateBase ? { 
                 ...cleanOldUrls(post), 
+                url: post.url,
                 image: thumbUrl, 
                 image_thumb: thumbUrl,
                 image_1k: url1k,
@@ -1499,6 +1516,7 @@ export default function App() {
             // Keine mergedMedia - erstelle neue
             return { 
               ...cleanOldUrls(post), 
+              url: uploadData.url || post.url,
               image: thumbUrl, 
               image_thumb: thumbUrl,
               image_1k: url1k,
@@ -1856,15 +1874,23 @@ export default function App() {
         function isValidImageCandidate(url) {
           if (!url) return false;
           if (url.startsWith('data:') || url.startsWith('blob:')) return true;
-          if (url.startsWith('/data/') || url.startsWith('/originals/')) return true;
-          return isDirectMediaFile(url);
+          if (url.startsWith('/data/') || url.startsWith('/data_v2/') || url.startsWith('/originals/')) return true;
+          return !!url.match(/\.(jpe?g|png|webp|gif|avif|bmp)(\?.*)?$/i);
         }
 
         function getImageSrc(media, preferLarge) {
           if (!media) return undefined;
+          if (media.type === 'youtube' || media.youtubeId) {
+            const id = media.youtubeId || getYoutubeId(media.url || media.youtubeUrl || media.link);
+            const stored = preferLarge
+              ? (media.image_original || media.image_3k || media.image_2k || media.image_1k || media.image_large || media.imageLarge || media.image)
+              : (media.image_thumb || media.image_preview || media.image_original || media.image);
+            if (isValidImageCandidate(stored)) return stored;
+            if (id) return 'https://img.youtube.com/vi/' + id + '/maxresdefault.jpg';
+          }
           const primary = preferLarge
-            ? [media.image_3k, media.image_large, media.imageLarge, media.largeUrl, media.image, media.image_preview]
-            : [media.image, media.image_preview, media.image_3k, media.image_large, media.imageLarge, media.largeUrl];
+            ? [media.image_original, media.image_3k, media.image_2k, media.image_1k, media.image_large, media.imageLarge, media.largeUrl, media.image, media.image_preview, media.image_thumb, media.url, media.link]
+            : [media.image_thumb, media.image_preview, media.image, media.image_original, media.image_1k, media.image_2k, media.image_3k, media.image_large, media.imageLarge, media.largeUrl, media.url, media.link];
           for (const candidate of primary) {
             if (isValidImageCandidate(candidate)) return candidate;
           }
@@ -1874,8 +1900,8 @@ export default function App() {
         function getVideoSrc(media, preferLarge) {
           if (!media) return undefined;
           const primary = preferLarge
-            ? [media.image_large, media.imageLarge, media.largeUrl, media.image, media.video_large, media.video, media.url, media.link]
-            : [media.image, media.image_preview, media.image_large, media.imageLarge, media.video, media.video_large, media.url, media.link];
+            ? [media.video, media.video_large, media.image_3k, media.image_2k, media.image_large, media.imageLarge, media.largeUrl, media.image, media.url, media.link]
+            : [media.video, media.video_large, media.image, media.image_preview, media.image_thumb, media.image_1k, media.image_large, media.imageLarge, media.url, media.link];
           for (const candidate of primary) {
             if (candidate && isDirectMediaFile(candidate) && /\\.(mp4|webm|mov)(\\?.*)?$/i.test(candidate)) {
               return candidate;
@@ -1892,6 +1918,7 @@ export default function App() {
           let cleanUrl = url;
           if (cleanUrl.startsWith('./')) cleanUrl = cleanUrl.substring(2);
           if (cleanUrl.startsWith('/')) cleanUrl = cleanUrl.substring(1);
+          if (cleanUrl.startsWith('data_v2/')) cleanUrl = cleanUrl.substring(1);
           
           // Fallback domain if window.portfolioData.publicDomain is not available
           const domain = (window.portfolioData && window.portfolioData.publicDomain) ? window.portfolioData.publicDomain : publicDomain;
@@ -2284,6 +2311,46 @@ export default function App() {
     
     return url;
   };
+
+  useEffect(() => {
+    if (!flickrPosts || flickrPosts.length === 0) return;
+    const cancel = { value: false };
+
+    flickrPosts.forEach((post) => {
+      if (!post || post.id == null) return;
+      const rawMedia = (post.mergedMedia && post.mergedMedia.length > 0)
+        ? post.mergedMedia
+        : [{ ...post, type: post.type || 'image' }];
+
+      rawMedia.forEach((media: any, index: number) => {
+        const dimensionKey = getMediaDimensionsKey(post.id, index);
+        if (imageDimensions[dimensionKey]) return;
+
+        const src = getImageSrc(media, true) || getImageSrc(media);
+        if (!src) return;
+
+        const displaySrc = getDisplayImage(src, isR2Fallback, isEmbeddedData) || src;
+        const img = new Image();
+
+        img.onload = () => {
+          if (cancel.value) return;
+          setImageDimensionForKey(dimensionKey, img.naturalWidth, img.naturalHeight);
+        };
+
+        img.onerror = () => {
+          const fallbackSrc = getImageSrc(media) || src;
+          const displayFallback = getDisplayImage(fallbackSrc, isR2Fallback, isEmbeddedData);
+          if (displayFallback && displayFallback !== displaySrc) {
+            img.src = displayFallback;
+          }
+        };
+
+        img.src = displaySrc;
+      });
+    });
+
+    return () => { cancel.value = true; };
+  }, [flickrPosts, imageDimensions, isR2Fallback, isEmbeddedData]);
 
   const handleSyncFromCloudflare = async () => {
     setLoading(true);
@@ -2863,7 +2930,7 @@ export default function App() {
         if (items) {
           // Use the functional update to ensure we have the latest state for history
           setFlickrPosts(current => {
-            setPast((p): typeof p => [...p, current].slice(-50));
+            setPast(p => [...p, { posts: current, action: 'Backup wiederhergestellt' }].slice(-50));
             setFuture([]);
             return items;
           });

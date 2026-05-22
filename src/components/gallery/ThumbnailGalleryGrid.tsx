@@ -23,7 +23,8 @@ interface ThumbnailGalleryGridProps {
   isEmbeddedData: boolean;
   // Callbacks
   handleDragEnd: (event: DragEndEvent) => void;
-  handleImageUpload: (postId: string, file: File, mediaIndex?: number) => void;
+  handleImageUpload: (postId: string, file: File, mediaIndex?: number, isNew?: boolean) => void;
+  handleImageLoad: (id: string, e: React.SyntheticEvent<HTMLImageElement>) => void;
   handlePostChange: (postId: string, field: string, value: any) => void;
   handleYoutubeChange: (postId: string, url: string) => void;
   handleDeletePost: (postId: string) => void;
@@ -32,7 +33,6 @@ interface ThumbnailGalleryGridProps {
   setSelectedImage: (post: any) => void;
   handleStateToggle: (postId: string, stateId: string) => void;
   handleToggleHidden: (postId: string) => void;
-  handleImageLoad: (id: string, e: React.SyntheticEvent<HTMLImageElement>) => void;
   // Display functions
   getDisplayImage: (url: string | undefined, isR2Fallback: boolean, isEmbeddedData: boolean) => string | undefined;
   getImageSrc: (media: any, preferLarge?: boolean) => string | undefined;
@@ -97,10 +97,13 @@ export function ThumbnailGalleryGrid({
   };
 
   const handleGridDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (isEditing) {
-      setIsDraggingOverGrid(true);
+    // Only trigger file upload overlay if actual files are being dragged
+    if (e.dataTransfer.types && e.dataTransfer.types.includes('Files')) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (isEditing) {
+        setIsDraggingOverGrid(true);
+      }
     }
   };
 
@@ -118,10 +121,10 @@ export function ThumbnailGalleryGrid({
       onDragLeave={handleGridDragLeave}
       onDrop={handleGridDrop}
     >
-      {/* Drag-over overlay with visual feedback - centered modal style */}
+      {/* Drag-over overlay with visual feedback - constrained to grid area */}
       {isDraggingOverGrid && isEditing && (
-        <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm flex items-center justify-center pointer-events-auto">
-          <div className="bg-blue-500/20 border-2 border-blue-400 border-dashed rounded-xl p-8 flex flex-col items-center gap-4 shadow-2xl">
+        <div className="absolute inset-0 z-40 bg-black/50 backdrop-blur-sm pointer-events-auto">
+          <div className="sticky top-[50vh] left-1/2 -translate-x-1/2 -translate-y-1/2 w-max bg-blue-500/20 border-2 border-blue-400 border-dashed rounded-xl p-8 flex flex-col items-center gap-4 shadow-2xl">
             <Upload className="w-16 h-16 text-blue-400 animate-bounce" />
             <span className="text-blue-300 font-bold text-2xl">Drop files to upload</span>
             <span className="text-blue-300/70 text-sm max-w-xs text-center">Files will be added to the first post</span>
@@ -160,12 +163,14 @@ export function ThumbnailGalleryGrid({
               setSelectedImage={setSelectedImage}
               handleStateToggle={handleStateToggle}
               handleToggleHidden={handleToggleHidden}
+              imageDimensions={imageDimensions}
               getDisplayImage={getDisplayImage}
               isR2Fallback={isR2Fallback}
               isEmbeddedData={isEmbeddedData}
               getImageSrc={getImageSrc}
               getVideoSrc={getVideoSrc}
               getResolutionLabel={getResolutionLabel}
+              handleImageLoad={handleImageLoad}
               formatDescription={formatDescription}
               isValidImageCandidate={isValidImageCandidate}
             />

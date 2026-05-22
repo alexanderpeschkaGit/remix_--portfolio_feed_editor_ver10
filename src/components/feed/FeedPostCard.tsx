@@ -1,5 +1,5 @@
 // src/components/feed/FeedPostCard.tsx
-import React, { useState, useRef, useLayoutEffect, useEffect } from 'react';
+import React, { useState, useRef, useLayoutEffect, useEffect, useMemo } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Loader2, Eye, GripVertical, ImageIcon, Youtube, X, Maximize2, FoldVertical, Trash2, ExternalLink } from 'lucide-react';
@@ -12,10 +12,12 @@ interface FeedPostCardProps {
   isEditing: boolean;
   activeUploads: Record<string, number>;
   showResolutions: boolean;
+  imageDimensions: Record<string, string>;
   getDisplayImage: (url: string | undefined, isR2Fallback: boolean, isEmbeddedData: boolean) => string | undefined;
-  getImageSrc: (media: any) => string | null;
-  getVideoSrc: (media: any) => string | null;
+  getImageSrc: (media: any, preferLarge?: boolean) => string | undefined;
+  getVideoSrc: (media: any, preferLarge?: boolean) => string | undefined;
   getResolutionLabel: (media: any, dimensions?: string) => string;
+  handleImageLoad: (id: string, e: React.SyntheticEvent<HTMLImageElement>) => void;
   formatDescription: (description: string, title: string) => string;
   isR2Fallback: boolean;
   isEmbeddedData: boolean;
@@ -33,7 +35,7 @@ interface FeedPostCardProps {
 
 export function FeedPostCard({
   post, index, totalPosts, isEditing, activeUploads, showResolutions,
-  getDisplayImage, getImageSrc, getVideoSrc, getResolutionLabel, formatDescription,
+  imageDimensions, getDisplayImage, getImageSrc, getVideoSrc, getResolutionLabel, handleImageLoad, formatDescription,
   isR2Fallback, isEmbeddedData, isValidImageCandidate,
   handleImageUpload, handlePostChange, handleYoutubeChange, handleDeletePost,
   handleMergeDown, handleUpdatePostMedia, setSelectedImage, handleStateToggle, handleToggleHidden
@@ -56,14 +58,11 @@ export function FeedPostCard({
   const [thumbAvailability, setThumbAvailability] = useState<Record<number, boolean>>({});
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const rawMediaItems = (post.mergedMedia && post.mergedMedia.length > 0)
-    ? post.mergedMedia
-    : [{ type: post.type || 'image', image: post.image, image_large: post.image_large, youtubeId: post.youtubeId, youtubeUrl: post.youtubeUrl, link: post.url }];
-
-  const handleFeedImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = e.currentTarget;
-    setFeedImageDimensions(`${img.naturalWidth} x ${img.naturalHeight} px`);
-  };
+  const rawMediaItems = useMemo(() => {
+    return (post.mergedMedia && post.mergedMedia.length > 0)
+      ? post.mergedMedia
+      : [{ type: post.type || 'image', image: post.image, image_large: post.image_large, youtubeId: post.youtubeId, youtubeUrl: post.youtubeUrl, link: post.url }];
+  }, [post.mergedMedia, post.type, post.image, post.image_large, post.youtubeId, post.youtubeUrl, post.url]);
 
   useEffect(() => {
     console.log(`[FeedPostCard] Syncing title for ${post.id}`);
@@ -127,6 +126,20 @@ export function FeedPostCard({
   const mediaItems = isEditing ? rawMediaItems : rawMediaItems.filter(isRenderableMedia);
   const renderedMediaCount = mediaItems.length;
   const displayMedia = mediaItems[0] || post;
+  const feedDimensionsKey = post.id ? `${post.id}-0` : '';
+  const cachedFeedDimensions = feedDimensionsKey ? (imageDimensions[feedDimensionsKey] || '') : '';
+  const feedDimensions = cachedFeedDimensions || feedImageDimensions;
+  const feedLabel = getResolutionLabel(displayMedia, feedDimensions);
+
+  const handleFeedImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget;
+    const value = `${img.naturalWidth} x ${img.naturalHeight} px`;
+    setFeedImageDimensions(value);
+    if (feedDimensionsKey) {
+      handleImageLoad(feedDimensionsKey, e);
+    }
+  };
+
   const [draggedMediaIdx, setDraggedMediaIdx] = useState<number | null>(null);
 
   const updateMediaItem = (i: number, field: string, value: any) => {
@@ -183,7 +196,7 @@ export function FeedPostCard({
         <div className="absolute top-2 left-2 z-20 flex gap-2">
           <button 
             onClick={(e) => { e.stopPropagation(); handleToggleHidden(post.id); }}
-            className={`p-1.5 rounded transition-all shadow-lg backdrop-blur-sm ${post.hidden ? 'bg-red-500/80 hover:bg-red-500 text-white' : 'bg-black/50 hover:bg-black/80 text-white/70 hover:text-white'}`}
+            className={`p-1.5 rounded transition-all shadow-lg backdrop-blur-sm ${post.hidden ? 'bg-red-500/80 hover:bg-red-500 text-white' : 'bg-black/50 hover:bg-black/80 text-white/70 hover:text-white'} ${isDragging ? 'pointer-events-none' : ''}`}
             title={post.hidden ? "Anzeigen" : "Verstecken"}
           >
             <Eye className={`w-4 h-4 ${post.hidden ? 'opacity-100' : 'opacity-70'}`} />
@@ -201,21 +214,21 @@ export function FeedPostCard({
         </div>
       )}
       <div 
-        className={`relative ${(!isEditing && renderedMediaCount > 1) || isEditing ? 'h-auto min-h-[300px] max-h-[600px] overflow-y-auto custom-scrollbar' : 'aspect-[4/3] overflow-hidden'} cursor-pointer bg-black/50 shrink-0 ${isEditing && post.hidden ? 'grayscale brightness-50' : ''}`}
+        className={`relative ${(!isEditing && renderedMediaCount > 1) || isEditing ? 'h-auto min-h-[300px] max-h-[600px] overflow-y-auto custom-scrollbar' : 'aspect-[4/3] overflow-hidden'} cursor-pointer bg-black/50 shrink-0 ${isEditing && post.hidden ? 'grayscale brightness-50' : ''} ${isDragging ? 'pointer-events-none' : ''}`}
         onClick={() => {
           if (!isEditing) setSelectedImage(post);
         }}
       >
         {(showResolutions || isEditing) && (
           <div className="absolute top-2 left-2 z-20 bg-blue-600/80 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-lg backdrop-blur-sm flex flex-col gap-0">
-            <span>{getResolutionLabel(displayMedia, feedImageDimensions)}</span>
-            {feedImageDimensions && (
-              <span className="opacity-80 text-[7px] border-t border-white/10 mt-0.5 pt-0.5">{feedImageDimensions}</span>
+            <span>{feedLabel}</span>
+            {feedDimensions && (
+              <span className="opacity-80 text-[7px] border-t border-white/10 mt-0.5 pt-0.5">{feedDimensions}</span>
             )}
           </div>
         )}
         {isEditing ? (
-          <div className="flex flex-col gap-2 p-2">
+          <div className={`flex flex-col gap-2 p-2 ${isDragging ? 'pointer-events-none' : ''}`}>
             <div className="flex gap-2 mb-2" onClick={(e) => e.stopPropagation()}>
               <label
                 className="flex-1 flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded py-1.5 text-xs cursor-pointer transition-colors"
@@ -407,7 +420,7 @@ export function FeedPostCard({
           </div>
         )}
       </div>
-      <div className="p-4 flex flex-col gap-2 flex-grow">
+      <div className={`p-4 flex flex-col gap-2 flex-grow ${isDragging ? 'pointer-events-none' : ''}`}>
         {isEditing ? (
           <>
             <input
