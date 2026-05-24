@@ -100,6 +100,8 @@ def scrape_flickr():
 
                 variant_data = build_variant_set_from_image(temp_path, "flickr", f"{i:03d}_{safe_title}_{photo['id']}")
                 urls = variant_data["urls"]
+                image_width = variant_data.get("width", 0)
+                image_height = variant_data.get("height", 0)
                 
                 # Generate pHash
                 phash_str = ""
@@ -130,6 +132,8 @@ def scrape_flickr():
                     'image_large': urls.get('image_large', ''),
                     'image_3k': urls.get('image_3k', ''),
                     'image_original': urls.get('image_original', ''),
+                    'image_width': image_width,
+                    'image_height': image_height,
                     'media_list': [{
                         'type': 'image',
                         'link': f"https://www.flickr.com/photos/{user_id}/{photo['id']}/",

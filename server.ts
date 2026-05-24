@@ -156,7 +156,9 @@ async function startServer() {
   ) => {
     const source = sharp(input as any, { failOn: 'none' });
     const metadata = await source.metadata();
-    const sourceMaxSide = Math.max(metadata.width || 0, metadata.height || 0);
+    const sourceWidth = metadata.width || 0;
+    const sourceHeight = metadata.height || 0;
+    const sourceMaxSide = Math.max(sourceWidth, sourceHeight);
     const localUrls: Record<string, string> = {};
     const remoteUrls: Record<string, string> = {};
     const localPaths: Record<string, string> = {};
@@ -202,7 +204,7 @@ async function startServer() {
       }
     }
 
-    return { sourceMaxSide, localUrls, remoteUrls, localPaths, missingVariants, manifestEntries };
+    return { sourceMaxSide, sourceWidth, sourceHeight, localUrls, remoteUrls, localPaths, missingVariants, manifestEntries };
   };
 
   const publishHtmlAndState = async (htmlContent: string, stateData: string) => {
@@ -281,6 +283,8 @@ async function startServer() {
                     image_large: media.image_large || media.image_2k || media.image_3k || media.image_1k || media.image_thumb || '',
                     image_3k: media.image_3k || '',
                     image_original: media.image_original || '',
+                    image_width: media.image_width || 0,
+                    image_height: media.image_height || 0,
                     link: media.link || item.link
                   };
                 })
@@ -293,6 +297,8 @@ async function startServer() {
                   image_large: item.image_large || item.image_2k || item.image_3k || item.image_1k || item.image_thumb || item.image || '',
                   image_3k: item.image_3k || '',
                   image_original: item.image_original || '',
+                  image_width: item.image_width || 0,
+                  image_height: item.image_height || 0,
                   link: item.link
                 }] : []);
             newItems.push({
@@ -308,6 +314,8 @@ async function startServer() {
               image_large: item.image_large || item.image_2k || item.image_3k || item.image_1k || item.image_thumb || '',
               image_3k: item.image_3k || '',
               image_original: item.image_original || '',
+              image_width: item.image_width || 0,
+              image_height: item.image_height || 0,
               mergedMedia,
               url: item.link,
               date: item.timestamp || new Date().toISOString(),
@@ -341,6 +349,8 @@ async function startServer() {
                     image_large: media.image_large || media.image_2k || media.image_3k || media.image_1k || media.image_thumb || fallback3k || '',
                     image_3k: media.image_3k || fallback3k || '',
                     image_original: media.image_original || '',
+                    image_width: media.image_width || 0,
+                    image_height: media.image_height || 0,
                     link: media.link || item.link || `https://www.flickr.com/photos/23689211@N04/${id}/`
                   };
                 })
@@ -353,6 +363,8 @@ async function startServer() {
                   image_large: item.image_large || item.image_2k || item.image_3k || fallback3k || '',
                   image_3k: item.image_3k || fallback3k || '',
                   image_original: item.image_original || '',
+                  image_width: item.image_width || 0,
+                  image_height: item.image_height || 0,
                   link: item.link || `https://www.flickr.com/photos/23689211@N04/${id}/`
                 }];
             newItems.push({
@@ -368,6 +380,8 @@ async function startServer() {
               image_large: item.image_large || item.image_2k || item.image_3k || fallback3k || '',
               image_3k: item.image_3k || fallback3k || '',
               image_original: item.image_original || '',
+              image_width: item.image_width || 0,
+              image_height: item.image_height || 0,
               mergedMedia,
               url: item.link || `https://www.flickr.com/photos/23689211@N04/${id}/`,
               date: new Date().toISOString(),
@@ -2305,6 +2319,8 @@ async function startServer() {
         image_2k: local2k,
         image_3k: local3k,
         image_original: localOriginal,
+        image_width: variantSet.sourceWidth,
+        image_height: variantSet.sourceHeight,
         local_large_variant: localLargeVariant,
         missing_variants: variantSet.missingVariants
       });

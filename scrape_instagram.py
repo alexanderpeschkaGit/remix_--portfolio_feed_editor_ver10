@@ -82,6 +82,8 @@ def scrape_instagram():
                     image_2k = first_media.get("image_2k", "")
                     image_3k = first_media.get("image_3k", "")
                     image_original = first_media.get("image_original", "")
+                    image_width = first_media.get("image_width", 0)
+                    image_height = first_media.get("image_height", 0)
 
                     thumb_source = first_media.get("image_1k") or first_media.get("image_thumb")
                     if thumb_source:
@@ -105,6 +107,8 @@ def scrape_instagram():
                     "image_large": image_2k or image_3k or image_1k or image_thumb,
                     "image_3k": image_3k,
                     "image_original": image_original,
+                    "image_width": image_width,
+                    "image_height": image_height,
                     "media_list": media_list,
                     "missing_variants": [m.get("missing_variants", []) for m in media_list],
                     "phash": phash_str,

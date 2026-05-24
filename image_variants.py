@@ -56,8 +56,12 @@ def build_variant_set_from_image(source_path: str, group: str, base_name: str) -
     }
     missing_variants = []
 
+    width = 0
+    height = 0
     with Image.open(source_path) as image:
-        max_side = max(image.width, image.height)
+        width = image.width
+        height = image.height
+        max_side = max(width, height)
         if image.mode not in ("RGB", "L"):
             image = image.convert("RGB")
         elif image.mode == "L":
@@ -84,6 +88,8 @@ def build_variant_set_from_image(source_path: str, group: str, base_name: str) -
         "missing_variants": missing_variants,
         "source_path": source_path.replace("\\", "/"),
         "original_path": original_path.replace("\\", "/"),
+        "width": width,
+        "height": height,
     }
 
 
@@ -93,5 +99,7 @@ def build_media_payload_from_image(source_path: str, group: str, base_name: str,
     return {
         "type": "image",
         "link": link,
+        "image_width": result.get("width", 0),
+        "image_height": result.get("height", 0),
         **urls,
     }

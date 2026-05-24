@@ -115,6 +115,8 @@ def scrape_instagram():
                         image_2k = first_media.get("image_2k", "")
                         image_3k = first_media.get("image_3k", "")
                         image_original = first_media.get("image_original", "")
+                        image_width = first_media.get("image_width", 0)
+                        image_height = first_media.get("image_height", 0)
                         thumb_source = first_media.get("image_1k") or first_media.get("image_thumb")
                         if thumb_source:
                             thumb_path = thumb_source.lstrip("/").replace("/", os.sep)
@@ -137,6 +139,8 @@ def scrape_instagram():
                     "image_large": image_2k or image_3k or image_1k or image_thumb,
                     "image_3k": image_3k,
                     "image_original": image_original,
+                    "image_width": image_width,
+                    "image_height": image_height,
                     "media_list": media_list,
                     "missing_variants": [m.get("missing_variants", []) for m in media_list],
                     "phash": phash_str,
@@ -244,6 +248,8 @@ def scrape_flickr():
                 variant_data = build_variant_set_from_image(temp_path, "flickr", f"{i:03d}_{safe_title}_{photo['id']}")
                 urls = variant_data["urls"]
                 phash_str = ""
+                image_width = variant_data.get("width", 0)
+                image_height = variant_data.get("height", 0)
                 thumb_path = variant_data["local_paths"].get("image_1k") or variant_data["local_paths"].get("image_thumb")
                 if thumb_path and os.path.exists(thumb_path):
                     try:
@@ -269,6 +275,8 @@ def scrape_flickr():
                     "image_large": urls.get("image_large", ""),
                     "image_3k": urls.get("image_3k", ""),
                     "image_original": urls.get("image_original", ""),
+                    "image_width": image_width,
+                    "image_height": image_height,
                     "media_list": [{
                         "type": "image",
                         "link": f"https://www.flickr.com/photos/{user_id}/{photo['id']}/",

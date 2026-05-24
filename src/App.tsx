@@ -1324,6 +1324,8 @@ export default function App() {
       image_preview: post.image_preview,
       image_3k: post.image_3k,
       image_original: post.image_original,
+      image_width: post.image_width,
+      image_height: post.image_height,
       youtubeId: post.youtubeId,
       youtubeUrl: post.youtubeUrl,
       url: post.url,
@@ -1441,8 +1443,10 @@ export default function App() {
       const url3k = uploadData.image_3k || uploadData.url_3k || '';
       const originalUrl = uploadData.image_original || uploadData.url_original || '';
       const highResUrl = uploadData.url_large || url2k || url3k || url1k || thumbUrl;
+      const imageWidth = uploadData.image_width ?? uploadData.width;
+      const imageHeight = uploadData.image_height ?? uploadData.height;
       
-      console.log('Upload successful, thumb:', thumbUrl, 'large:', highResUrl, 'variant:', uploadData.local_large_variant);
+      console.log('Upload successful, thumb:', thumbUrl, 'large:', highResUrl, 'variant:', uploadData.local_large_variant, 'dims:', imageWidth, 'x', imageHeight);
       
       updatePosts(posts => posts.map(post => {
         if (String(post.id) === String(id)) {
@@ -1464,6 +1468,8 @@ export default function App() {
                 image_3k: url3k || highResUrl,
                 image_original: originalUrl,
                 image_preview: localUrl, 
+                image_width: imageWidth,
+                image_height: imageHeight,
                 type: 'image' 
               } as any;
               delete newMedia[itemIdx].uploadId;
@@ -1480,6 +1486,8 @@ export default function App() {
                 image_3k: url3k || highResUrl,
                 image_original: originalUrl,
                 image_preview: localUrl,
+                image_width: imageWidth,
+                image_height: imageHeight,
                 mergedMedia: newMedia 
               } : { ...post, mergedMedia: newMedia };
             } else {
@@ -1505,7 +1513,9 @@ export default function App() {
                   image_large: highResUrl, 
                   image_3k: url3k || highResUrl,
                   image_original: originalUrl,
-                  image_preview: localUrl 
+                  image_preview: localUrl,
+                  image_width: imageWidth,
+                  image_height: imageHeight
                 };
                 cleanedMedia.push(uploadedItem);
               }
@@ -1525,6 +1535,8 @@ export default function App() {
               image_3k: url3k || highResUrl,
               image_original: originalUrl,
               image_preview: localUrl,
+              image_width: imageWidth,
+              image_height: imageHeight,
               mergedMedia: [{
                 type: 'image',
                 image: thumbUrl,
@@ -1534,7 +1546,9 @@ export default function App() {
                 image_large: highResUrl,
                 image_3k: url3k || highResUrl,
                 image_original: originalUrl,
-                image_preview: localUrl
+                image_preview: localUrl,
+                image_width: imageWidth,
+                image_height: imageHeight
               }],
               type: 'image' 
             };
