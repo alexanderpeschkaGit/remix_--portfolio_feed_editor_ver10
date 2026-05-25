@@ -1897,13 +1897,13 @@ export default function App() {
           if (media.type === 'youtube' || media.youtubeId) {
             const id = media.youtubeId || getYoutubeId(media.url || media.youtubeUrl || media.link);
             const stored = preferLarge
-              ? (media.image_original || media.image_3k || media.image_2k || media.image_1k || media.image_large || media.imageLarge || media.image)
+              ? (media.image_3k || media.image_2k || media.image_original || media.image_1k || media.image_large || media.imageLarge || media.image)
               : (media.image_thumb || media.image_preview || media.image_original || media.image);
             if (isValidImageCandidate(stored)) return stored;
             if (id) return 'https://img.youtube.com/vi/' + id + '/maxresdefault.jpg';
           }
           const primary = preferLarge
-            ? [media.image_original, media.image_3k, media.image_2k, media.image_1k, media.image_large, media.imageLarge, media.largeUrl, media.image, media.image_preview, media.image_thumb, media.url, media.link]
+            ? [media.image_3k, media.image_2k, media.image_original, media.image_1k, media.image_large, media.imageLarge, media.largeUrl, media.image, media.image_preview, media.image_thumb, media.url, media.link]
             : [media.image_thumb, media.image_preview, media.image, media.image_original, media.image_1k, media.image_2k, media.image_3k, media.image_large, media.imageLarge, media.largeUrl, media.url, media.link];
           for (const candidate of primary) {
             if (isValidImageCandidate(candidate)) return candidate;

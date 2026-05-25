@@ -93,14 +93,122 @@ def choose_source(media: Dict[str, Any], allow_download: bool = False) -> Tuple[
 
 
 def merge_variant_urls(media: Dict[str, Any], generated: Dict[str, str]) -> Dict[str, Any]:
+    return sync_variant_urls(media, generated)
+
+
+def first_non_empty(*values: Any) -> str:
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            return value
+    return ""
+
+
+def sync_variant_urls(media: Dict[str, Any], generated: Dict[str, str]) -> Dict[str, Any]:
     out = dict(media)
-    for field in ["image_thumb", "image_1k", "image_2k", "image_3k", "image_original"]:
-        if generated.get(field):
-            out[field] = generated[field]
-    if generated.get("image"):
-        out["image"] = generated["image"]
-    if generated.get("image_large"):
-        out["image_large"] = generated["image_large"]
+    source = {**media, **generated}
+
+    thumb = first_non_empty(
+        generated.get("image_thumb"),
+        generated.get("image"),
+        generated.get("image_1k"),
+        generated.get("image_2k"),
+        generated.get("image_3k"),
+        generated.get("image_large"),
+        generated.get("image_original"),
+        media.get("image_thumb"),
+        media.get("image"),
+        media.get("image_1k"),
+        media.get("image_2k"),
+        media.get("image_3k"),
+        media.get("image_large"),
+        media.get("image_original"),
+    )
+    image_1k = first_non_empty(
+        generated.get("image_1k"),
+        generated.get("image_2k"),
+        generated.get("image_3k"),
+        generated.get("image_large"),
+        generated.get("image_thumb"),
+        generated.get("image"),
+        media.get("image_1k"),
+        media.get("image_2k"),
+        media.get("image_3k"),
+        media.get("image_large"),
+        media.get("image_thumb"),
+        media.get("image"),
+    )
+    image_2k = first_non_empty(
+        generated.get("image_2k"),
+        generated.get("image_3k"),
+        generated.get("image_large"),
+        generated.get("image_1k"),
+        generated.get("image_thumb"),
+        generated.get("image"),
+        media.get("image_2k"),
+        media.get("image_3k"),
+        media.get("image_large"),
+        media.get("image_1k"),
+        media.get("image_thumb"),
+        media.get("image"),
+    )
+    image_3k = first_non_empty(
+        generated.get("image_3k"),
+        generated.get("image_large"),
+        generated.get("image_2k"),
+        generated.get("image_1k"),
+        generated.get("image_thumb"),
+        generated.get("image"),
+        media.get("image_3k"),
+        media.get("image_large"),
+        media.get("image_2k"),
+        media.get("image_1k"),
+        media.get("image_thumb"),
+        media.get("image"),
+    )
+    image_original = first_non_empty(
+        generated.get("image_original"),
+        generated.get("image_3k"),
+        generated.get("image_large"),
+        generated.get("image_2k"),
+        generated.get("image_1k"),
+        generated.get("image_thumb"),
+        generated.get("image"),
+        media.get("image_3k"),
+        media.get("image_large"),
+        media.get("image_2k"),
+        media.get("image_1k"),
+        media.get("image_thumb"),
+        media.get("image"),
+        media.get("image_original"),
+    )
+    image_large = first_non_empty(
+        generated.get("image_large"),
+        generated.get("image_2k"),
+        generated.get("image_3k"),
+        generated.get("image_1k"),
+        generated.get("image_thumb"),
+        generated.get("image"),
+        media.get("image_large"),
+        media.get("image_2k"),
+        media.get("image_3k"),
+        media.get("image_1k"),
+        media.get("image_thumb"),
+        media.get("image"),
+    )
+
+    out.update({
+        "image_thumb": thumb,
+        "image_1k": image_1k,
+        "image_2k": image_2k,
+        "image_3k": image_3k,
+        "image_original": image_original,
+        "image": thumb,
+        "image_large": image_large,
+    })
+    if source.get("url") and not out.get("link"):
+        out["link"] = source["url"]
+    if source.get("link") and not out.get("url"):
+        out["url"] = source["link"]
     return out
 
 
