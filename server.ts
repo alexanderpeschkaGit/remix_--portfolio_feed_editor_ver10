@@ -2,7 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import fetch from "node-fetch";
-import { S3Client, PutObjectCommand, HeadObjectCommand, ListObjectsV2Command, DeleteObjectsCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, HeadObjectCommand, ListObjectsV2Command, DeleteObjectsCommand, DeleteObjectCommand, CopyObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import multer from "multer";
 import fs from "fs/promises";
 import path from "path";
@@ -34,6 +34,7 @@ async function startServer() {
   const HIGHRES_DIR = path.join(DATA_DIR, 'highres');
   const PREVIEWS_DIR = path.join(DATA_DIR, 'previews');
   const SYNC_MANIFEST_KEY = '.sync-manifest.json';
+  const TRASH_PREFIX = 'trash/';
   const V2_PREFIX = 'v2/data';
 
   const V2_MEDIA_GROUPS = {
@@ -128,6 +129,36 @@ async function startServer() {
       throw new Error('Backup-Format ungültig: Script-Tag fehlt.');
     }
     return JSON.parse(match[1]);
+  };
+
+  const visitMediaReferences = (referencedKeys: Set<string>, media: any) => {
+    if (!media || typeof media !== 'object') return;
+    for (const field of MEDIA_REFERENCE_FIELDS) {
+      const key = normalizePossibleR2Key(media[field]);
+      if (key) {
+        referencedKeys.add(key);
+      }
+    }
+  };
+
+  const collectReferencedR2KeysFromPortfolioData = (referencedKeys: Set<string>, data: any) => {
+    for (const item of data?.items || data?.posts || []) {
+      visitMediaReferences(referencedKeys, item);
+      if (Array.isArray(item.mergedMedia)) {
+        for (const media of item.mergedMedia) {
+          visitMediaReferences(referencedKeys, media);
+        }
+      }
+    }
+  };
+
+  const collectReferencedR2KeysFromHtml = (referencedKeys: Set<string>, html: string) => {
+    try {
+      const portfolioData = extractPortfolioDataFromHtml(html);
+      collectReferencedR2KeysFromPortfolioData(referencedKeys, portfolioData);
+    } catch (error) {
+      console.error('Failed to extract portfolio data from HTML while collecting R2 references:', error);
+    }
   };
 
   const toPosix = (value: string) => value.replace(/\\/g, '/');
@@ -792,31 +823,43 @@ async function startServer() {
 
   const collectReferencedR2Keys = async () => {
     const referencedKeys = new Set<string>();
+    const publicBaseUrl = R2_CONFIG.publicDomain.startsWith('http')
+      ? R2_CONFIG.publicDomain.replace(/\/+$/, '')
+      : `https://${R2_CONFIG.publicDomain}`.replace(/\/+$/, '');
 
     try {
       const stateData = await fs.readFile(path.join(DATA_DIR, 'state.json'), 'utf-8');
-      const state = JSON.parse(stateData);
-
-      const visitMedia = (media: any) => {
-        if (!media || typeof media !== 'object') return;
-        for (const field of MEDIA_REFERENCE_FIELDS) {
-          const key = normalizePossibleR2Key(media[field]);
-          if (key) {
-            referencedKeys.add(key);
-          }
-        }
-      };
-
-      for (const item of state.items || []) {
-        visitMedia(item);
-        if (Array.isArray(item.mergedMedia)) {
-          for (const media of item.mergedMedia) {
-            visitMedia(media);
-          }
-        }
-      }
+      collectReferencedR2KeysFromPortfolioData(referencedKeys, JSON.parse(stateData));
     } catch (e) {
       console.error('Failed to collect referenced R2 keys:', e);
+    }
+
+    try {
+      const previewPath = path.join(DATA_DIR, 'preview.html');
+      const previewHtml = await fs.readFile(previewPath, 'utf-8');
+      collectReferencedR2KeysFromHtml(referencedKeys, previewHtml);
+    } catch {
+      // local preview may not exist yet
+    }
+
+    try {
+      const r2StateRes = await fetch(`${publicBaseUrl}/state.json?t=${Date.now()}`);
+      if (r2StateRes.ok) {
+        const r2State = await r2StateRes.json();
+        collectReferencedR2KeysFromPortfolioData(referencedKeys, r2State);
+      }
+    } catch (error) {
+      console.error('Failed to fetch published R2 state.json while collecting references:', error);
+    }
+
+    try {
+      const indexRes = await fetch(`${publicBaseUrl}/index.html?t=${Date.now()}`);
+      if (indexRes.ok) {
+        const indexHtml = await indexRes.text();
+        collectReferencedR2KeysFromHtml(referencedKeys, indexHtml);
+      }
+    } catch (error) {
+      console.error('Failed to fetch published index.html while collecting references:', error);
     }
 
     return referencedKeys;
@@ -853,16 +896,16 @@ async function startServer() {
     const managedPrefixes = ['data/', 'uploads/', 'highres/', 'originals/', 'v2/data/'];
     const referencedKeys = await collectReferencedR2Keys();
     const r2Objects = await listR2ObjectsForPrefixes(managedPrefixes);
-    const referencedVideoStems = new Set(
-      Array.from(referencedKeys)
-        .filter((key) => isVideoR2Key(key))
-        .map((key) => toCanonicalMediaStem(key))
+    const allVideoStems = new Set(
+      r2Objects
+        .filter((obj) => isVideoR2Key(obj.key))
+        .map((obj) => toCanonicalMediaStem(obj.key))
     );
 
     const orphaned = r2Objects.filter((obj) => {
       if (referencedKeys.has(obj.key)) return false;
 
-      if (isImageR2Key(obj.key) && referencedVideoStems.has(toCanonicalMediaStem(obj.key))) {
+      if (isImageR2Key(obj.key) && allVideoStems.has(toCanonicalMediaStem(obj.key))) {
         return false;
       }
 
@@ -909,6 +952,237 @@ async function startServer() {
       duplicates,
       sampleKeys: duplicates.slice(0, 25).map(obj => obj.key)
     };
+  };
+
+  const normalizeTrashName = (value: string) =>
+    value
+      .replace(/[^a-z0-9._-]+/gi, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 80) || 'file';
+
+  const buildTrashKey = (originalKey: string) => {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const hash = createHash('sha1').update(originalKey).digest('hex').slice(0, 12);
+    const baseName = normalizeTrashName(path.basename(originalKey) || 'file');
+    return `${TRASH_PREFIX}${timestamp}/${hash}-${baseName}`;
+  };
+
+  type TrashItem = {
+    key: string;
+    trashKey: string;
+    originalKey: string;
+    reason: string;
+    size: number;
+    contentType: string;
+    trashedAt: string;
+    previewUrl: string;
+    originalExists?: boolean;
+  };
+
+  const moveR2ObjectsToTrash = async (
+    objects: Array<{ key: string; size: number }>,
+    reason: string
+  ) => {
+    const movedItems: TrashItem[] = [];
+    const skippedKeys: string[] = [];
+
+    for (const obj of objects) {
+      try {
+        const head = await s3Client.send(new HeadObjectCommand({
+          Bucket: R2_CONFIG.bucketName,
+          Key: obj.key
+        }));
+
+        const trashKey = buildTrashKey(obj.key);
+        const trashedAt = new Date().toISOString();
+        const contentType = head.ContentType || 'application/octet-stream';
+
+        await s3Client.send(new CopyObjectCommand({
+          Bucket: R2_CONFIG.bucketName,
+          CopySource: `${R2_CONFIG.bucketName}/${encodeURIComponent(obj.key)}`,
+          Key: trashKey,
+          MetadataDirective: 'REPLACE',
+          Metadata: {
+            originalkey: obj.key,
+            trashreason: reason,
+            trashedat: trashedAt,
+            originalsizedbytes: String(obj.size || head.ContentLength || 0)
+          },
+          ContentType: contentType
+        }));
+
+        const trashHead = await s3Client.send(new HeadObjectCommand({
+          Bucket: R2_CONFIG.bucketName,
+          Key: trashKey
+        }));
+
+        if (trashHead.Metadata?.originalkey !== obj.key) {
+          throw new Error(`Trash verification failed for ${obj.key}`);
+        }
+
+        await s3Client.send(new DeleteObjectCommand({
+          Bucket: R2_CONFIG.bucketName,
+          Key: obj.key
+        }));
+
+        const manifest = await loadSyncManifest();
+        delete manifest[obj.key];
+        await saveSyncManifest(manifest);
+
+        movedItems.push({
+          key: obj.key,
+          trashKey,
+          originalKey: obj.key,
+          reason,
+          size: obj.size || head.ContentLength || 0,
+          contentType,
+          trashedAt,
+          previewUrl: `${R2_CONFIG.publicDomain.replace(/\/+$/, '')}/${trashKey}`
+        });
+      } catch (error) {
+        console.error(`Failed to move ${obj.key} to trash:`, error);
+        skippedKeys.push(obj.key);
+      }
+    }
+
+    return { movedItems, skippedKeys };
+  };
+
+  const listTrashObjects = async () => {
+    const trashObjects = await listR2ObjectsForPrefixes([TRASH_PREFIX]);
+    const items: TrashItem[] = [];
+
+    for (const obj of trashObjects) {
+      try {
+        const head = await s3Client.send(new HeadObjectCommand({
+          Bucket: R2_CONFIG.bucketName,
+          Key: obj.key
+        }));
+
+        const originalKey = head.Metadata?.originalkey || '';
+        if (!originalKey) continue;
+
+        let originalExists = false;
+        try {
+          await s3Client.send(new HeadObjectCommand({
+            Bucket: R2_CONFIG.bucketName,
+            Key: originalKey
+          }));
+          originalExists = true;
+        } catch (originalErr: any) {
+          if (!(originalErr?.name === 'NotFound' || originalErr?.$metadata?.httpStatusCode === 404)) {
+            throw originalErr;
+          }
+        }
+
+        items.push({
+          key: obj.key,
+          trashKey: obj.key,
+          originalKey,
+          reason: head.Metadata?.trashreason || 'unknown',
+          size: obj.size || head.ContentLength || 0,
+          contentType: head.ContentType || 'application/octet-stream',
+          trashedAt: head.Metadata?.trashedat || head.LastModified?.toISOString?.() || '',
+          previewUrl: `${R2_CONFIG.publicDomain.replace(/\/+$/, '')}/${obj.key}`,
+          originalExists
+        });
+      } catch (error) {
+        console.error(`Failed to inspect trash object ${obj.key}:`, error);
+      }
+    }
+
+    items.sort((a, b) => (b.trashedAt || '').localeCompare(a.trashedAt || ''));
+    return items;
+  };
+
+  const restoreTrashObjects = async (trashKeys: string[]) => {
+    const restoredItems: TrashItem[] = [];
+    const skippedKeys: string[] = [];
+    const conflicts: Array<{ trashKey: string; originalKey: string }> = [];
+
+    for (const trashKey of trashKeys) {
+      try {
+        const head = await s3Client.send(new HeadObjectCommand({
+          Bucket: R2_CONFIG.bucketName,
+          Key: trashKey
+        }));
+
+        const originalKey = head.Metadata?.originalkey;
+        if (!originalKey) {
+          skippedKeys.push(trashKey);
+          continue;
+        }
+
+        let originalExists = false;
+        try {
+          await s3Client.send(new HeadObjectCommand({
+            Bucket: R2_CONFIG.bucketName,
+            Key: originalKey
+          }));
+          originalExists = true;
+        } catch (originalErr: any) {
+          if (!(originalErr?.name === 'NotFound' || originalErr?.$metadata?.httpStatusCode === 404)) {
+            throw originalErr;
+          }
+        }
+
+        if (originalExists) {
+          conflicts.push({ trashKey, originalKey });
+          continue;
+        }
+
+        await s3Client.send(new CopyObjectCommand({
+          Bucket: R2_CONFIG.bucketName,
+          CopySource: `${R2_CONFIG.bucketName}/${encodeURIComponent(trashKey)}`,
+          Key: originalKey,
+          MetadataDirective: 'REPLACE',
+          Metadata: {},
+          ContentType: head.ContentType || 'application/octet-stream'
+        }));
+
+        await s3Client.send(new DeleteObjectCommand({
+          Bucket: R2_CONFIG.bucketName,
+          Key: trashKey
+        }));
+
+        restoredItems.push({
+          key: originalKey,
+          trashKey,
+          originalKey,
+          reason: head.Metadata?.trashreason || 'unknown',
+          size: head.ContentLength || 0,
+          contentType: head.ContentType || 'application/octet-stream',
+          trashedAt: head.Metadata?.trashedat || '',
+          previewUrl: `${R2_CONFIG.publicDomain.replace(/\/+$/, '')}/${originalKey}`,
+          originalExists: false
+        });
+      } catch (error) {
+        console.error(`Failed to restore trash object ${trashKey}:`, error);
+        skippedKeys.push(trashKey);
+      }
+    }
+
+    return { restoredItems, skippedKeys, conflicts };
+  };
+
+  const deleteTrashObjects = async (trashKeys: string[]) => {
+    const deletedKeys: string[] = [];
+    const skippedKeys: string[] = [];
+
+    for (const trashKey of trashKeys) {
+      try {
+        await s3Client.send(new DeleteObjectCommand({
+          Bucket: R2_CONFIG.bucketName,
+          Key: trashKey
+        }));
+        deletedKeys.push(trashKey);
+      } catch (error) {
+        console.error(`Failed to permanently delete trash object ${trashKey}:`, error);
+        skippedKeys.push(trashKey);
+      }
+    }
+
+    return { deletedKeys, skippedKeys };
   };
 
   async function getRecursiveFiles(dir: string, baseDir: string): Promise<string[]> {
@@ -1791,39 +2065,25 @@ async function startServer() {
       if (report.orphanedCount === 0) {
         return res.json({
           success: true,
-          deletedCount: 0,
-          deletedBytes: 0,
+          movedCount: 0,
+          movedBytes: 0,
           message: 'Keine verwaisten R2-Dateien gefunden.'
         });
       }
 
-      const batches: Array<Array<{ Key: string }>> = [];
-      for (let i = 0; i < report.orphaned.length; i += 1000) {
-        batches.push(report.orphaned.slice(i, i + 1000).map(obj => ({ Key: obj.key })));
-      }
-
-      for (const batch of batches) {
-        await s3Client.send(new DeleteObjectsCommand({
-          Bucket: R2_CONFIG.bucketName,
-          Delete: {
-            Objects: batch,
-            Quiet: true
-          }
-        }));
-      }
-
-      const manifest = await loadSyncManifest();
-      for (const obj of report.orphaned) {
-        delete manifest[obj.key];
-      }
-      await saveSyncManifest(manifest);
+      const { movedItems, skippedKeys } = await moveR2ObjectsToTrash(
+        report.orphaned,
+        'orphaned-cleanup'
+      );
       await syncStorageSize();
 
       res.json({
         success: true,
-        deletedCount: report.orphanedCount,
-        deletedBytes: report.totalBytes,
-        sampleKeys: report.sampleKeys
+        movedCount: movedItems.length,
+        movedBytes: report.totalBytes,
+        skippedCount: skippedKeys.length,
+        sampleKeys: report.sampleKeys,
+        trashItems: movedItems
       });
     } catch (error: any) {
       console.error("Error executing R2 cleanup:", error);
@@ -1848,43 +2108,89 @@ async function startServer() {
       if (report.duplicateCount === 0) {
         return res.json({
           success: true,
-          deletedCount: 0,
-          deletedBytes: 0,
+          movedCount: 0,
+          movedBytes: 0,
           message: 'Keine Legacy-Duplikate gefunden.'
         });
       }
 
-      const batches: Array<Array<{ Key: string }>> = [];
-      for (let i = 0; i < report.duplicates.length; i += 1000) {
-        batches.push(report.duplicates.slice(i, i + 1000).map(obj => ({ Key: obj.key })));
-      }
-
-      for (const batch of batches) {
-        await s3Client.send(new DeleteObjectsCommand({
-          Bucket: R2_CONFIG.bucketName,
-          Delete: {
-            Objects: batch,
-            Quiet: true
-          }
-        }));
-      }
-
-      const manifest = await loadSyncManifest();
-      for (const obj of report.duplicates) {
-        delete manifest[obj.key];
-      }
-      await saveSyncManifest(manifest);
+      const { movedItems, skippedKeys } = await moveR2ObjectsToTrash(
+        report.duplicates,
+        'legacy-duplicate-cleanup'
+      );
       await syncStorageSize();
 
       res.json({
         success: true,
-        deletedCount: report.duplicateCount,
-        deletedBytes: report.totalBytes,
-        sampleKeys: report.sampleKeys
+        movedCount: movedItems.length,
+        movedBytes: report.totalBytes,
+        skippedCount: skippedKeys.length,
+        sampleKeys: report.sampleKeys,
+        trashItems: movedItems
       });
     } catch (error: any) {
       console.error("Error deleting legacy duplicates:", error);
       res.status(500).json({ error: error.message || 'Legacy-Duplikat-Cleanup fehlgeschlagen' });
+    }
+  });
+
+  app.get("/api/r2-trash", async (req, res) => {
+    try {
+      const items = await listTrashObjects();
+      const totalBytes = items.reduce((sum, item) => sum + (item.size || 0), 0);
+      res.json({ success: true, items, totalBytes, count: items.length });
+    } catch (error: any) {
+      console.error("Error loading trash items:", error);
+      res.status(500).json({ error: error.message || 'Trash list failed' });
+    }
+  });
+
+  app.post("/api/r2-trash/restore", async (req, res) => {
+    try {
+      const trashKeys = Array.isArray(req.body?.trashKeys)
+        ? req.body.trashKeys.filter((key: any) => typeof key === 'string' && key.startsWith(TRASH_PREFIX))
+        : [];
+      if (trashKeys.length === 0) {
+        return res.status(400).json({ error: 'trashKeys required' });
+      }
+
+      const { restoredItems, skippedKeys, conflicts } = await restoreTrashObjects(trashKeys);
+      await syncStorageSize();
+
+      res.json({
+        success: true,
+        restoredCount: restoredItems.length,
+        skippedCount: skippedKeys.length,
+        conflictCount: conflicts.length,
+        conflicts,
+        restoredItems
+      });
+    } catch (error: any) {
+      console.error("Error restoring trash items:", error);
+      res.status(500).json({ error: error.message || 'Trash restore failed' });
+    }
+  });
+
+  app.post("/api/r2-trash/delete", async (req, res) => {
+    try {
+      const trashKeys = Array.isArray(req.body?.trashKeys)
+        ? req.body.trashKeys.filter((key: any) => typeof key === 'string' && key.startsWith(TRASH_PREFIX))
+        : [];
+      if (trashKeys.length === 0) {
+        return res.status(400).json({ error: 'trashKeys required' });
+      }
+
+      const { deletedKeys, skippedKeys } = await deleteTrashObjects(trashKeys);
+      await syncStorageSize();
+
+      res.json({
+        success: true,
+        deletedCount: deletedKeys.length,
+        skippedCount: skippedKeys.length
+      });
+    } catch (error: any) {
+      console.error("Error permanently deleting trash items:", error);
+      res.status(500).json({ error: error.message || 'Trash delete failed' });
     }
   });
 

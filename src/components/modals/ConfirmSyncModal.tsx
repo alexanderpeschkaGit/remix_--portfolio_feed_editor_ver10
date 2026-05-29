@@ -23,34 +23,37 @@ export function ConfirmSyncModal({ isOpen, onClose, onConfirm, changes }: Confir
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-medium text-white flex items-center gap-2">
             <CheckCircle className="w-5 h-5 text-blue-400" />
-            Cloud Sync Änderungen bestätigen
+            Confirm Cloud Sync Changes
           </h2>
-          <button className="text-white/50 hover:text-white transition-colors p-1" onClick={onClose}>
+          <button className="text-white hover:text-white/90 transition-colors p-1" onClick={onClose}>
             <X className="w-5 h-5" />
           </button>
         </div>
         <div className="bg-black/50 border border-white/5 rounded-lg p-4 max-h-96 overflow-y-auto font-mono text-sm custom-scrollbar">
           {changes.map((c, i) => (
-            <div key={i} className={`mb-1 ${c.startsWith('+') ? 'text-green-400' : c.startsWith('-') ? 'text-red-400' : c.startsWith('~') ? 'text-yellow-400' : 'text-white/80'}`}>
+            <div
+              key={i}
+              className={`mb-1 ${c.startsWith('+') ? 'text-green-400' : c.startsWith('-') ? 'text-red-400' : c.startsWith('~') ? 'text-yellow-400' : 'text-white/80'}`}
+            >
               {c}
             </div>
           ))}
           {changes.length === 0 && (
-            <div className="text-white/50">Keine Änderungen gefunden.</div>
+            <div className="text-white/50">No changes found.</div>
           )}
         </div>
         <div className="flex gap-4 mt-4">
           <button
             onClick={onConfirm}
-            className="flex-1 bg-green-600/20 hover:bg-green-600/30 text-green-400 py-2 rounded-lg transition-colors border border-green-500/30"
+            className="flex-1 bg-white/30 hover:bg-white/40 text-white py-2 rounded-lg transition-colors border border-white/20"
           >
-            Ja – Änderungen übernehmen
+            Apply changes
           </button>
           <button
             onClick={onClose}
-            className="flex-1 bg-red-600/20 hover:bg-red-600/30 text-red-400 py-2 rounded-lg transition-colors border border-red-500/30"
+            className="flex-1 bg-white/30 hover:bg-white/40 text-white py-2 rounded-lg transition-colors border border-white/20"
           >
-            Nein – Abbrechen
+            Cancel changes
           </button>
         </div>
       </div>

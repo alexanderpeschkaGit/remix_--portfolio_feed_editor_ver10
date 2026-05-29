@@ -38,6 +38,7 @@ interface AdminHeaderProps {
   handleRestoreLatestPublish: () => void;
   handleR2Cleanup: () => void;
   handleLegacyDuplicateCleanup: () => void;
+  handleOpenTrash: () => void;
   handleAddNewPost: () => void;
   handleUndo: () => void;
   handleRedo: () => void;
@@ -52,30 +53,41 @@ interface AdminHeaderProps {
   hasCloudChanges: boolean;
   hasUnsyncedMedia: boolean;
   hasUnpublishedChanges: boolean;
+  trashCount: number;
 }
 
-const AdminButton = ({ onClick, disabled, id, children, className = "", color = "bg-white/5 text-white/80 hover:bg-white/10 border-white/10", tooltip, active }: any) => (
-  <button
-    id={id}
-    onClick={onClick}
-    disabled={disabled}
-    title={tooltip}
-    className={`
-      flex flex-col items-center justify-center gap-2 px-2 py-3 rounded-xl text-[10px] sm:text-xs font-medium border transition-all duration-300
-      ${active ? 'bg-blue-600/30 text-blue-300 border-blue-500/30' : color}
-      ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer active:scale-95'}
-      relative group
-      ${className}
-    `}
-  >
-    {children}
-    {tooltip && (
-      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none whitespace-nowrap z-[60] shadow-xl">
-        {tooltip}
-      </div>
-    )}
-  </button>
-);
+const AdminButton = ({ onClick, disabled, id, children, className = "", tooltip, active }: any) => {
+  const style = {
+    ['--admin-btn-bg' as any]: active ? '#5a5a5a' : '#4d4d4d',
+    ['--admin-btn-bg-hover' as any]: active ? '#6a6a6a' : '#5e5e5e',
+    ['--admin-btn-border' as any]: active ? '#7a7a7a' : '#6a6a6a',
+  } as React.CSSProperties;
+
+  return (
+    <button
+      id={id}
+      onClick={onClick}
+      disabled={disabled}
+      title={tooltip}
+      style={style}
+      className={`
+        flex flex-col items-center justify-center gap-2 px-2 py-3 rounded-xl text-[10px] sm:text-xs font-medium border transition-all duration-300
+        bg-[var(--admin-btn-bg)] hover:bg-[var(--admin-btn-bg-hover)] border-[var(--admin-btn-border)] text-white
+        ${active ? 'shadow-[0_0_10px_rgba(255,255,255,0.08)]' : ''}
+        ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer active:scale-95'}
+        relative group
+        ${className}
+      `}
+    >
+      {children}
+      {tooltip && (
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none whitespace-nowrap z-[60] shadow-xl">
+          {tooltip}
+        </div>
+      )}
+    </button>
+  );
+};
 
 export function AdminHeader({
   isEditing,
@@ -114,6 +126,7 @@ export function AdminHeader({
   handleRestoreLatestPublish,
   handleR2Cleanup,
   handleLegacyDuplicateCleanup,
+  handleOpenTrash,
   handleAddNewPost,
   handleUndo,
   handleRedo,
@@ -128,6 +141,7 @@ export function AdminHeader({
   hasCloudChanges = false,
   hasUnsyncedMedia = false,
   hasUnpublishedChanges = false,
+  trashCount = 0,
 }: AdminHeaderProps) {
   return (
     <header className="max-w-7xl mx-auto mb-12 relative">
@@ -153,7 +167,7 @@ export function AdminHeader({
             className="w-full text-center text-white/50 mt-2 tracking-widest text-sm uppercase bg-transparent border-b border-white/20 focus:outline-none focus:border-white/50 pb-1"
             placeholder="Subtitle"
           />
-          <div className="mt-6 flex flex-col gap-3 max-w-xl mx-auto bg-white/5 p-4 rounded-xl border border-white/10">
+              <div className="mt-6 flex flex-col gap-3 max-w-xl mx-auto bg-white/10 p-4 rounded-xl border border-white/10">
             <div className="text-xs text-white/50 uppercase tracking-wider text-left mb-1">Scraping Sources</div>
             <div className="flex items-center gap-3">
               <span className="text-white/40 text-sm w-24 text-right">Instagram:</span>
@@ -201,7 +215,7 @@ export function AdminHeader({
         </AdminButton>
         
         <AdminButton onClick={() => handleScrape('instagram')} disabled={isScraping} tooltip="Instagram Feed einlesen">
-          <RefreshCw className={`w-3 h-3 sm:w-4 sm:h-4 ${isScraping ? 'animate-spin text-pink-500' : ''}`} />
+          <RefreshCw className={`w-3 h-3 sm:w-4 sm:h-4 ${isScraping ? 'animate-spin text-white' : ''}`} />
           <span className="text-center">Insta</span>
         </AdminButton>
         
@@ -230,7 +244,7 @@ export function AdminHeader({
         <AdminButton
           onClick={handleResetAll}
           disabled={isEditing || isResettingAll}
-          color={isResettingAll ? "bg-red-600/20 text-red-300 border-red-500/20" : "bg-red-600/10 text-red-300 border-red-500/20"}
+          active={isResettingAll}
           tooltip="Leert den kompletten R2-Bucket und baut ihn aus den lokalen Daten neu auf."
         >
           <RefreshCw className={`w-3 h-3 sm:w-4 sm:h-4 ${isResettingAll ? 'animate-spin' : ''}`} />
@@ -240,7 +254,7 @@ export function AdminHeader({
         <AdminButton 
           onClick={handleFullR2Sync} 
           disabled={fullR2SyncStatus.running} 
-          color={hasUnsyncedMedia ? "bg-green-600/30 text-green-300 border-green-500/50 shadow-[0_0_10px_rgba(74,222,128,0.3)] animate-pulse" : "bg-white/5 text-white/80 hover:bg-white/10 border-white/10"}
+          active={hasUnsyncedMedia}
           tooltip="Alle lokalen Bilder (Uploads, Flickr, etc.) zu Cloudflare R2 spiegeln"
         >
           <UploadCloud className={`w-3 h-3 sm:w-4 sm:h-4 ${fullR2SyncStatus.running ? 'animate-spin text-blue-500' : ''}`} />
@@ -251,36 +265,44 @@ export function AdminHeader({
           onClick={handleSyncFromCloudflare} 
           disabled={isEditing || loading} 
           tooltip="Aktuellen Stand von Cloudflare R2 laden (überschreibt lokale Änderungen)"
-          color={hasCloudChanges ? "bg-green-600/30 text-green-300 border-green-500/50 shadow-[0_0_10px_rgba(74,222,128,0.3)] animate-pulse" : "bg-white/5 text-white/80 hover:bg-white/10 border-white/10"}
+          active={hasCloudChanges}
         >
           <Download className={`w-3 h-3 sm:w-4 sm:h-4 ${loading ? 'animate-spin text-blue-500' : ''}`} />
           <span className="text-center">Load Cloud</span>
         </AdminButton>
 
-        <AdminButton
-          onClick={handleR2Cleanup}
-          disabled={r2CleanupRunning}
-          color="bg-red-500/10 text-red-300 border-red-500/20"
-          tooltip="Verwaiste R2-Dateien analysieren und optional loeschen"
+        <div className="col-span-1 flex gap-1">
+          <button
+            onClick={handleR2Cleanup}
+            disabled={r2CleanupRunning}
+            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[9px] font-medium border border-[#6a6a6a] bg-[#4d4d4d] text-white transition-all hover:bg-[#5e5e5e] active:scale-95 disabled:opacity-30 relative group"
+            title="Move orphaned R2 files to trash"
+          >
+            <Trash2 className={`w-3 h-3 ${r2CleanupRunning ? 'animate-pulse text-white' : 'text-white'}`} />
+            <span>R2</span>
+          </button>
+          <button
+            onClick={handleLegacyDuplicateCleanup}
+            disabled={legacyDupCleanupRunning}
+            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[9px] font-medium border border-[#6a6a6a] bg-[#4d4d4d] text-white transition-all hover:bg-[#5e5e5e] active:scale-95 disabled:opacity-30 relative group"
+            title="Move legacy uploads duplicates to trash"
+          >
+            <History className={`w-3 h-3 ${legacyDupCleanupRunning ? 'animate-pulse text-white' : 'text-white'}`} />
+            <span>Dupes</span>
+          </button>
+          <button
+            onClick={handleOpenTrash}
+            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[9px] font-medium border border-[#6a6a6a] bg-[#4d4d4d] text-white transition-all hover:bg-[#5e5e5e] active:scale-95 relative group"
+          title="Open the trashcan"
         >
-          <Trash2 className={`w-3 h-3 sm:w-4 sm:h-4 ${r2CleanupRunning ? 'animate-pulse' : ''}`} />
-          <span className="text-center">{r2CleanupRunning ? 'Cleanup...' : 'Clean R2'}</span>
-        </AdminButton>
+            <Trash2 className="w-3 h-3 text-white" />
+            <span>Trash{trashCount > 0 ? ` (${trashCount})` : ''}</span>
+          </button>
+        </div>
 
         <AdminButton
-          onClick={handleLegacyDuplicateCleanup}
-          disabled={legacyDupCleanupRunning}
-          color="bg-orange-500/10 text-orange-300 border-orange-500/20"
-          tooltip="Nur alte uploads/... Duplikate loeschen, wenn data/uploads/... bereits existiert"
-        >
-          <Trash2 className={`w-3 h-3 sm:w-4 sm:h-4 ${legacyDupCleanupRunning ? 'animate-pulse' : ''}`} />
-          <span className="text-center">{legacyDupCleanupRunning ? 'Dupes...' : 'Clean Dupes'}</span>
-        </AdminButton>
-
-        <AdminButton 
-          onClick={() => setShowUncertain(true)} 
+          onClick={() => setShowUncertain(true)}
           disabled={uncertainMatches.length === 0 || isEditing} 
-          color={uncertainMatches.length > 0 ? "bg-yellow-500/10 text-yellow-500 border-yellow-500/20" : "bg-white/5 text-white/30"}
           tooltip="Unsichere High-Res Matches prüfen"
         >
           <ImageIcon className="w-3 h-3 sm:w-4 sm:h-4" /> 
@@ -330,16 +352,16 @@ export function AdminHeader({
           <button 
             onClick={handleGetLatestInstagram} 
             disabled={isScraping}
-            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[10px] font-medium border border-white/10 bg-white/5 text-white/80 transition-all hover:bg-white/10 active:scale-95 disabled:opacity-30"
+            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[10px] font-medium border border-[#6a6a6a] bg-[#4d4d4d] text-white transition-all hover:bg-[#5e5e5e] active:scale-95 disabled:opacity-30"
             title="Letzten Instagram Post hinzufügen"
           >
-            <Instagram className="w-3 h-3 text-pink-500" />
+            <Instagram className="w-3 h-3 text-white" />
             <span>+ Insta</span>
           </button>
           <button 
             onClick={handleGetLatestFlickr} 
             disabled={isScraping}
-            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[10px] font-medium border border-white/10 bg-white/5 text-white/80 transition-all hover:bg-white/10 active:scale-95 disabled:opacity-30"
+            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[10px] font-medium border border-[#6a6a6a] bg-[#4d4d4d] text-white transition-all hover:bg-[#5e5e5e] active:scale-95 disabled:opacity-30"
             title="Letzten Flickr Post hinzufügen"
           >
             <Camera className="w-3 h-3 text-blue-400" />
@@ -347,22 +369,12 @@ export function AdminHeader({
           </button>
         </div>
 
-        <AdminButton
-          onClick={handleRestoreLatestPublish}
-          disabled={restoringLatestPublish}
-          color="bg-amber-500/10 text-amber-300 border-amber-500/20"
-          tooltip="Letztes veroeffentlichtes HTML-Backup direkt wieder live schalten"
-        >
-          {restoringLatestPublish ? <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 animate-spin" /> : <History className="w-3 h-3 sm:w-4 sm:h-4" />}
-          <span className="text-center">{restoringLatestPublish ? 'Restore...' : 'Undo Publish'}</span>
-        </AdminButton>
-
         {/* Row 4 */}
         <div className="col-span-1 flex gap-1">
           <button 
             onClick={handleUndo} 
             disabled={past.length === 0} 
-            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[10px] font-medium border border-white/10 bg-white/5 text-white/80 transition-all hover:bg-white/10 hover:border-white/20 active:scale-95 disabled:opacity-30 relative group"
+            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[10px] font-medium border border-[#6a6a6a] bg-[#4d4d4d] text-white transition-all hover:bg-[#5e5e5e] hover:border-[#7a7a7a] active:scale-95 disabled:opacity-30 relative group"
           >
             <Undo2 className="w-3 h-3" />
             <span>Undo</span>
@@ -375,7 +387,7 @@ export function AdminHeader({
           <button 
             onClick={handleRedo} 
             disabled={future.length === 0} 
-            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[10px] font-medium border border-white/10 bg-white/5 text-white/80 transition-all hover:bg-white/10 hover:border-white/20 active:scale-95 disabled:opacity-30 relative group"
+            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[10px] font-medium border border-[#6a6a6a] bg-[#4d4d4d] text-white transition-all hover:bg-[#5e5e5e] hover:border-[#7a7a7a] active:scale-95 disabled:opacity-30 relative group"
           >
             <Redo2 className="w-3 h-3" />
             <span>Redo</span>
@@ -387,19 +399,49 @@ export function AdminHeader({
           </button>
         </div>
 
-        <div className="col-span-1 flex gap-1 h-full">
+        <div className="col-span-3 grid grid-cols-3 gap-1 h-full">
           <AdminButton 
             onClick={handlePreview} 
-            tooltip="Voransicht der generierten HTML-Seite"
+            tooltip="Preview der generierten HTML-Seite"
             className="flex-1"
           >
             <Eye className="w-3 h-3 sm:w-4 sm:h-4" />
-            <span className="text-center">Voransicht</span>
+            <span className="text-center">Preview</span>
           </AdminButton>
 
-          {publicDomain && (
+          <AdminButton
+            onClick={handleRestoreLatestPublish}
+            disabled={restoringLatestPublish}
+            tooltip="Letztes veroeffentlichtes HTML-Backup direkt wieder live schalten"
+          >
+            {restoringLatestPublish ? <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 animate-spin" /> : <History className="w-3 h-3 sm:w-4 sm:h-4" />}
+            <span className="text-center">{restoringLatestPublish ? 'Restore...' : 'Undo Publish'}</span>
+          </AdminButton>
+
+          <div className="relative w-full h-full">
+            <AdminButton 
+              id="upload-btn" 
+              onClick={handleUpload} 
+              disabled={uploading || flickrPosts.length === 0} 
+              tooltip="Änderungen auf die Live-Website übertragen"
+              active={hasUnpublishedChanges}
+              className="w-full"
+            >
+              {uploading ? <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 animate-spin" /> : <UploadCloud className="w-3 h-3 sm:w-4 sm:h-4" />}
+              <span className="text-center font-black tracking-tighter">{uploading ? '...' : 'PUBLISH'}</span>
+            </AdminButton>
+            {uploadProgress !== null && (
+              <div className="absolute -bottom-1 left-0 w-full h-0.5 bg-white/10 rounded-full overflow-hidden">
+                <div className="h-full bg-white transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {publicDomain && (
+          <div className="col-span-1 flex gap-1 h-full">
             <a 
-              href={isEditing ? undefined : `https://${publicDomain}/index.html`}
+              href={isEditing ? undefined : `https://${publicDomain}/index.html?t=${Date.now()}`}
               target="_blank"
               rel="noopener noreferrer"
               className={`flex-1 flex ${isEditing ? 'pointer-events-none' : ''}`}
@@ -409,26 +451,8 @@ export function AdminHeader({
                 <span className="text-center">Live</span>
               </AdminButton>
             </a>
-          )}
-        </div>
-
-        <div className="relative col-span-1">
-          <AdminButton 
-            id="upload-btn" 
-            onClick={handleUpload} 
-            disabled={uploading || flickrPosts.length === 0} 
-            tooltip="Änderungen auf die Live-Website übertragen"
-            color={hasUnpublishedChanges ? "bg-green-600/30 text-green-300 border-green-500/50 shadow-[0_0_10px_rgba(74,222,128,0.3)] animate-pulse" : "bg-white/5 text-white/80 hover:bg-white/10 border-white/10"}
-          >
-            {uploading ? <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 animate-spin" /> : <UploadCloud className="w-3 h-3 sm:w-4 sm:h-4" />}
-            <span className="text-center font-black tracking-tighter">{uploading ? '...' : 'PUBLISH'}</span>
-          </AdminButton>
-          {uploadProgress !== null && (
-            <div className="absolute -bottom-1 left-0 w-full h-0.5 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full bg-white transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
-            </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </header>
   );

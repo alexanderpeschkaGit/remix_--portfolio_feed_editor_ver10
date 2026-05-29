@@ -32,6 +32,7 @@ import { UncertainMatchesModal } from './components/modals/UncertainMatchesModal
 import { BioEditorModal } from './components/modals/BioEditorModal';
 import { PostCommitModal } from './components/modals/PostCommitModal';
 import { CloudSyncChangesModal } from './components/modals/CloudSyncChangesModal';
+import { TrashModal } from './components/modals/TrashModal';
 import { FeedPostCard } from './components/feed/FeedPostCard';
 import { ThumbnailGalleryGrid } from './components/gallery/ThumbnailGalleryGrid';
 import { AdminHeader } from './components/header/AdminHeader';
@@ -74,18 +75,18 @@ const MergeConfirmationModal = ({ isOpen, group, onConfirm, onSkip }: any) => {
       <div className="bg-[#111] border border-white/10 rounded-xl p-6 max-w-lg w-full">
         <h2 className="text-xl font-bold text-white mb-4">Projekte zusammenführen?</h2>
         <p className="text-white/70 mb-4">
-          Möchtest du die folgenden {group.length} Projekte mit dem Titel "{group[0].title}" zusammenführen?
+          Möchtest du die folgenden {group.length} Projekte mit dem Title "{group[0].title}" zusammenführen?
         </p>
         <div className="space-y-2 mb-6 max-h-60 overflow-y-auto custom-scrollbar">
           {group.map((post: any) => (
-            <div key={post.id} className="text-sm text-white/50 bg-white/5 p-2 rounded">
+            <div key={post.id} className="text-sm text-white/50 bg-white/10 p-2 rounded">
               {post.title} ({post.network_name})
             </div>
           ))}
         </div>
         <div className="flex gap-4">
-          <button onClick={onSkip} className="flex-1 bg-white/10 hover:bg-white/20 text-white py-2 rounded">Nein</button>
-          <button onClick={onConfirm} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2 rounded">Ja, zusammenführen</button>
+          <button onClick={onSkip} className="flex-1 bg-white/30 hover:bg-white/40 text-white py-2 rounded">Nein</button>
+          <button onClick={onConfirm} className="flex-1 bg-white/30 hover:bg-white/40 text-white py-2 rounded">Ja, zusammenführen</button>
         </div>
       </div>
     </div>
@@ -241,6 +242,10 @@ export default function App() {
   const ignoreCloudChangesRef = useRef(false);
   const [cloudSyncChanges, setCloudSyncChanges] = useState<string[] | null>(null);
   const [cloudSyncState, setCloudSyncState] = useState<{ changes: string[]; items: any[]; r2Data: any } | null>(null);
+  const [showTrashModal, setShowTrashModal] = useState(false);
+  const [trashItems, setTrashItems] = useState<any[]>([]);
+  const [trashLoading, setTrashLoading] = useState(false);
+  const [trashError, setTrashError] = useState<string | null>(null);
   const [hasUnsyncedMedia, setHasUnsyncedMedia] = useState(false);
   const [hasUnpublishedChanges, setHasUnpublishedChanges] = useState(false);
 
@@ -998,7 +1003,7 @@ export default function App() {
           
           return {
             id: item.id || `flickr-${Math.random()}`,
-            title: item.title || 'Ohne Titel',
+            title: item.title || 'Untitled',
             description: desc,
             image: imgUrl,
             image_large: imgLargeUrl,
@@ -1112,7 +1117,7 @@ export default function App() {
         return { ...post, hidden: !post.hidden };
       }
       return post;
-    }), `Sichtbarkeit geändert (${targetTitle})`);
+    }), `Visibility geändert (${targetTitle})`);
   };
 
   const handleStateToggle = (postId: string, stateId: string) => {
@@ -1229,7 +1234,7 @@ export default function App() {
         return updatedPost;
       }
       return post;
-    }), `Post Medien aktualisiert (${targetTitle})`);
+    }), `Post Media aktualisiert (${targetTitle})`);
   };
 
   const handleMoveToTarget = (targetId: string) => {
@@ -1333,7 +1338,7 @@ export default function App() {
     });
 
     const hasPrimaryMedia = (post: any) =>
-      !!(post.image || post.image_thumb || post.image_1k || post.image_2k || post.image_large || post.image_preview || post.image_3k || post.youtubeId || post.youtubeUrl || post.url);
+      !!(post.image || post.image_thumb || post.image_1k || post.image_2k || post.image_large || post.image_preview || post.image_3k || post.image_original || post.youtubeId || post.youtubeUrl || post.url);
     
     updatePosts(posts => posts.map(post => {
       if (String(post.id) === String(id)) {
@@ -1350,10 +1355,10 @@ export default function App() {
               if (m.type === 'youtube') return true;
               // uploadId-Elemente MÜSSEN finale URLs haben
               if (m.uploadId) {
-                return !!(m.image || m.image_thumb || m.image_1k || m.image_2k || m.image_large || m.image_3k);
+                return !!(m.image || m.image_thumb || m.image_1k || m.image_2k || m.image_large || m.image_3k || m.image_original);
               }
               // Normale Elemente
-              return !!(m.image || m.image_thumb || m.image_1k || m.image_2k || m.image_large || m.image_preview || m.image_3k || m.youtubeId);
+              return !!(m.image || m.image_thumb || m.image_1k || m.image_2k || m.image_large || m.image_preview || m.image_3k || m.image_original || m.youtubeId);
             });
           } else if (hasPrimaryMedia(post)) {
             // Falls keine mergedMedia aber primäre Post-Daten vorhanden: Diese als Basis verwenden
@@ -1632,22 +1637,22 @@ export default function App() {
         mediaHtml = `<div class="media-stack">` + sortedMedia.map((m: any) => {
           const yid = m.youtubeId || getYoutubeId(m.url || m.link);
           if (yid) {
-            return `<div class="video-container mb-2"><iframe src="https://www.youtube.com/embed/${yid}?mute=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>`;
+            return `<div class="video-container mb-2" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'><iframe src="https://www.youtube.com/embed/${yid}?mute=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>`;
           } else if (m.type === 'video' || (m.image && m.image.endsWith('.mp4')) || ((m.url || m.link) && (m.url || m.link).endsWith('.mp4'))) {
             const videoUrl = getProxiedUrl(getVideoSrc(m, true) || getVideoSrc(m));
             if (!videoUrl) return '';
-            return `<video src="${videoUrl}" class="block mb-2" controls muted playsinline style="width: 100%; max-height: 400px; background: #000;"></video>`;
+            return `<video src="${videoUrl}" class="block mb-2" controls muted playsinline onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})' style="width: 100%; max-height: 400px; background: #000; cursor: pointer;"></video>`;
           } else {
             const imageUrl = getProxiedUrl(getImageSrc(m, true) || getImageSrc(m));
             if (!imageUrl) return '';
-            return `<div class="block mb-2"><img src="${imageUrl}" alt="" loading="lazy" onerror="if(this.src.includes('maxresdefault.jpg')) this.src=this.src.replace('maxresdefault.jpg', 'hqdefault.jpg')" /></div>`;
+            return `<div class="block mb-2" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'><img src="${imageUrl}" alt="" loading="lazy" onerror="if(this.src.includes('maxresdefault.jpg')) this.src=this.src.replace('maxresdefault.jpg', 'hqdefault.jpg')" /></div>`;
           }
         }).join('') + `</div>`;
       } else {
         const yid = post.youtubeId || getYoutubeId(post.url || post.link);
         if (yid) {
           mediaHtml = `
-            <div class="video-container">
+            <div class="video-container" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'>
               <iframe src="https://www.youtube.com/embed/${yid}?mute=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
             </div>
           `;
@@ -1655,14 +1660,14 @@ export default function App() {
           const videoUrl = getProxiedUrl(getVideoSrc(post, true) || getVideoSrc(post));
           if (videoUrl) {
             mediaHtml = `
-              <video src="${videoUrl}" controls muted playsinline style="width: 100%; max-height: 400px; background: #000;"></video>
+              <video src="${videoUrl}" controls muted playsinline onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})' style="width: 100%; max-height: 400px; background: #000; cursor: pointer;"></video>
             `;
           }
         } else {
           const imageUrl = getProxiedUrl(getImageSrc(post, true) || getImageSrc(post));
           if (imageUrl) {
             mediaHtml = `
-              <div>
+              <div onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'>
                 <img src="${imageUrl}" alt="${post.title.replace(/"/g, '&quot;')}" loading="lazy" onerror="if(this.src.includes('maxresdefault.jpg')) this.src=this.src.replace('maxresdefault.jpg', 'hqdefault.jpg')" />
               </div>
             `;
@@ -1671,7 +1676,7 @@ export default function App() {
       }
 
       return `
-      <div class="card" data-post-id="${post.id}">
+      <div class="card" data-post-id="${post.id}" role="button" tabindex="0" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'>
         ${mediaHtml}
         <div class="content">
           <h2>${post.title}</h2>
@@ -1724,8 +1729,8 @@ export default function App() {
         
         /* Filter Bar */
         .filter-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; margin-bottom: 2rem; }
-        .filter-btn { background: #222; border: 1px solid #333; color: #888; padding: 6px 16px; border-radius: 20px; cursor: pointer; font-size: 0.85rem; transition: all 0.3s; }
-        .filter-btn:hover { border-color: #555; color: #ccc; }
+        .filter-btn { background: rgba(255,255,255,0.3); border: 1px solid rgba(255,255,255,0.18); color: rgba(255,255,255,0.9); padding: 6px 16px; border-radius: 20px; cursor: pointer; font-size: 0.85rem; transition: all 0.3s; }
+        .filter-btn:hover { border-color: rgba(255,255,255,0.35); background: rgba(255,255,255,0.38); color: #fff; }
         .filter-btn.active { background: var(--active-bg, #4285F4); color: #fff; border-color: var(--active-bg, #4285F4); box-shadow: 0 0 15px var(--active-muted, rgba(66, 133, 244, 0.3)); }
         
         /* Lightbox CSS */
@@ -1733,11 +1738,11 @@ export default function App() {
         .lightbox.active { display: flex; }
         .lightbox-main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; padding: 20px; min-width: 0; }
         .lightbox-sidebar { width: 320px; background: #111; border-left: 1px solid #333; display: flex; flex-direction: column; padding: 24px; overflow-y: auto; flex-shrink: 0; }
-        .lightbox-close { position: fixed; top: 20px; right: 20px; color: white; font-size: 30px; cursor: pointer; background: rgba(0,0,0,0.5); border: none; width: 40px; height: 40px; border-radius: 50%; z-index: 10; display: flex; align-items: center; justify-content: center; line-height: 1; }
+        .lightbox-close { position: fixed; top: 20px; right: 20px; color: white; font-size: 30px; cursor: pointer; background: rgba(255,255,255,0.3); border: none; width: 40px; height: 40px; border-radius: 50%; z-index: 10; display: flex; align-items: center; justify-content: center; line-height: 1; }
         .lightbox-content { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
         .lightbox-content img, .lightbox-content video, .lightbox-content iframe { max-width: 100%; max-height: 85vh; object-fit: contain; box-shadow: 0 20px 50px rgba(0,0,0,0.5); border-radius: 4px; }
-        .lightbox-nav { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,0.1); color: white; border: none; padding: 15px; cursor: pointer; font-size: 20px; border-radius: 50%; transition: all 0.3s; z-index: 5; }
-        .lightbox-nav:hover { background: rgba(255,255,255,0.3); }
+        .lightbox-nav { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,0.3); color: white; border: none; padding: 15px; cursor: pointer; font-size: 20px; border-radius: 50%; transition: all 0.3s; z-index: 5; }
+        .lightbox-nav:hover { background: rgba(255,255,255,0.4); }
         .lightbox-prev { left: 20px; }
         .lightbox-next { right: 20px; }
         .lightbox-info { margin-top: 20px; text-align: center; }
@@ -1754,8 +1759,9 @@ export default function App() {
         .reorder-item.dragging { opacity: 0.5; }
         .reorder-item img, .reorder-item video { width: 100%; height: 100%; object-fit: cover; }
         .reorder-item .type-icon { position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,0.6); padding: 1px 3px; border-radius: 2px; font-size: 8px; color: #fff; }
-        .save-order-btn { background: #16a34a; color: white; border: none; padding: 12px; border-radius: 8px; cursor: pointer; font-weight: 600; width: 100%; margin-top: 20px; transition: background 0.2s; }
-        .save-order-btn:hover { background: #15803d; }
+        .save-order-btn { background: rgba(255,255,255,0.3); color: white; border: none; padding: 12px; border-radius: 8px; cursor: pointer; font-weight: 600; width: 100%; margin-top: 20px; transition: background 0.2s; }
+        .save-order-btn:hover { background: rgba(255,255,255,0.4); }
+        .card img, .card video, .card iframe { pointer-events: none; }
         .sidebar-description { font-size: 0.85rem; color: #aaa; line-height: 1.5; margin-bottom: 20px; }
         @media (max-width: 768px) {
           .lightbox { flex-direction: column; }
@@ -1889,7 +1895,7 @@ export default function App() {
           if (!url) return false;
           if (url.startsWith('data:') || url.startsWith('blob:')) return true;
           if (url.startsWith('/data/') || url.startsWith('/data_v2/') || url.startsWith('/originals/')) return true;
-          return !!url.match(/\.(jpe?g|png|webp|gif|avif|bmp)(\?.*)?$/i);
+          return !!url.match(/\\.(jpe?g|png|webp|gif|avif|bmp)(\\?.*)?$/i);
         }
 
         function getImageSrc(media, preferLarge) {
@@ -2015,66 +2021,57 @@ export default function App() {
         let currentMediaIndex = 0;
         
         console.log('Cards found:', cards.length);
-        cards.forEach(card => {
-          card.style.cursor = 'pointer';
-          console.log('Attaching click listener to card:', card.getAttribute('data-post-id'));
-          card.addEventListener('click', (e) => {
-            console.log('Card clicked!', e.target);
-            if (e.target.tagName === 'A' || e.target.closest('a')) {
-              console.log('Link click detected, ignoring lightbox');
-              return;
+        const openLightboxForPostId = (postId) => {
+          if (!postId) return;
+          if (!window.portfolioData || !window.portfolioData.posts) return;
+
+          currentPost = window.portfolioData.posts.find(p => String(p.id) === String(postId));
+          if (!currentPost) return;
+
+          currentPostMedia = [];
+          if (currentPost.mergedMedia && currentPost.mergedMedia.length > 0) {
+            currentPostMedia = currentPost.mergedMedia.filter(m => getImageSrc(m, true) || getImageSrc(m) || getVideoSrc(m, true) || getVideoSrc(m) || m.youtubeId || getYoutubeId(m.url || m.link));
+          } else {
+            currentPostMedia = [currentPost].filter(m => getImageSrc(m, true) || getImageSrc(m) || getVideoSrc(m, true) || getVideoSrc(m) || m.youtubeId || getYoutubeId(m.url || m.link));
+          }
+
+          currentMediaIndex = 0;
+          lightboxTitle.textContent = currentPost.title || '';
+          lightboxDescription.innerHTML = currentPost.description ? currentPost.description.replace(/\\n/g, '<br/>') : '';
+
+          if (currentPost.states && currentPost.states.length > 0 && window.portfolioData.projectStates) {
+            lightboxTags.innerHTML = currentPost.states.map(stateId => {
+              const state = window.portfolioData.projectStates.find(s => String(s.id).toLowerCase() === String(stateId).toLowerCase());
+              return state ? \`<span class="tag-label" style="background-color: \${state.muted}; border: 1px solid \${state.bright}; color: #fff; margin-right: 4px; margin-bottom: 4px; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">\${state.label}</span>\` : '';
+            }).join('');
+            lightboxTags.style.display = 'flex';
+          } else {
+            if (lightboxTags) {
+              lightboxTags.innerHTML = '';
+              lightboxTags.style.display = 'none';
             }
-            
-            const postId = card.getAttribute('data-post-id');
-            console.log('PostId from attribute:', postId);
-            if (!postId) {
-              console.warn('No data-post-id found on card');
-              return;
-            }
-            
-            if (!window.portfolioData || !window.portfolioData.posts) {
-              console.error('window.portfolioData.posts is missing!');
-              return;
-            }
-            
-            currentPost = window.portfolioData.posts.find(p => String(p.id) === String(postId));
-            if (!currentPost) {
-              console.error('Post not found in data for ID:', postId);
-              return;
-            }
-            
-            console.log('Opening Lightbox for:', currentPost.title);
-            
-            currentPostMedia = [];
-            if (currentPost.mergedMedia && currentPost.mergedMedia.length > 0) {
-              currentPostMedia = currentPost.mergedMedia.filter(m => getImageSrc(m, true) || getImageSrc(m) || getVideoSrc(m, true) || getVideoSrc(m) || m.youtubeId || getYoutubeId(m.url || m.link));
-            } else {
-              currentPostMedia = [currentPost].filter(m => getImageSrc(m, true) || getImageSrc(m) || getVideoSrc(m, true) || getVideoSrc(m) || m.youtubeId || getYoutubeId(m.url || m.link));
-            }
-            
-            currentMediaIndex = 0;
-            lightboxTitle.textContent = currentPost.title || '';
-            lightboxDescription.innerHTML = currentPost.description ? currentPost.description.replace(/\\n/g, '<br/>') : '';
-            
-            // Render tags
-            if (currentPost.states && currentPost.states.length > 0 && window.portfolioData.projectStates) {
-              lightboxTags.innerHTML = currentPost.states.map(stateId => {
-                const state = window.portfolioData.projectStates.find(s => String(s.id).toLowerCase() === String(stateId).toLowerCase());
-                return state ? \`<span class="tag-label" style="background-color: \${state.muted}; border: 1px solid \${state.bright}; color: #fff; margin-right: 4px; margin-bottom: 4px; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">\${state.label}</span>\` : '';
-              }).join('');
-              lightboxTags.style.display = 'flex';
-            } else {
-              if (lightboxTags) {
-                lightboxTags.innerHTML = '';
-                lightboxTags.style.display = 'none';
-              }
-            }
-            
-            updateLightbox();
-            renderReorderGrid();
-            lightbox.classList.add('active');
-          });
-        });
+          }
+
+          updateLightbox();
+          renderReorderGrid();
+          lightbox.classList.add('active');
+        };
+
+        const openLightboxForCard = (card) => {
+          if (!card) return;
+          openLightboxForPostId(card.getAttribute('data-post-id'));
+        };
+
+        window.openLightboxPost = (postId) => openLightboxForPostId(String(postId));
+        window.openLightboxCard = (card) => openLightboxForCard(card);
+
+        document.addEventListener('click', (e) => {
+          if (!(e.target instanceof Element)) return;
+          if (e.target.closest('a')) return;
+          const card = e.target.closest('.card');
+          if (!card) return;
+          openLightboxForCard(card);
+        }, true);
         
         function updateLightbox() {
           if (currentPostMedia.length === 0 || !lightboxContent) return;
@@ -2297,7 +2294,7 @@ export default function App() {
             <div id="lightbox-description" class="sidebar-description"></div>
             
             <div class="sidebar-section">
-                <span class="sidebar-label">Medien sortieren (Drag & Drop)</span>
+                <span class="sidebar-label">Media sortieren (Drag & Drop)</span>
                 <div id="reorder-grid" class="reorder-grid"></div>
             </div>
             
@@ -2373,34 +2370,25 @@ export default function App() {
       if (!r2Res.ok) throw new Error('Failed to fetch from R2');
       
       const r2Data = await r2Res.json();
-      setIsR2Fallback(true);
-      setIsFlickrFallback(false);
-      setPortfolioTitle(r2Data.title || portfolioTitle);
-      setPortfolioSubtitle(r2Data.subtitle || portfolioSubtitle);
-      if (r2Data.scrapeConfig) {
-        if (r2Data.scrapeConfig.igAccount) setIgAccount(r2Data.scrapeConfig.igAccount);
-        if (r2Data.scrapeConfig.flickrUrl) setFlickrUrl(r2Data.scrapeConfig.flickrUrl);
-      }
-      if (r2Data.bio) setPortfolioBio(r2Data.bio);
       
       const items = r2Data.items || r2Data.posts || [];
       if (items.length > 0) {
         const changes: string[] = [];
         
-        if (r2Data.title && portfolioTitle !== r2Data.title) changes.push(`~ Portfolio Titel [geändert]`);
-        if (r2Data.subtitle && portfolioSubtitle !== r2Data.subtitle) changes.push(`~ Portfolio Untertitel [geändert]`);
-        if (r2Data.bio && portfolioBio !== r2Data.bio) changes.push(`~ Portfolio Bio [geändert]`);
+        if (r2Data.title && portfolioTitle !== r2Data.title) changes.push(`~ Portfolio title [changed]`);
+        if (r2Data.subtitle && portfolioSubtitle !== r2Data.subtitle) changes.push(`~ Portfolio subtitle [changed]`);
+        if (r2Data.bio && portfolioBio !== r2Data.bio) changes.push(`~ Portfolio bio [changed]`);
 
         const newItems = items.filter((item: any) => !flickrPosts.find((p: any) => String(p.id) === String(item.id)));
         if (newItems.length > 0) {
-          changes.push(`Neu hinzugefügt (${newItems.length}):`);
-          newItems.forEach((item: any) => changes.push(`+ ${item.title || 'Ohne Titel'}`));
+          changes.push(`Added (${newItems.length}):`);
+          newItems.forEach((item: any) => changes.push(`+ ${item.title || 'Untitled'}`));
         }
         
         const deletedItems = flickrPosts.filter((p: any) => !items.find((item: any) => String(item.id) === String(p.id)));
         if (deletedItems.length > 0) {
-          changes.push(`Gelöscht (${deletedItems.length}):`);
-          deletedItems.forEach((item: any) => changes.push(`- ${item.title || 'Ohne Titel'}`));
+          changes.push(`Deleted (${deletedItems.length}):`);
+          deletedItems.forEach((item: any) => changes.push(`- ${item.title || 'Untitled'}`));
         }
 
         const updatedItems = items.filter((item: any) => {
@@ -2413,28 +2401,28 @@ export default function App() {
         });
         
         if (updatedItems.length > 0) {
-          changes.push(`Geändert (${updatedItems.length}):`);
+          changes.push(`Changed (${updatedItems.length}):`);
           updatedItems.forEach((item: any) => {
             const old = flickrPosts.find((p: any) => String(p.id) === String(item.id));
             const changedFields = [];
-            if (old.title !== item.title) changedFields.push('Titel');
-            if (old.description !== item.description) changedFields.push('Beschreibung');
-            if (JSON.stringify(old.states || []) !== JSON.stringify(item.states || [])) changedFields.push('Kategorien');
-            if (old.hidden !== item.hidden) changedFields.push('Sichtbarkeit');
+            if (old.title !== item.title) changedFields.push('Title');
+            if (old.description !== item.description) changedFields.push('Description');
+            if (JSON.stringify(old.states || []) !== JSON.stringify(item.states || [])) changedFields.push('Categories');
+            if (old.hidden !== item.hidden) changedFields.push('Visibility');
             
             // For media, just do a basic length check or stringify
             const oldMedia = old.mergedMedia ? old.mergedMedia.map((m: any) => ({...m, uploadId: undefined, image_preview: undefined})) : [];
             const newMedia = item.mergedMedia ? item.mergedMedia.map((m: any) => ({...m, uploadId: undefined, image_preview: undefined})) : [];
-            if (JSON.stringify(oldMedia) !== JSON.stringify(newMedia)) changedFields.push('Medien');
+            if (JSON.stringify(oldMedia) !== JSON.stringify(newMedia)) changedFields.push('Media');
             
-            if (changedFields.length === 0) changedFields.push('Sonstiges');
+            if (changedFields.length === 0) changedFields.push('Other');
             
-            changes.push(`~ ${item.title || 'Ohne Titel'} [${changedFields.join(', ')}]`);
+            changes.push(`~ ${item.title || 'Untitled'} [${changedFields.join(', ')}]`);
           });
         }
 
         if (changes.length === 0) {
-          changes.push("Keine Änderungen an den Posts festgestellt.");
+          changes.push("No structural changes detected in posts.");
         }
         
 
@@ -2456,7 +2444,7 @@ export default function App() {
         
         // Instead of applying immediately, store in pending state for confirmation
         setCloudSyncState({ 
-          changes: changes.length > 0 ? changes : ["Keine strukturellen Änderungen an den Posts festgestellt."], 
+          changes: changes.length > 0 ? changes : ["No structural changes detected in posts."], 
           items: absoluteItems, 
           r2Data 
         });
@@ -2465,11 +2453,106 @@ export default function App() {
       }
     } catch (e) {
       console.error(e);
-      alert("Fehler beim Laden von Cloudflare R2.");
+      alert("Failed to load from Cloudflare R2.");
     } finally {
       setLoading(false);
     }
   };
+
+  const handleCancelCloudSync = () => {
+    if (cloudSyncState?.r2Data?.lastUpdated) {
+      setLocalLastUpdated(cloudSyncState.r2Data.lastUpdated);
+    }
+    setHasCloudChanges(false);
+    setCloudSyncState(null);
+    setCloudSyncChanges(null);
+  };
+
+  const loadTrashItems = async (openModal = false) => {
+    setTrashLoading(true);
+    setTrashError(null);
+    if (openModal) setShowTrashModal(true);
+
+    try {
+      const res = await fetch('/api/r2-trash');
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to load trash items');
+      }
+
+      setTrashItems(data.items || []);
+    } catch (error: any) {
+      setTrashError(error.message || 'Failed to load trash items');
+    } finally {
+      setTrashLoading(false);
+    }
+  };
+
+  const handleOpenTrash = async () => {
+    await loadTrashItems(true);
+  };
+
+  const handleRestoreTrashItems = async (trashKeys: string[]) => {
+    if (trashKeys.length === 0) return;
+    setTrashLoading(true);
+    setTrashError(null);
+
+    try {
+      const res = await fetch('/api/r2-trash/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trashKeys })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to restore trash items');
+      }
+
+      await loadTrashItems(true);
+      if ((data.conflictCount || 0) > 0) {
+        setTrashError(`${data.conflictCount} item(s) were skipped because the original file already exists.`);
+      }
+      await fetchCloudflareUsage();
+    } catch (error: any) {
+      setTrashError(error.message || 'Failed to restore trash items');
+    } finally {
+      setTrashLoading(false);
+    }
+  };
+
+  const handleDeleteTrashItems = async (trashKeys: string[]) => {
+    if (trashKeys.length === 0) return;
+    setTrashLoading(true);
+    setTrashError(null);
+
+    try {
+      const res = await fetch('/api/r2-trash/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trashKeys })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to delete trash items');
+      }
+
+      await loadTrashItems(true);
+      if ((data.skippedCount || 0) > 0) {
+        setTrashError(`${data.skippedCount} item(s) could not be deleted.`);
+      }
+      await fetchCloudflareUsage();
+    } catch (error: any) {
+      setTrashError(error.message || 'Failed to delete trash items');
+    } finally {
+      setTrashLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    loadTrashItems().catch(() => {});
+  }, [isInitialized]);
 
   const handlePreview = async () => {
     try {
@@ -2482,7 +2565,7 @@ export default function App() {
       
       if (response.ok) {
         const data = await response.json();
-        window.open(data.url, '_blank');
+        window.open(`${data.url}?t=${Date.now()}`, '_blank');
       } else {
         throw new Error('Failed to generate preview');
       }
@@ -2507,10 +2590,10 @@ export default function App() {
           if (m.type === 'youtube') return true;
           // uploadId-Elemente MÜSSEN finale URLs haben (keine Phantom-Uploads)
           if (m.uploadId) {
-            return !!(m.image || m.image_large || m.image_3k || m.image_preview);
+            return !!(m.image || m.image_thumb || m.image_1k || m.image_2k || m.image_large || m.image_3k || m.image_original || m.image_preview);
           }
           // Normale Elemente
-          return !!(m.image || m.image_large || m.image_preview || m.image_3k || m.youtubeId || m.youtubeUrl || m.link || m.url);
+          return !!(m.image || m.image_thumb || m.image_1k || m.image_2k || m.image_large || m.image_3k || m.image_original || m.image_preview || m.youtubeId || m.youtubeUrl || m.link || m.url);
         });
         
         // If mergedMedia became empty, remove the field
@@ -2539,14 +2622,19 @@ export default function App() {
           const primary = cleanedPost.mergedMedia[0];
           cleanedPost.type = primary.type || cleanedPost.type || 'image';
           cleanedPost.image = primary.image || cleanedPost.image;
+          cleanedPost.image_thumb = primary.image_thumb || cleanedPost.image_thumb || primary.image || '';
+          cleanedPost.image_1k = primary.image_1k || cleanedPost.image_1k || '';
+          cleanedPost.image_2k = primary.image_2k || cleanedPost.image_2k || '';
           cleanedPost.image_large = primary.image_large || primary.image || cleanedPost.image_large;
-          cleanedPost.image_3k = primary.image_3k || primary.image_large || primary.image || cleanedPost.image_3k;
+          cleanedPost.image_3k = primary.image_3k || primary.image_large || primary.image_2k || primary.image_1k || primary.image || cleanedPost.image_3k;
+          cleanedPost.image_original = primary.image_original || cleanedPost.image_original || '';
+          cleanedPost.image_preview = primary.image_preview || cleanedPost.image_preview;
           cleanedPost.youtubeId = primary.youtubeId || cleanedPost.youtubeId;
         }
       }
       
       // 3. Final cleanup: Remove empty strings that might be misinterpreted as "empty pictures"
-      const fieldsToCleanup = ['image', 'image_large', 'image_3k', 'url', 'youtubeId', 'youtubeUrl'];
+      const fieldsToCleanup = ['image', 'image_thumb', 'image_1k', 'image_2k', 'image_large', 'image_3k', 'image_original', 'image_preview', 'url', 'youtubeId', 'youtubeUrl'];
       fieldsToCleanup.forEach(field => {
         if ((cleanedPost as any)[field] === '') {
           delete (cleanedPost as any)[field];
@@ -2556,7 +2644,7 @@ export default function App() {
       return cleanedPost;
     }).filter(post => {
       // Only publish posts that have either a title, a description, or at least one piece of media
-      const hasMedia = !!(post.image || (post.mergedMedia && post.mergedMedia.length > 0) || post.youtubeId);
+      const hasMedia = !!(post.image || post.image_thumb || post.image_1k || post.image_2k || post.image_large || post.image_preview || post.image_3k || post.image_original || (post.mergedMedia && post.mergedMedia.length > 0) || post.youtubeId);
       return hasMedia || post.title.trim() !== '' || post.description.trim() !== '';
     });
 
@@ -2721,25 +2809,25 @@ export default function App() {
     setR2CleanupRunning(true);
     setError('');
     setShowLogs(true);
-    setScrapeLogs(['Analysiere R2 auf verwaiste Dateien...']);
+    setScrapeLogs(['Scanning R2 for orphaned files...']);
 
     try {
       const previewResponse = await fetch('/api/r2-cleanup/preview', { method: 'POST' });
       const previewData = await previewResponse.json().catch(() => ({}));
 
       if (!previewResponse.ok) {
-        throw new Error(previewData.error || 'Cleanup-Vorschau fehlgeschlagen');
+        throw new Error(previewData.error || 'Cleanup preview failed');
       }
 
       const previewLogs = [
-        `R2-Analyse abgeschlossen.`,
-        `Gepruefte Dateien: ${previewData.scannedCount || 0}`,
-        `Verwaiste Dateien: ${previewData.orphanedCount || 0}`,
-        `Moeglich frei werdender Speicher: ${formatBytes(previewData.totalBytes || 0)}`
+        'R2 scan complete.',
+        `Files checked: ${previewData.scannedCount || 0}`,
+        `Orphaned files: ${previewData.orphanedCount || 0}`,
+        `Potential bytes affected: ${formatBytes(previewData.totalBytes || 0)}`
       ];
 
       if (Array.isArray(previewData.sampleKeys) && previewData.sampleKeys.length > 0) {
-        previewLogs.push('Beispiele:');
+        previewLogs.push('Examples:');
         previewData.sampleKeys.forEach((key: string) => previewLogs.push(`- ${key}`));
       }
 
@@ -2753,45 +2841,46 @@ export default function App() {
       setTimeout(async () => {
         try {
           const confirmed = window.confirm(
-            `${previewData.orphanedCount} verwaiste R2-Dateien gefunden.\n` +
-            `Geschätzte Freigabe: ${formatBytes(previewData.totalBytes || 0)}.\n\n` +
-            `Jetzt wirklich löschen?`
+            `${previewData.orphanedCount} orphaned R2 files found.\n` +
+            `Potential bytes affected: ${formatBytes(previewData.totalBytes || 0)}.\n\n` +
+            `Move these files to the trash?`
           );
 
           if (!confirmed) {
-            setScrapeLogs(prev => [...prev, 'Löschen abgebrochen.']);
+            setScrapeLogs(prev => [...prev, 'Move to trash cancelled.']);
             setR2CleanupRunning(false);
             return;
           }
 
-          setScrapeLogs(prev => [...prev, 'Starte Löschen der verwaisten Dateien...']);
+          setScrapeLogs(prev => [...prev, 'Moving orphaned files to trash...']);
           const executeResponse = await fetch('/api/r2-cleanup/execute', { method: 'POST' });
           const executeData = await executeResponse.json().catch(() => ({}));
 
           if (!executeResponse.ok) {
-            throw new Error(executeData.error || 'Cleanup fehlgeschlagen');
+            throw new Error(executeData.error || 'Cleanup failed');
           }
 
           setScrapeLogs(prev => [
             ...prev,
-            `Cleanup abgeschlossen.`,
-            `Gelöschte Dateien: ${executeData.deletedCount || 0}`,
-            `Freigegebener Speicher: ${formatBytes(executeData.deletedBytes || 0)}`
+            'Move to trash complete.',
+            `Moved files: ${executeData.movedCount || 0}`,
+            `Bytes affected: ${formatBytes(executeData.movedBytes || 0)}`
           ]);
 
+          await loadTrashItems(true);
           await fetchCloudflareUsage();
         } catch (err: any) {
-          const message = err.message || 'Cleanup fehlgeschlagen';
+          const message = err.message || 'Cleanup failed';
           setError(message);
-          setScrapeLogs(prev => [...prev, `FEHLER: ${message}`]);
+          setScrapeLogs(prev => [...prev, `ERROR: ${message}`]);
         } finally {
           setR2CleanupRunning(false);
         }
       }, 100);
     } catch (err: any) {
-      const message = err.message || 'Cleanup fehlgeschlagen';
+      const message = err.message || 'Cleanup failed';
       setError(message);
-      setScrapeLogs(prev => [...prev, `FEHLER: ${message}`]);
+      setScrapeLogs(prev => [...prev, `ERROR: ${message}`]);
       setR2CleanupRunning(false);
     }
   };
@@ -2802,25 +2891,25 @@ export default function App() {
     setLegacyDupCleanupRunning(true);
     setError('');
     setShowLogs(true);
-    setScrapeLogs(['Analysiere alte uploads/... Duplikate in R2...']);
+    setScrapeLogs(['Scanning legacy uploads for duplicates...']);
 
     try {
       const previewResponse = await fetch('/api/r2-cleanup/preview-legacy-uploads', { method: 'POST' });
       const previewData = await previewResponse.json().catch(() => ({}));
 
       if (!previewResponse.ok) {
-        throw new Error(previewData.error || 'Duplikat-Vorschau fehlgeschlagen');
+        throw new Error(previewData.error || 'Duplicate preview failed');
       }
 
       const previewLogs = [
-        `Legacy-Duplikat-Analyse abgeschlossen.`,
-        `Gepruefte Legacy-Dateien: ${previewData.scannedCount || 0}`,
-        `Sichere Duplikate: ${previewData.duplicateCount || 0}`,
-        `Moeglich frei werdender Speicher: ${formatBytes(previewData.totalBytes || 0)}`
+        'Legacy duplicate scan complete.',
+        `Legacy files checked: ${previewData.scannedCount || 0}`,
+        `Safe duplicates: ${previewData.duplicateCount || 0}`,
+        `Potential bytes affected: ${formatBytes(previewData.totalBytes || 0)}`
       ];
 
       if (Array.isArray(previewData.sampleKeys) && previewData.sampleKeys.length > 0) {
-        previewLogs.push('Beispiele:');
+        previewLogs.push('Examples:');
         previewData.sampleKeys.forEach((key: string) => previewLogs.push(`- ${key}`));
       }
 
@@ -2834,45 +2923,46 @@ export default function App() {
       setTimeout(async () => {
         try {
           const confirmed = window.confirm(
-            `${previewData.duplicateCount} sichere Legacy-Duplikate gefunden.\n` +
-            `Geschätzte Freigabe: ${formatBytes(previewData.totalBytes || 0)}.\n\n` +
-            `Nur diese alten uploads/... Duplikate jetzt löschen?`
+            `${previewData.duplicateCount} safe legacy duplicates found.\n` +
+            `Potential bytes affected: ${formatBytes(previewData.totalBytes || 0)}.\n\n` +
+            `Move these legacy uploads to the trash?`
           );
 
           if (!confirmed) {
-            setScrapeLogs(prev => [...prev, 'Löschen abgebrochen.']);
+            setScrapeLogs(prev => [...prev, 'Move to trash cancelled.']);
             setLegacyDupCleanupRunning(false);
             return;
           }
 
-          setScrapeLogs(prev => [...prev, 'Starte Löschen der sicheren Legacy-Duplikate...']);
+          setScrapeLogs(prev => [...prev, 'Moving legacy duplicates to trash...']);
           const executeResponse = await fetch('/api/r2-cleanup/execute-legacy-uploads', { method: 'POST' });
           const executeData = await executeResponse.json().catch(() => ({}));
 
           if (!executeResponse.ok) {
-            throw new Error(executeData.error || 'Duplikat-Cleanup fehlgeschlagen');
+            throw new Error(executeData.error || 'Duplicate cleanup failed');
           }
 
           setScrapeLogs(prev => [
             ...prev,
-            `Legacy-Duplikat-Cleanup abgeschlossen.`,
-            `Gelöschte Dateien: ${executeData.deletedCount || 0}`,
-            `Freigegebener Speicher: ${formatBytes(executeData.deletedBytes || 0)}`
+            'Legacy duplicate move complete.',
+            `Moved files: ${executeData.movedCount || 0}`,
+            `Bytes affected: ${formatBytes(executeData.movedBytes || 0)}`
           ]);
 
+          await loadTrashItems(true);
           await fetchCloudflareUsage();
         } catch (err: any) {
-          const message = err.message || 'Duplikat-Cleanup fehlgeschlagen';
+          const message = err.message || 'Duplicate cleanup failed';
           setError(message);
-          setScrapeLogs(prev => [...prev, `FEHLER: ${message}`]);
+          setScrapeLogs(prev => [...prev, `ERROR: ${message}`]);
         } finally {
           setLegacyDupCleanupRunning(false);
         }
       }, 100);
     } catch (err: any) {
-      const message = err.message || 'Duplikat-Cleanup fehlgeschlagen';
+      const message = err.message || 'Duplicate cleanup failed';
       setError(message);
-      setScrapeLogs(prev => [...prev, `FEHLER: ${message}`]);
+      setScrapeLogs(prev => [...prev, `ERROR: ${message}`]);
       setLegacyDupCleanupRunning(false);
     }
   };
@@ -3120,7 +3210,7 @@ export default function App() {
           <span className="text-white/60">Storage: <span className="text-white font-mono">{(local.storageBytes / (1024 * 1024)).toFixed(1)}MB</span></span>
         </div>
         <div className="flex items-center gap-2">
-          <span className={`px-1.5 py-0.5 rounded font-bold ${parseFloat(estimatedCost) > 0 ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>
+          <span className="px-1.5 py-0.5 rounded font-bold bg-white/10 text-white/90">
             ${estimatedCost}
           </span>
         </div>
@@ -3128,7 +3218,7 @@ export default function App() {
     );
   };
 
-  const AdminButton = ({ onClick, disabled, id, children, className = "", color = "bg-white/5 text-white/80 hover:bg-white/10 border-white/10", tooltip, active }: any) => (
+  const AdminButton = ({ onClick, disabled, id, children, className = "", color = "bg-white/30 text-white hover:bg-white/40 border-white/20", tooltip, active }: any) => (
     <div className="relative group w-full h-full">
       <button
         id={id}
@@ -3223,8 +3313,8 @@ export default function App() {
         )}
 
         {isSelected && (
-          <div className="absolute inset-0 bg-blue-500/20 flex items-center justify-center">
-            <span className="bg-blue-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-bold">
+          <div className="absolute inset-0 bg-white/10 flex items-center justify-center">
+            <span className="bg-white/30 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-bold">
               {index + 1}
             </span>
           </div>
@@ -3265,7 +3355,7 @@ export default function App() {
                 setIsFlickrFallback(false);
               }
             }}
-            className="ml-1 inline-flex items-center gap-1 px-2 py-1 bg-black/30 hover:bg-black/40 border border-white/10 rounded text-[10px] font-bold text-white/90"
+            className="ml-1 inline-flex items-center gap-1 px-2 py-1 bg-white/30 hover:bg-white/40 border border-white/20 rounded text-[10px] font-bold text-white"
             title="Persistently disable R2/Flickr fallback loading"
           >
             {fallbackEnabled ? 'Fallback aus' : 'Fallback an'}
@@ -3281,7 +3371,7 @@ export default function App() {
             initial={{ opacity: 0, y: 20, x: '-50%' }}
             animate={{ opacity: 1, y: 0, x: '-50%' }}
             exit={{ opacity: 0, y: 20, x: '-50%' }}
-            className="fixed bottom-10 left-1/2 z-[100] bg-blue-600 text-white px-6 py-3 rounded-full shadow-2xl font-bold flex items-center gap-3 border border-white/20 backdrop-blur-md"
+            className="fixed bottom-10 left-1/2 z-[100] bg-white/30 text-white px-6 py-3 rounded-full shadow-2xl font-bold flex items-center gap-3 border border-white/20 backdrop-blur-md"
           >
             <ImageIcon className="w-5 h-5" />
             <span>Auflösungs-Overlay: {showResolutions ? 'AN' : 'AUS'} (Strg+Alt+Y)</span>
@@ -3326,6 +3416,7 @@ export default function App() {
         handleRestoreLatestPublish={handleRestoreLatestPublish}
         handleR2Cleanup={handleR2Cleanup}
         handleLegacyDuplicateCleanup={handleLegacyDuplicateCleanup}
+        handleOpenTrash={handleOpenTrash}
         handleAddNewPost={handleAddNewPost}
         handleUndo={handleUndo}
         handleRedo={handleRedo}
@@ -3340,6 +3431,7 @@ export default function App() {
         hasCloudChanges={hasCloudChanges}
         hasUnsyncedMedia={hasUnsyncedMedia}
         hasUnpublishedChanges={hasUnpublishedChanges}
+        trashCount={trashItems.length}
       />
 
       {uploadSuccess && (
@@ -3405,7 +3497,6 @@ export default function App() {
           getDisplayImage={getDisplayImage}
           getImageSrc={getImageSrc}
           getVideoSrc={getVideoSrc}
-          getResolutionLabel={getResolutionLabel}
           formatDescription={formatDescription}
           isValidImageCandidate={isValidImageCandidate}
         />
@@ -3465,12 +3556,22 @@ export default function App() {
 
       <ConfirmSyncModal
         isOpen={cloudSyncState !== null}
-        onClose={() => setCloudSyncState(null)}
+        onClose={handleCancelCloudSync}
         onConfirm={async () => {
           if (!cloudSyncState) return;
           const { items, r2Data } = cloudSyncState;
           
           console.log('[Sync] User confirmed. Applying cloud data to state:', items.length, 'items');
+          setIsR2Fallback(true);
+          setIsFlickrFallback(false);
+          setPortfolioTitle(r2Data.title || portfolioTitle);
+          setPortfolioSubtitle(r2Data.subtitle || portfolioSubtitle);
+          if (r2Data.scrapeConfig) {
+            if (r2Data.scrapeConfig.igAccount) setIgAccount(r2Data.scrapeConfig.igAccount);
+            if (r2Data.scrapeConfig.flickrUrl) setFlickrUrl(r2Data.scrapeConfig.flickrUrl);
+          }
+          if (r2Data.bio) setPortfolioBio(r2Data.bio);
+          
           updatePosts(items, 'Aus Cloud geladen');
           
           if (r2Data.lastUpdated) setLocalLastUpdated(r2Data.lastUpdated);
@@ -3498,6 +3599,17 @@ export default function App() {
         changes={cloudSyncChanges || []}
       />
 
+      <TrashModal
+        isOpen={showTrashModal}
+        onClose={() => setShowTrashModal(false)}
+        items={trashItems}
+        loading={trashLoading}
+        error={trashError}
+        onRefresh={() => loadTrashItems()}
+        onRestore={handleRestoreTrashItems}
+        onDelete={handleDeleteTrashItems}
+      />
+
       <LightboxModal
         currentLightboxPost={currentLightboxPost}
         lightboxMousePos={lightboxMousePos}
@@ -3511,7 +3623,6 @@ export default function App() {
         isEditing={isEditing}
         isR2Fallback={isR2Fallback}
         isEmbeddedData={isEmbeddedData}
-        getResolutionLabel={getResolutionLabel}
         getImageSrc={getImageSrc}
         getVideoSrc={getVideoSrc}
         getDisplayImage={getDisplayImage}

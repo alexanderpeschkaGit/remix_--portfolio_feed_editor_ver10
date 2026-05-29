@@ -78,13 +78,13 @@ export function PostCommitModal({ isOpen, post, onClose, onConfirm, source }: Po
         <div className="flex gap-3">
           <button
             onClick={onClose}
-            className="flex-1 bg-white/10 hover:bg-white/20 text-white py-2 rounded-lg transition-colors"
+            className="flex-1 bg-white/30 hover:bg-white/40 text-white py-2 rounded-lg transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={onConfirm}
-            className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-lg transition-colors flex items-center justify-center gap-2"
+            className="flex-1 bg-white/30 hover:bg-white/40 text-white py-2 rounded-lg transition-colors flex items-center justify-center gap-2"
           >
             <Plus className="w-4 h-4" />
             Add to Portfolio

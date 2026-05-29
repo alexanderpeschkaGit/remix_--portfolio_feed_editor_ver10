@@ -16,7 +16,6 @@ interface FeedPostCardProps {
   getDisplayImage: (url: string | undefined, isR2Fallback: boolean, isEmbeddedData: boolean) => string | undefined;
   getImageSrc: (media: any, preferLarge?: boolean) => string | undefined;
   getVideoSrc: (media: any, preferLarge?: boolean) => string | undefined;
-  getResolutionLabel: (media: any, dimensions?: string) => string;
   handleImageLoad: (id: string, e: React.SyntheticEvent<HTMLImageElement>) => void;
   formatDescription: (description: string, title: string) => string;
   isR2Fallback: boolean;
@@ -35,7 +34,7 @@ interface FeedPostCardProps {
 
 export function FeedPostCard({
   post, index, totalPosts, isEditing, activeUploads, showResolutions,
-  imageDimensions, getDisplayImage, getImageSrc, getVideoSrc, getResolutionLabel, handleImageLoad, formatDescription,
+  imageDimensions, getDisplayImage, getImageSrc, getVideoSrc, handleImageLoad, formatDescription,
   isR2Fallback, isEmbeddedData, isValidImageCandidate,
   handleImageUpload, handlePostChange, handleYoutubeChange, handleDeletePost,
   handleMergeDown, handleUpdatePostMedia, setSelectedImage, handleStateToggle, handleToggleHidden
@@ -117,7 +116,7 @@ export function FeedPostCard({
 
   const isRenderableMedia = (media: any) => {
     if (!media) return false;
-    const hasImage = !!(media.image || media.image_large || media.image_preview || media.image_3k);
+    const hasImage = !!(media.image || media.image_thumb || media.image_1k || media.image_2k || media.image_large || media.image_preview || media.image_3k || media.image_original);
     const hasUrl = !!(media.url || media.link);
     if (media.type === 'youtube') return !!(media.youtubeId || media.youtubeUrl || hasImage || hasUrl);
     return hasImage || hasUrl || !!media.youtubeId;
@@ -128,8 +127,33 @@ export function FeedPostCard({
   const displayMedia = mediaItems[0] || post;
   const feedDimensionsKey = post.id ? `${post.id}-0` : '';
   const cachedFeedDimensions = feedDimensionsKey ? (imageDimensions[feedDimensionsKey] || '') : '';
-  const feedDimensions = cachedFeedDimensions || feedImageDimensions;
-  const feedLabel = getResolutionLabel(displayMedia, feedDimensions);
+  const resolutionVariants = useMemo(() => {
+    if (!displayMedia) return [];
+
+    if (displayMedia.type === 'youtube') {
+      return [{ key: 'youtube', label: 'YT' }];
+    }
+
+    const orderedVariants = [
+      { key: 'image_thumb', label: 'TH' },
+      { key: 'image_preview', label: 'PV' },
+      { key: 'image_1k', label: '1K' },
+      { key: 'image_2k', label: '2K' },
+      { key: 'image_3k', label: '3K' },
+      { key: 'image_large', label: 'LG' },
+      { key: 'image_original', label: 'OR' },
+      { key: 'image', label: 'IMG' },
+    ];
+
+    const seen = new Set<string>();
+    return orderedVariants.filter(({ key }) => {
+      const value = displayMedia[key];
+      if (!value) return false;
+      if (seen.has(value)) return false;
+      seen.add(value);
+      return true;
+    });
+  }, [displayMedia]);
 
   const handleFeedImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
@@ -196,7 +220,7 @@ export function FeedPostCard({
         <div className="absolute top-2 left-2 z-20 flex gap-2">
           <button 
             onClick={(e) => { e.stopPropagation(); handleToggleHidden(post.id); }}
-            className={`p-1.5 rounded transition-all shadow-lg backdrop-blur-sm ${post.hidden ? 'bg-red-500/80 hover:bg-red-500 text-white' : 'bg-black/50 hover:bg-black/80 text-white/70 hover:text-white'} ${isDragging ? 'pointer-events-none' : ''}`}
+            className={`p-1.5 rounded transition-all shadow-lg backdrop-blur-sm bg-white/30 hover:bg-white/40 text-white ${isDragging ? 'pointer-events-none' : ''}`}
             title={post.hidden ? "Anzeigen" : "Verstecken"}
           >
             <Eye className={`w-4 h-4 ${post.hidden ? 'opacity-100' : 'opacity-70'}`} />
@@ -207,7 +231,7 @@ export function FeedPostCard({
         <div 
           {...attributes} 
           {...listeners}
-          className="absolute top-2 right-2 z-20 bg-black/50 p-1.5 rounded cursor-grab active:cursor-grabbing hover:bg-black/80 transition-colors shadow-lg backdrop-blur-sm"
+          className="absolute top-2 right-2 z-20 bg-white/30 p-1.5 rounded cursor-grab active:cursor-grabbing hover:bg-white/40 transition-colors shadow-lg backdrop-blur-sm"
           title="Drag to reorder"
         >
           <GripVertical className="w-4 h-4 text-white/70" />
@@ -219,19 +243,26 @@ export function FeedPostCard({
           if (!isEditing) setSelectedImage(post);
         }}
       >
-        {(showResolutions || isEditing) && (
-          <div className="absolute top-2 left-2 z-20 bg-blue-600/80 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-lg backdrop-blur-sm flex flex-col gap-0">
-            <span>{feedLabel}</span>
-            {feedDimensions && (
-              <span className="opacity-80 text-[7px] border-t border-white/10 mt-0.5 pt-0.5">{feedDimensions}</span>
-            )}
+        {isEditing && showResolutions && resolutionVariants.length > 0 && (
+          <div className="absolute top-2 left-2 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
+            <div className="flex flex-wrap gap-1 max-w-[calc(100%-1rem)]">
+              {resolutionVariants.map(({ key, label }) => (
+                <span
+                  key={`${post.id}-${key}`}
+                  className="inline-flex items-center gap-1 rounded-full bg-black/70 border border-white/15 px-2 py-0.5 text-[8px] font-bold tracking-wide text-white/90 backdrop-blur-md shadow-lg"
+                >
+                  <ImageIcon className="w-2.5 h-2.5" />
+                  <span>{label}</span>
+                </span>
+              ))}
+            </div>
           </div>
         )}
         {isEditing ? (
           <div className={`flex flex-col gap-2 p-2 ${isDragging ? 'pointer-events-none' : ''}`}>
             <div className="flex gap-2 mb-2" onClick={(e) => e.stopPropagation()}>
               <label
-                className="flex-1 flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded py-1.5 text-xs cursor-pointer transition-colors"
+                className="flex-1 flex items-center justify-center gap-2 bg-white/30 hover:bg-white/40 border border-white/20 rounded py-1.5 text-xs cursor-pointer transition-colors"
                 onClick={(e) => e.stopPropagation()}
               >
                 <ImageIcon className="w-3 h-3" /> + Bild
@@ -255,7 +286,7 @@ export function FeedPostCard({
                   e.stopPropagation();
                   addMedia('youtube');
                 }}
-                className="flex-1 flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded py-1.5 text-xs transition-colors"
+                className="flex-1 flex items-center justify-center gap-2 bg-white/30 hover:bg-white/40 border border-white/20 rounded py-1.5 text-xs transition-colors"
               >
                 <Youtube className="w-3 h-3" /> + YouTube
               </button>
@@ -272,7 +303,7 @@ export function FeedPostCard({
               >
                 <button 
                   onClick={(e) => { e.stopPropagation(); removeMedia(i); }}
-                  className="absolute top-1 right-1 z-10 bg-red-500/80 hover:bg-red-500 text-white p-1 rounded-full transition-colors"
+                  className="absolute top-1 right-1 z-10 bg-white/30 hover:bg-white/40 text-white p-1 rounded-full transition-colors"
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -286,7 +317,7 @@ export function FeedPostCard({
                         e.stopPropagation();
                         openThumb(media.image_thumb);
                       }}
-                      className="w-5 h-5 rounded-md bg-white/10 hover:bg-white/20 text-white/70 flex items-center justify-center transition-colors border border-white/10"
+                      className="w-5 h-5 rounded-md bg-white/30 hover:bg-white/40 text-white flex items-center justify-center transition-colors border border-white/20"
                       title="Thumbnail öffnen"
                     >
                       <ExternalLink className="w-2.5 h-2.5" />
@@ -311,11 +342,11 @@ export function FeedPostCard({
                         updateMediaItem(i, 'youtubeUrl', url);
                       }
                     }}
-                    className="w-full bg-black/50 border border-red-500/30 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-red-500/60 mb-2"
+                    className="w-full bg-black/50 border border-white/20 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-white/40 mb-2"
                     placeholder="YouTube URL einfügen..."
                   />
                 ) : (
-                  <label className="block w-full text-center bg-white/5 hover:bg-white/10 border border-white/10 rounded py-1 mb-2 text-xs cursor-pointer transition-colors">
+                  <label className="block w-full text-center bg-white/30 hover:bg-white/40 border border-white/20 rounded py-1 mb-2 text-xs cursor-pointer transition-colors">
                     Bild ändern
                     <input 
                       type="file" 
@@ -355,7 +386,7 @@ export function FeedPostCard({
                     />
                   )
                 ) : (
-                  <div className="w-full h-24 bg-white/5 rounded flex items-center justify-center text-white/20">
+                  <div className="w-full h-24 bg-white/10 rounded flex items-center justify-center text-white/40">
                     {media.type === 'youtube' ? <Youtube className="w-6 h-6" /> : <ImageIcon className="w-6 h-6" />}
                   </div>
                 )}
@@ -399,7 +430,7 @@ export function FeedPostCard({
             
             {displayMedia.type === 'youtube' && !isEditing && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center shadow-lg pointer-events-auto cursor-pointer" onClick={(e) => { e.stopPropagation(); setSelectedImage(post); }}>
+                  <div className="w-16 h-16 bg-white/30 hover:bg-white/40 rounded-full flex items-center justify-center shadow-lg pointer-events-auto cursor-pointer" onClick={(e) => { e.stopPropagation(); setSelectedImage(post); }}>
                   <Youtube className="w-8 h-8 text-white ml-1" />
                 </div>
               </div>
@@ -469,20 +500,20 @@ export function FeedPostCard({
             </div>
             <button
               onClick={() => setSelectedImage(post)}
-              className="mt-2 flex items-center justify-center gap-2 w-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded py-1.5 text-xs transition-colors"
+              className="mt-2 flex items-center justify-center gap-2 w-full bg-white/30 hover:bg-white/40 text-white border border-white/20 rounded py-1.5 text-xs transition-colors"
             >
               <Maximize2 className="w-3 h-3" /> Lightbox Editor
             </button>
             <button
               onClick={() => handleDeletePost(post.id)}
-              className="mt-2 flex items-center justify-center gap-2 w-full bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 rounded py-1.5 text-xs transition-colors"
+              className="mt-2 flex items-center justify-center gap-2 w-full bg-white/30 hover:bg-white/40 text-white border border-white/20 rounded py-1.5 text-xs transition-colors"
             >
               <Trash2 className="w-3 h-3" /> Post löschen
             </button>
             {index < totalPosts - 1 && (
               <button
                 onClick={() => handleMergeDown(index)}
-                className="mt-2 flex items-center justify-center gap-2 w-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded py-1.5 text-xs transition-colors"
+                className="mt-2 flex items-center justify-center gap-2 w-full bg-white/30 hover:bg-white/40 text-white border border-white/20 rounded py-1.5 text-xs transition-colors"
                 title="Mit dem nächsten Post zusammenlegen"
               >
                 <FoldVertical className="w-3 h-3" /> Mit nächstem zusammenlegen

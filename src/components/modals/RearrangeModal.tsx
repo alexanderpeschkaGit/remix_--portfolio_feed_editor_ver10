@@ -159,13 +159,13 @@ export const RearrangeModal: React.FC<RearrangeModalProps> = (props) => {
             <div className="flex gap-2 mr-4 border-r border-white/10 pr-4">
               <button
                 onClick={() => setSelectedThumbnails([])}
-                className="p-2 bg-white/5 hover:bg-white/10 text-white rounded-lg transition-all"
+                className="p-2 bg-white/30 hover:bg-white/40 text-white rounded-lg transition-all"
                 title="Auswahl aufheben"
               ><X className="w-4 h-4" /></button>
               <button
                 onClick={handleUndo}
                 disabled={past.length === 0}
-                className="p-2 bg-white/5 hover:bg-white/10 text-white rounded-lg disabled:opacity-30 transition-all relative group"
+                className="p-2 bg-white/30 hover:bg-white/40 text-white rounded-lg disabled:opacity-30 transition-all relative group"
               >
                 <Undo2 className="w-4 h-4" />
                 {past.length > 0 && (
@@ -177,7 +177,7 @@ export const RearrangeModal: React.FC<RearrangeModalProps> = (props) => {
               <button
                 onClick={handleRedo}
                 disabled={future.length === 0}
-                className="p-2 bg-white/5 hover:bg-white/10 text-white rounded-lg disabled:opacity-30 transition-all relative group"
+                className="p-2 bg-white/30 hover:bg-white/40 text-white rounded-lg disabled:opacity-30 transition-all relative group"
               >
                 <Redo2 className="w-4 h-4" />
                 {future.length > 0 && (
@@ -195,23 +195,23 @@ export const RearrangeModal: React.FC<RearrangeModalProps> = (props) => {
                 <button
                   onClick={() => setIsMoving(true)}
                   disabled={selectedThumbnails.length === 0}
-                  className="flex items-center gap-2 px-6 py-2 bg-green-600 text-white rounded-full text-sm font-medium disabled:opacity-30 hover:bg-green-500"
+                className="flex items-center gap-2 px-6 py-2 bg-white/30 text-white rounded-full text-sm font-medium disabled:opacity-30 hover:bg-white/40"
                 ><ArrowLeft className="w-4 h-4" /> Verschieben ({selectedThumbnails.length})</button>
                 <button
                   onClick={handleMerge}
                   disabled={selectedThumbnails.length < 2}
-                  className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-full text-sm font-medium disabled:opacity-30 hover:bg-blue-500"
+                className="flex items-center gap-2 px-6 py-2 bg-white/30 text-white rounded-full text-sm font-medium disabled:opacity-30 hover:bg-white/40"
                 ><Layers className="w-4 h-4" /> Merge</button>
                 <button
                   onClick={handleBulkDelete}
                   disabled={selectedThumbnails.length === 0}
-                  className="flex items-center gap-2 px-6 py-2 bg-red-600 text-white rounded-full text-sm font-medium disabled:opacity-30 hover:bg-red-500"
+                className="flex items-center gap-2 px-6 py-2 bg-white/30 text-white rounded-full text-sm font-medium disabled:opacity-30 hover:bg-white/40"
                 ><Trash2 className="w-4 h-4" /> Löschen</button>
               </>
             ) : null}
             <button 
               onClick={() => { setIsReorderView(false); setSelectedThumbnails([]); setIsMoving(false); }} 
-              className="px-6 py-2 bg-white/10 hover:bg-white/20 text-white rounded-full text-sm font-medium"
+              className="px-6 py-2 bg-white/30 hover:bg-white/40 text-white rounded-full text-sm font-medium"
             >
               {isMoving ? 'Abbrechen' : 'Exit Mode'}
             </button>

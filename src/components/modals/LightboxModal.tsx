@@ -5,7 +5,7 @@
  * Funktionalität von App.tsx extrahiert
  */
 import React from 'react';
-import { X, ArrowLeft, GripVertical, Youtube, ExternalLink } from 'lucide-react';
+import { X, ArrowLeft, GripVertical, Youtube, ExternalLink, Image as ImageIcon } from 'lucide-react';
 import { PROJECT_STATES } from '../../constants';
 
 interface Media {
@@ -38,7 +38,6 @@ interface LightboxModalProps {
   isEmbeddedData: boolean;
   
   // Functions
-  getResolutionLabel: (media: any, dimensions?: string) => string;
   getImageSrc: (media: any, preferLarge?: boolean) => string | undefined;
   getVideoSrc: (media: any, preferLarge?: boolean) => string | undefined;
   getDisplayImage: (url: string | undefined, r2: boolean, embedded: boolean) => string | undefined;
@@ -62,7 +61,6 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
   isEditing,
   isR2Fallback,
   isEmbeddedData,
-  getResolutionLabel,
   getImageSrc,
   getVideoSrc,
   getDisplayImage,
@@ -83,7 +81,7 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
 
   const isRenderableMedia = (media: any) => {
     if (!media) return false;
-    const hasImage = !!(media.image || media.image_large || media.image_preview || media.image_3k);
+    const hasImage = !!(media.image || media.image_thumb || media.image_1k || media.image_2k || media.image_large || media.image_preview || media.image_3k || media.image_original);
     const hasUrl = !!(media.url || media.link);
     if (media.type === 'youtube') return !!(media.youtubeId || media.youtubeUrl || hasImage || hasUrl);
     return hasImage || hasUrl || !!media.youtubeId;
@@ -94,6 +92,33 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
     : [currentLightboxPost];
 
   const mediaList = isEditing ? rawMediaList : rawMediaList.filter(isRenderableMedia);
+  const getResolutionVariants = (media: any) => {
+    if (!media) return [];
+
+    if (media.type === 'youtube') {
+      return [{ key: 'youtube', label: 'YT' }];
+    }
+
+    const orderedVariants = [
+      { key: 'image_thumb', label: 'TH' },
+      { key: 'image_preview', label: 'PV' },
+      { key: 'image_1k', label: '1K' },
+      { key: 'image_2k', label: '2K' },
+      { key: 'image_3k', label: '3K' },
+      { key: 'image_large', label: 'LG' },
+      { key: 'image_original', label: 'OR' },
+      { key: 'image', label: 'IMG' },
+    ];
+
+    const seen = new Set<string>();
+    return orderedVariants.filter(({ key }) => {
+      const value = media[key];
+      if (!value) return false;
+      if (seen.has(value)) return false;
+      seen.add(value);
+      return true;
+    });
+  };
 
   return (
     <div 
@@ -142,7 +167,7 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
           {mediaList.map((media: Media, i: number) => (
             <div 
               key={i} 
-              className={`w-full flex justify-center relative ${isEditing ? 'cursor-grab active:cursor-grabbing border-2 border-transparent hover:border-white/20 rounded-lg p-2' : ''}`}
+              className={`group w-full flex justify-center relative ${isEditing ? 'cursor-grab active:cursor-grabbing border-2 border-transparent hover:border-white/20 rounded-lg p-2' : ''}`}
               draggable={isEditing}
               onDragStart={(e) => isEditing && handleLightboxDragStart(e, i)}
               onDragOver={(e) => isEditing && handleLightboxDragOver(e)}
@@ -153,14 +178,19 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
                   <GripVertical className="w-6 h-6" />
                 </div>
               )}
-              {(showResolutions || isEditing) && (
-                <div className="absolute top-4 left-4 z-20 bg-blue-600/80 text-white text-[10px] font-bold px-2 py-1 rounded shadow-lg backdrop-blur-sm flex flex-col gap-0.5">
-                  <span>{getResolutionLabel(media, imageDimensions[`${currentLightboxPost.id}-${i}`])}</span>
-                  {imageDimensions[`${currentLightboxPost.id}-${i}`] && (
-                    <span className="opacity-80 border-t border-white/20 pt-0.5 mt-0.5">
-                      {imageDimensions[`${currentLightboxPost.id}-${i}`]}
-                    </span>
-                  )}
+              {isEditing && showResolutions && getResolutionVariants(media).length > 0 && (
+                <div className="absolute top-4 left-4 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
+                  <div className="flex flex-wrap gap-1 max-w-[calc(100%-1rem)]">
+                    {getResolutionVariants(media).map(({ key, label }) => (
+                      <span
+                        key={`${currentLightboxPost.id}-${i}-${key}`}
+                        className="inline-flex items-center gap-1 rounded-full bg-black/70 border border-white/15 px-2 py-0.5 text-[8px] font-bold tracking-wide text-white/90 backdrop-blur-md shadow-lg"
+                      >
+                        <ImageIcon className="w-2.5 h-2.5" />
+                        <span>{label}</span>
+                      </span>
+                    ))}
+                  </div>
                 </div>
               )}
               {media.type === 'youtube' && media.youtubeId ? (

@@ -37,7 +37,6 @@ interface ThumbnailGalleryGridProps {
   getDisplayImage: (url: string | undefined, isR2Fallback: boolean, isEmbeddedData: boolean) => string | undefined;
   getImageSrc: (media: any, preferLarge?: boolean) => string | undefined;
   getVideoSrc: (media: any, preferLarge?: boolean) => string | undefined;
-  getResolutionLabel: (media: any, dimensions?: string) => string;
   formatDescription: (description: string, title: string) => string;
   isValidImageCandidate?: (url?: string) => boolean;
 }
@@ -65,7 +64,6 @@ export function ThumbnailGalleryGrid({
   getDisplayImage,
   getImageSrc,
   getVideoSrc,
-  getResolutionLabel,
   formatDescription,
   isValidImageCandidate,
 }: ThumbnailGalleryGridProps) {
@@ -169,7 +167,6 @@ export function ThumbnailGalleryGrid({
               isEmbeddedData={isEmbeddedData}
               getImageSrc={getImageSrc}
               getVideoSrc={getVideoSrc}
-              getResolutionLabel={getResolutionLabel}
               handleImageLoad={handleImageLoad}
               formatDescription={formatDescription}
               isValidImageCandidate={isValidImageCandidate}

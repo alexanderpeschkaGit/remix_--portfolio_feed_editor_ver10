@@ -70,7 +70,7 @@ export function BackupsModal({
             <History className="w-5 h-5 text-blue-400" /> Letzte Backups
           </h2>
           <button 
-            className="text-white/50 hover:text-white transition-colors p-1"
+            className="text-white hover:text-white/90 transition-colors p-1"
             onClick={onClose}
           >
             <X className="w-5 h-5" />
@@ -93,7 +93,7 @@ export function BackupsModal({
               const isThisRestoring = isRestoring === filename;
 
               return (
-                <div key={filename} className="flex items-center justify-between bg-white/5 p-3 rounded border border-white/5 hover:border-white/20 transition-all duration-300">
+                <div key={filename} className="flex items-center justify-between bg-white/10 p-3 rounded border border-white/10 hover:border-white/20 transition-all duration-300">
                   <div className="flex flex-col min-w-0 mr-4">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-white/90 truncate">{displayDate}</span>
@@ -109,11 +109,7 @@ export function BackupsModal({
                     <button 
                       onClick={() => onRestore(filename)}
                       disabled={!!isRestoring}
-                      className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded font-medium transition-all ${
-                        isThisRestoring 
-                          ? 'bg-blue-500/20 text-blue-400' 
-                          : 'bg-green-600/20 text-green-400 hover:bg-green-600/30'
-                      }`}
+                      className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded font-medium transition-all bg-white/30 hover:bg-white/40 text-white border border-white/20`}
                     >
                       {isThisRestoring ? (
                         <RefreshCw className="w-3 h-3 animate-spin" />
@@ -125,7 +121,7 @@ export function BackupsModal({
                     <a 
                       href={`/api/backups/${filename}`}
                       download={filename.split('/').pop()}
-                      className="flex items-center gap-1 text-xs bg-white/5 text-white/50 hover:bg-white/10 p-1.5 rounded transition-colors border border-white/5"
+                      className="flex items-center gap-1 text-xs bg-white/30 text-white hover:bg-white/40 p-1.5 rounded transition-colors border border-white/20"
                       title="Download"
                     >
                       <Download className="w-4 h-4" />
