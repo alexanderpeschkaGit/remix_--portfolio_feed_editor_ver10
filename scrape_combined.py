@@ -6,7 +6,7 @@ import time
 import glob
 from PIL import Image
 import imagehash
-from image_variants import build_media_payload_from_image, build_variant_set_from_image
+from image_variants import build_media_payload_from_file, build_variant_set_from_image
 
 # Ensure UTF-8 for console output to prevent 'charmap' errors on Windows
 if hasattr(sys.stdout, 'reconfigure'):
@@ -85,7 +85,7 @@ def scrape_instagram():
                 # Find the main image for the JSON feed
                 search_pattern = os.path.join(output_dir, IG_TARGET_ACCOUNT, f"{base_filename}*")
                 all_files = glob.glob(search_pattern)
-                media_files = sorted([f for f in all_files if f.lower().endswith(('.jpg', '.mp4'))])
+                media_files = sorted([f for f in all_files if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif', '.bmp', '.mp4', '.webm', '.mov', '.avi', '.mkv', '.flv'))])
                 
                 image_path = ""
                 image_thumb = ""
@@ -96,19 +96,17 @@ def scrape_instagram():
                 media_list = []
                 phash_str = ""
                 if media_files:
-                    image_candidates = [mf for mf in media_files if mf.lower().endswith('.jpg')]
-                    for idx, mf in enumerate(image_candidates):
-                        media_payload = build_media_payload_from_image(
+                    for idx, mf in enumerate(media_files):
+                        media_payload = build_media_payload_from_file(
                             mf,
                             "instagram",
                             f"{post.shortcode}_{idx + 1:02d}",
                             f"https://www.instagram.com/p/{post.shortcode}/",
                         )
-                        media_payload["missing_variants"] = []
                         media_list.append(media_payload)
 
                     if media_list:
-                        first_media = media_list[0]
+                        first_media = next((m for m in media_list if m.get("type") == "image"), media_list[0])
                         image_path = first_media.get("image", "")
                         image_thumb = first_media.get("image_thumb", "")
                         image_1k = first_media.get("image_1k", "")
@@ -118,7 +116,7 @@ def scrape_instagram():
                         image_width = first_media.get("image_width", 0)
                         image_height = first_media.get("image_height", 0)
                         thumb_source = first_media.get("image_1k") or first_media.get("image_thumb")
-                        if thumb_source:
+                        if thumb_source and not thumb_source.lower().endswith(('.mp4', '.webm', '.mov', '.avi', '.mkv', '.flv')):
                             thumb_path = thumb_source.lstrip("/").replace("/", os.sep)
                             try:
                                 with Image.open(thumb_path) as img:

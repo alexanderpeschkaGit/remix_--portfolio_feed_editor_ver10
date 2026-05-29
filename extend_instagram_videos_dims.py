@@ -4,12 +4,14 @@ import sys
 import subprocess
 from datetime import datetime, UTC
 from pathlib import Path
+from urllib.parse import urlparse, unquote
 
 # Ensure UTF-8 for console output
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
 STATE_PATH = os.path.join("data", "state.json")
+INSTAGRAM_SCRAPE_PATH = os.path.join("data", "instagram", "insta_data.json")
 
 # Instagram Standard Video Dimensions (fallback if ffprobe not available)
 INSTAGRAM_VIDEO_WIDTH = 1080
@@ -55,21 +57,40 @@ def get_video_dimensions_ffprobe(file_path):
     return None, None
 
 def get_video_dimensions(url_or_path):
-    """Try to get video dimensions from local file or URL"""
-    # If it's a local path
-    if os.path.isfile(url_or_path):
-        width, height = get_video_dimensions_ffprobe(url_or_path)
-        if width and height:
-            return width, height
-    
-    # If it's a relative path like /data/instagram/...
+    """Try to get video dimensions from a local file path or reachable URL."""
+    if not url_or_path:
+        return None, None
+
+    candidates = []
+
+    # Direct local file path
+    candidates.append(url_or_path)
+
+    # Relative path like /data/instagram/... or a public URL path
     if url_or_path.startswith('/'):
-        local_path = url_or_path.lstrip('/').replace('/', os.sep)
+        candidates.append(url_or_path.lstrip('/'))
+
+    # If we got an absolute URL, try the local mirror path first.
+    parsed = urlparse(url_or_path)
+    if parsed.scheme and parsed.netloc:
+        local_from_url = unquote(parsed.path.lstrip('/'))
+        if local_from_url:
+            candidates.append(local_from_url)
+
+    # Try local files first.
+    for candidate in candidates:
+        local_path = candidate.replace('/', os.sep)
         if os.path.isfile(local_path):
             width, height = get_video_dimensions_ffprobe(local_path)
             if width and height:
                 return width, height
-    
+
+    # Finally, try probing the URL itself if ffprobe can reach it.
+    if parsed.scheme in ('http', 'https'):
+        width, height = get_video_dimensions_ffprobe(url_or_path)
+        if width and height:
+            return width, height
+
     return None, None
 
 def is_video_url(url):
@@ -79,17 +100,97 @@ def is_video_url(url):
     url_lower = url.lower()
     return url_lower.endswith(('.mp4', '.webm', '.mov', '.avi', '.mkv', '.flv'))
 
+def unique_candidates(values):
+    """Return non-empty values in first-seen order."""
+    seen = set()
+    result = []
+    for value in values:
+        if not value:
+            continue
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
+
+def load_instagram_scrape_lookup():
+    """Load local Instagram scrape metadata as a fallback source lookup."""
+    if not os.path.exists(INSTAGRAM_SCRAPE_PATH):
+        return {}
+
+    try:
+        with open(INSTAGRAM_SCRAPE_PATH, 'r', encoding='utf-8') as f:
+            scraped = json.load(f)
+    except Exception:
+        return {}
+
+    lookup = {}
+    if not isinstance(scraped, list):
+        return lookup
+
+    for entry in scraped:
+        if not isinstance(entry, dict):
+            continue
+
+        candidates = []
+        for key in ('image', 'image_large', 'image_original', 'video', 'video_large', 'url', 'link'):
+            value = entry.get(key)
+            if value:
+                candidates.append(value)
+
+        for media in entry.get('media_list', []) or []:
+            if isinstance(media, str):
+                candidates.append(media)
+            elif isinstance(media, dict):
+                for key in ('image', 'image_large', 'image_original', 'video', 'video_large', 'url', 'link'):
+                    value = media.get(key)
+                    if value:
+                        candidates.append(value)
+
+        lookup_values = unique_candidates(candidates)
+        if not lookup_values:
+            continue
+
+        for key in (entry.get('id'), entry.get('link')):
+            if not key:
+                continue
+            lookup[str(key)] = lookup_values
+
+    return lookup
+
+def collect_video_sources(item, scrape_lookup=None):
+    """Gather the best candidate video sources for an item."""
+    candidates = [
+        item.get('video'),
+        item.get('video_large'),
+        item.get('image'),
+        item.get('image_large'),
+        item.get('image_original'),
+        item.get('url'),
+        item.get('link'),
+    ]
+
+    if scrape_lookup:
+        candidates.extend(scrape_lookup.get(str(item.get('id', '')), []))
+        candidates.extend(scrape_lookup.get(str(item.get('link', '')), []))
+
+    return unique_candidates(candidates)
+
 def is_instagram_video(item):
     """Check if item is an Instagram video"""
     source = item.get('source', '').lower()
     item_type = item.get('type', '').lower()
     
-    if source == 'instagram' and (item_type == 'video' or item_type == 'image'):
-        # Check if it has video fields
-        video_url = (item.get('video') or item.get('video_large') or 
-                     item.get('url') or item.get('link') or '')
-        return is_video_url(video_url)
-    
+    if source != 'instagram':
+        return False
+
+    # Instagram video posts may store only the post URL instead of a direct video file
+    if item_type == 'video':
+        return True
+
+    if item_type == 'image':
+        return any(is_video_url(candidate) for candidate in collect_video_sources(item))
+
     return False
 
 def extend_instagram_video_dims():
@@ -110,6 +211,7 @@ def extend_instagram_video_dims():
         return False
     
     items = state.get('items', [])
+    scrape_lookup = load_instagram_scrape_lookup()
     
     print(f"\n--- EXTENDING INSTAGRAM VIDEO DIMENSIONS ---")
     
@@ -136,11 +238,14 @@ def extend_instagram_video_dims():
             # Check top-level
             if not item.get('image_width') or not item.get('image_height'):
                 # Try to get actual dimensions from video file
-                video_url = item.get('video') or item.get('video_large') or item.get('url') or ''
+                video_sources = collect_video_sources(item, scrape_lookup)
                 width, height = None, None
                 
-                if ffprobe_available and video_url:
-                    width, height = get_video_dimensions(video_url)
+                if ffprobe_available:
+                    for video_url in video_sources:
+                        width, height = get_video_dimensions(video_url)
+                        if width and height:
+                            break
                 
                 # Use ffprobe result or fallback to Instagram standard
                 if width and height:
@@ -159,24 +264,24 @@ def extend_instagram_video_dims():
         # Check mergedMedia items
         if item.get('mergedMedia') and isinstance(item['mergedMedia'], list):
             for idx, media in enumerate(item['mergedMedia']):
-                media_type = media.get('type', '').lower()
-                
-                # Check if it's a video
-                if is_video_url(media.get('video') or media.get('video_large') or media.get('url') or ''):
+                media_sources = collect_video_sources(media, scrape_lookup)
+                if media.get('type', '').lower() == 'video' or any(is_video_url(candidate) for candidate in media_sources):
                     if not media.get('image_width') or not media.get('image_height'):
-                        video_url = media.get('video') or media.get('video_large') or media.get('url') or ''
                         width, height = None, None
-                        
-                        if ffprobe_available and video_url:
-                            width, height = get_video_dimensions(video_url)
-                        
+
+                        if ffprobe_available:
+                            for candidate in media_sources:
+                                width, height = get_video_dimensions(candidate)
+                                if width and height:
+                                    break
+
                         if width and height:
                             media['image_width'] = width
                             media['image_height'] = height
                         else:
                             media['image_width'] = INSTAGRAM_VIDEO_WIDTH
                             media['image_height'] = INSTAGRAM_VIDEO_HEIGHT
-                        
+
                         updated_count += 1
                     else:
                         skipped_count += 1

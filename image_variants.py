@@ -1,5 +1,6 @@
 import os
 import shutil
+import subprocess
 from PIL import Image
 
 BASE_DIR = "data_v2"
@@ -37,6 +38,43 @@ def _save_variant(image: Image.Image, target_path: str, max_side: int, quality: 
     elif variant.mode == "L":
         variant = variant.convert("RGB")
     variant.save(target_path, quality=quality, optimize=True)
+
+
+def _is_video_file(source_path: str) -> bool:
+    ext = os.path.splitext(source_path)[1].lower()
+    return ext in {".mp4", ".webm", ".mov", ".avi", ".mkv", ".flv"}
+
+
+def _probe_video_dimensions(source_path: str) -> tuple[int, int]:
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height",
+                "-of",
+                "csv=s=x:p=0",
+                source_path,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=10,
+            text=True,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            dims = result.stdout.strip().split("x")
+            if len(dims) == 2:
+                width = int(dims[0])
+                height = int(dims[1])
+                if width > 0 and height > 0:
+                    return width, height
+    except Exception:
+        pass
+    return 0, 0
 
 
 def build_variant_set_from_image(source_path: str, group: str, base_name: str) -> dict:
@@ -91,6 +129,30 @@ def build_variant_set_from_image(source_path: str, group: str, base_name: str) -
         "width": width,
         "height": height,
     }
+
+
+def build_media_payload_from_file(source_path: str, group: str, base_name: str, link: str = "") -> dict:
+    if _is_video_file(source_path):
+        width, height = _probe_video_dimensions(source_path)
+        normalized_path = source_path.replace("\\", "/")
+        return {
+            "type": "video",
+            "link": link,
+            "image": normalized_path,
+            "video": normalized_path,
+            "video_large": normalized_path,
+            "image_large": normalized_path,
+            "image_thumb": normalized_path,
+            "image_1k": normalized_path,
+            "image_2k": normalized_path,
+            "image_3k": normalized_path,
+            "image_original": normalized_path,
+            "image_width": width,
+            "image_height": height,
+            "missing_variants": [],
+        }
+
+    return build_media_payload_from_image(source_path, group, base_name, link)
 
 
 def build_media_payload_from_image(source_path: str, group: str, base_name: str, link: str = "") -> dict:
