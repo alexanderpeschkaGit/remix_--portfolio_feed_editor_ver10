@@ -180,6 +180,57 @@ const getVideoSrc = (media: any, preferLarge = false) => {
   return isDirectMediaFile(media?.url) && /\.(mp4|webm|mov)(\?.*)?$/i.test(media.url) ? media.url : undefined;
 };
 
+const getMediaPriorityScore = (media: any) => {
+  if (!media) return -1;
+  if (media.type === 'youtube' || media.youtubeId) return 25;
+  if (isValidImageCandidate(media.image_original)) return 100;
+  if (isValidImageCandidate(media.image_3k)) return 90;
+  if (isValidImageCandidate(media.image_2k)) return 80;
+  if (isValidImageCandidate(media.image_large) || isValidImageCandidate(media.largeUrl)) return 70;
+  if (isValidImageCandidate(media.image_1k)) return 60;
+  if (isValidImageCandidate(media.image)) return 50;
+  if (isValidImageCandidate(media.image_preview)) return 40;
+  if (isValidImageCandidate(media.image_thumb)) return 30;
+  if (isValidImageCandidate(media.url) || isValidImageCandidate(media.link)) return 10;
+  return 0;
+};
+
+const getPrimaryMergedMedia = (mediaList: any[]) => {
+  if (!Array.isArray(mediaList) || mediaList.length === 0) return undefined;
+  let bestMedia = mediaList[0];
+  let bestScore = getMediaPriorityScore(bestMedia);
+
+  for (let i = 1; i < mediaList.length; i++) {
+    const candidate = mediaList[i];
+    const candidateScore = getMediaPriorityScore(candidate);
+    if (candidateScore > bestScore) {
+      bestMedia = candidate;
+      bestScore = candidateScore;
+    }
+  }
+
+  return bestMedia;
+};
+
+const syncMediaFieldsFromPrimary = (target: any, primary: any) => {
+  if (!primary) return target;
+
+  target.type = primary.type || target.type || 'image';
+  target.image = primary.image || primary.image_thumb || target.image || '';
+  target.image_thumb = primary.image_thumb || primary.image || target.image_thumb || '';
+  target.image_1k = primary.image_1k || target.image_1k || '';
+  target.image_2k = primary.image_2k || target.image_2k || '';
+  target.image_large = primary.image_large || primary.image_2k || primary.image_3k || primary.image_1k || primary.image || target.image_large || '';
+  target.image_3k = primary.image_3k || primary.image_large || primary.image_2k || primary.image_1k || primary.image || target.image_3k || '';
+  target.image_original = primary.image_original || target.image_original || '';
+  target.image_preview = primary.image_preview || target.image_preview;
+  target.url = primary.url || primary.link || target.url || '';
+  target.youtubeId = primary.youtubeId || target.youtubeId || '';
+  target.youtubeUrl = primary.youtubeUrl || target.youtubeUrl || '';
+
+  return target;
+};
+
 const EDITOR_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
@@ -1187,11 +1238,13 @@ export default function App() {
       });
 
       const mergedDescription = [current.description, next.description].filter(Boolean).join('<br/><br/>');
+      const primaryMedia = getPrimaryMergedMedia(mergedMedia) || current;
 
       newPosts[index] = {
         ...current,
         description: mergedDescription,
-        mergedMedia
+        mergedMedia,
+        ...syncMediaFieldsFromPrimary({ ...current }, primaryMedia)
       };
 
       newPosts.splice(index + 1, 1);
@@ -1215,20 +1268,11 @@ export default function App() {
     updatePosts(posts => posts.map(post => {
       if (String(post.id) === String(id)) {
         const updatedPost = { ...post, mergedMedia: newMedia };
-        const primaryMedia = newMedia[0];
+        const primaryMedia = getPrimaryMergedMedia(newMedia);
         if (primaryMedia) {
           return {
-            ...updatedPost,
-            type: primaryMedia.type || post.type,
-            image: primaryMedia.image || primaryMedia.image_thumb || post.image,
-            image_thumb: primaryMedia.image_thumb || primaryMedia.image || post.image_thumb,
-            image_1k: primaryMedia.image_1k || post.image_1k,
-            image_2k: primaryMedia.image_2k || post.image_2k,
-            image_large: primaryMedia.image_large || primaryMedia.image_2k || primaryMedia.image_3k || post.image_large,
-            image_3k: primaryMedia.image_3k || post.image_3k,
-            image_original: primaryMedia.image_original || post.image_original,
-            url: primaryMedia.url || primaryMedia.link || post.url,
-            youtubeId: primaryMedia.youtubeId || post.youtubeId
+            ...syncMediaFieldsFromPrimary(updatedPost, primaryMedia),
+            mergedMedia: newMedia
           };
         }
         return updatedPost;
@@ -1367,60 +1411,33 @@ export default function App() {
           
           // Neues Array: Nur validierte alte Elemente + neues Item
           const newMedia = [...validatedMedia, newItem];
-          const primaryMedia = newMedia[0] || newItem;
+          const primaryMedia = getPrimaryMergedMedia(newMedia) || newItem;
+          const updatedPost = syncMediaFieldsFromPrimary({ ...cleanOldUrls(post) }, primaryMedia);
 
           return {
-            ...cleanOldUrls(post),
-            type: primaryMedia.type || 'image',
-            image: primaryMedia.image || primaryMedia.image_thumb || '',
-            image_thumb: primaryMedia.image_thumb || primaryMedia.image || '',
-            image_1k: primaryMedia.image_1k || '',
-            image_2k: primaryMedia.image_2k || '',
-            image_large: primaryMedia.image_large || primaryMedia.image_2k || primaryMedia.image_3k || primaryMedia.image || '',
-            image_preview: primaryMedia.image_preview,
-            image_3k: primaryMedia.image_3k || primaryMedia.image_large || primaryMedia.image || '',
-            image_original: primaryMedia.image_original || '',
-            url: primaryMedia.url || primaryMedia.link || post.url || '',
-            youtubeId: primaryMedia.youtubeId || '',
-            youtubeUrl: primaryMedia.youtubeUrl || '',
+            ...updatedPost,
             mergedMedia: newMedia
           };
         }
         if (mediaIndex !== undefined && post.mergedMedia) {
           const newMedia = [...post.mergedMedia];
           newMedia[mediaIndex] = { ...cleanOldUrls(newMedia[mediaIndex]), uploadId, image: localUrl, image_thumb: localUrl, image_1k: localUrl, image_2k: localUrl, image_large: localUrl, image_preview: localUrl, image_3k: localUrl, image_original: localUrl, type: 'image' } as any;
-          const updateBase = mediaIndex === 0;
-          return updateBase ? { 
-            ...cleanOldUrls(post), 
-            url: post.url,
-            image: localUrl, 
-            image_thumb: localUrl,
-            image_1k: localUrl,
-            image_2k: localUrl,
-            image_large: localUrl, 
-            image_preview: localUrl,
-            image_3k: localUrl,
-            image_original: localUrl,
-            mergedMedia: newMedia 
-          } : { ...post, mergedMedia: newMedia };
+          const primaryMedia = getPrimaryMergedMedia(newMedia) || newMedia.find(Boolean);
+          const updatedPost = syncMediaFieldsFromPrimary({ ...cleanOldUrls(post) }, primaryMedia);
+          return {
+            ...updatedPost,
+            mergedMedia: newMedia
+          };
         } else if (mediaIndex !== undefined && !post.mergedMedia) {
           const newMediaRaw = [{ type: post.type || 'image', image: post.image, image_thumb: post.image_thumb, image_1k: post.image_1k, image_2k: post.image_2k, image_large: post.image_large, image_3k: post.image_3k, image_original: post.image_original, youtubeId: post.youtubeId, link: post.url }];
           newMediaRaw[mediaIndex] = { ...cleanOldUrls(newMediaRaw[mediaIndex]), uploadId, image: localUrl, image_thumb: localUrl, image_1k: localUrl, image_2k: localUrl, image_large: localUrl, image_preview: localUrl, image_3k: localUrl, image_original: localUrl, type: 'image' } as any;
           const newMedia = newMediaRaw.filter((m: any) => m.type === 'youtube' || !!(m.image || m.image_thumb || m.image_1k || m.image_2k || m.image_large || m.image_preview || m.image_3k || m.uploadId || m.youtubeId));
-          const updateBase = mediaIndex === 0;
-          return updateBase ? { 
-            ...cleanOldUrls(post), 
-            url: post.url,
-            image: localUrl, 
-            image_thumb: localUrl,
-            image_1k: localUrl,
-            image_2k: localUrl,
-            image_large: localUrl, 
-            image_preview: localUrl,
-            image_3k: localUrl,
-            image_original: localUrl,
-            mergedMedia: newMedia 
-          } : { ...post, mergedMedia: newMedia };
+          const primaryMedia = getPrimaryMergedMedia(newMedia) || newMedia.find(Boolean);
+          const updatedPost = syncMediaFieldsFromPrimary({ ...cleanOldUrls(post) }, primaryMedia);
+          return {
+            ...updatedPost,
+            mergedMedia: newMedia
+          };
         }
         return { ...cleanOldUrls(post), image: localUrl, image_thumb: localUrl, image_1k: localUrl, image_2k: localUrl, image_large: localUrl, image_preview: localUrl, image_3k: localUrl, image_original: localUrl, type: 'image' };
       }
@@ -1879,44 +1896,6 @@ export default function App() {
         const isLocalFile = window.location.protocol === 'file:';
         const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.includes('.run.app');
         
-        function getYoutubeId(url) {
-          if (!url) return null;
-          if (url.includes('youtu.be/')) return url.split('youtu.be/')[1].substring(0, 11);
-          if (url.includes('v=')) return url.split('v=')[1].substring(0, 11);
-          if (url.includes('embed/')) return url.split('embed/')[1].substring(0, 11);
-          return null;
-        }
-
-        function isDirectMediaFile(url) {
-          return !!url && /\\.(jpg|jpeg|png|webp|gif|avif|bmp|mp4|webm|mov)(\\?.*)?$/i.test(url);
-        }
-
-        function isValidImageCandidate(url) {
-          if (!url) return false;
-          if (url.startsWith('data:') || url.startsWith('blob:')) return true;
-          if (url.startsWith('/data/') || url.startsWith('/data_v2/') || url.startsWith('/originals/')) return true;
-          return !!url.match(/\\.(jpe?g|png|webp|gif|avif|bmp)(\\?.*)?$/i);
-        }
-
-        function getImageSrc(media, preferLarge) {
-          if (!media) return undefined;
-          if (media.type === 'youtube' || media.youtubeId) {
-            const id = media.youtubeId || getYoutubeId(media.url || media.youtubeUrl || media.link);
-            const stored = preferLarge
-              ? (media.image_3k || media.image_2k || media.image_original || media.image_1k || media.image_large || media.imageLarge || media.image)
-              : (media.image_thumb || media.image_preview || media.image_original || media.image);
-            if (isValidImageCandidate(stored)) return stored;
-            if (id) return 'https://img.youtube.com/vi/' + id + '/maxresdefault.jpg';
-          }
-          const primary = preferLarge
-            ? [media.image_3k, media.image_2k, media.image_original, media.image_1k, media.image_large, media.imageLarge, media.largeUrl, media.image, media.image_preview, media.image_thumb, media.url, media.link]
-            : [media.image_thumb, media.image_preview, media.image, media.image_original, media.image_1k, media.image_2k, media.image_3k, media.image_large, media.imageLarge, media.largeUrl, media.url, media.link];
-          for (const candidate of primary) {
-            if (isValidImageCandidate(candidate)) return candidate;
-          }
-          return undefined;
-        }
-
         function getVideoSrc(media, preferLarge) {
           if (!media) return undefined;
           const primary = preferLarge
@@ -2030,7 +2009,11 @@ export default function App() {
 
           currentPostMedia = [];
           if (currentPost.mergedMedia && currentPost.mergedMedia.length > 0) {
-            currentPostMedia = currentPost.mergedMedia.filter(m => getImageSrc(m, true) || getImageSrc(m) || getVideoSrc(m, true) || getVideoSrc(m) || m.youtubeId || getYoutubeId(m.url || m.link));
+            const filteredMedia = currentPost.mergedMedia.filter(m => getImageSrc(m, true) || getImageSrc(m) || getVideoSrc(m, true) || getVideoSrc(m) || m.youtubeId || getYoutubeId(m.url || m.link));
+            const primaryMedia = getPrimaryMergedMedia(filteredMedia);
+            currentPostMedia = primaryMedia
+              ? [primaryMedia, ...filteredMedia.filter(m => m !== primaryMedia)]
+              : filteredMedia;
           } else {
             currentPostMedia = [currentPost].filter(m => getImageSrc(m, true) || getImageSrc(m) || getVideoSrc(m, true) || getVideoSrc(m) || m.youtubeId || getYoutubeId(m.url || m.link));
           }
@@ -2426,26 +2409,10 @@ export default function App() {
         }
         
 
-        const baseUrl = R2_CONFIG.publicDomain.endsWith('/') ? R2_CONFIG.publicDomain.slice(0, -1) : R2_CONFIG.publicDomain;
-        const absoluteItems = items.map((item: any) => ({
-          ...item,
-          image: item.image && !item.image.startsWith('http') ? `${baseUrl}/${item.image.startsWith('/') ? item.image.substring(1) : item.image}` : item.image,
-          image_large: item.image_large && !item.image_large.startsWith('http') ? `${baseUrl}/${item.image_large.startsWith('/') ? item.image_large.substring(1) : item.image_large}` : item.image_large,
-          largeUrl: item.largeUrl && !item.largeUrl.startsWith('http') ? `${baseUrl}/${item.largeUrl.startsWith('/') ? item.largeUrl.substring(1) : item.largeUrl}` : item.largeUrl,
-          url: item.url && !item.url.startsWith('http') ? `${baseUrl}/${item.url.startsWith('/') ? item.url.substring(1) : item.url}` : item.url,
-          link: item.link && !item.link.startsWith('http') ? `${baseUrl}/${item.link.startsWith('/') ? item.link.substring(1) : item.link}` : item.link,
-          mergedMedia: item.mergedMedia ? item.mergedMedia.map((m: any) => ({
-            ...m,
-            image: m.image && !m.image.startsWith('http') ? `${baseUrl}/${m.image.startsWith('/') ? m.image.substring(1) : m.image}` : m.image,
-            url: m.url && !m.url.startsWith('http') ? `${baseUrl}/${m.url.startsWith('/') ? m.url.substring(1) : m.url}` : m.url,
-            largeUrl: m.largeUrl && !m.largeUrl.startsWith('http') ? `${baseUrl}/${m.largeUrl.startsWith('/') ? m.largeUrl.substring(1) : m.largeUrl}` : m.largeUrl
-          })) : item.mergedMedia
-        }));
-        
         // Instead of applying immediately, store in pending state for confirmation
         setCloudSyncState({ 
           changes: changes.length > 0 ? changes : ["No structural changes detected in posts."], 
-          items: absoluteItems, 
+          items, 
           r2Data 
         });
         
@@ -2460,12 +2427,52 @@ export default function App() {
   };
 
   const handleCancelCloudSync = () => {
+    setHasCloudChanges(false);
+    setCloudSyncState(null);
+    setCloudSyncChanges(null);
+  };
+
+  const handleIgnoreCloudSync = () => {
     if (cloudSyncState?.r2Data?.lastUpdated) {
       setLocalLastUpdated(cloudSyncState.r2Data.lastUpdated);
     }
     setHasCloudChanges(false);
     setCloudSyncState(null);
     setCloudSyncChanges(null);
+  };
+
+  const handleApplyCloudSync = async () => {
+    if (!cloudSyncState) return;
+    const { items, r2Data } = cloudSyncState;
+
+    console.log('[Sync] User confirmed. Applying cloud data to state:', items.length, 'items');
+    setIsR2Fallback(true);
+    setIsFlickrFallback(false);
+    setPortfolioTitle(r2Data.title || portfolioTitle);
+    setPortfolioSubtitle(r2Data.subtitle || portfolioSubtitle);
+    if (r2Data.scrapeConfig) {
+      if (r2Data.scrapeConfig.igAccount) setIgAccount(r2Data.scrapeConfig.igAccount);
+      if (r2Data.scrapeConfig.flickrUrl) setFlickrUrl(r2Data.scrapeConfig.flickrUrl);
+    }
+    if (r2Data.bio) setPortfolioBio(r2Data.bio);
+
+    updatePosts(items, 'Aus Cloud geladen');
+
+    if (r2Data.lastUpdated) setLocalLastUpdated(r2Data.lastUpdated);
+    setHasCloudChanges(false);
+    setHasUnpublishedChanges(false);
+
+    try {
+      await fetch('/api/state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(r2Data)
+      });
+    } catch (saveErr) {
+      console.error("Could not save R2 state locally:", saveErr);
+    }
+
+    setCloudSyncState(null);
   };
 
   const loadTrashItems = async (openModal = false) => {
@@ -2619,17 +2626,8 @@ export default function App() {
         if (cleanedPost.mergedMedia.length === 0) {
           delete (cleanedPost as any).mergedMedia;
         } else {
-          const primary = cleanedPost.mergedMedia[0];
-          cleanedPost.type = primary.type || cleanedPost.type || 'image';
-          cleanedPost.image = primary.image || cleanedPost.image;
-          cleanedPost.image_thumb = primary.image_thumb || cleanedPost.image_thumb || primary.image || '';
-          cleanedPost.image_1k = primary.image_1k || cleanedPost.image_1k || '';
-          cleanedPost.image_2k = primary.image_2k || cleanedPost.image_2k || '';
-          cleanedPost.image_large = primary.image_large || primary.image || cleanedPost.image_large;
-          cleanedPost.image_3k = primary.image_3k || primary.image_large || primary.image_2k || primary.image_1k || primary.image || cleanedPost.image_3k;
-          cleanedPost.image_original = primary.image_original || cleanedPost.image_original || '';
-          cleanedPost.image_preview = primary.image_preview || cleanedPost.image_preview;
-          cleanedPost.youtubeId = primary.youtubeId || cleanedPost.youtubeId;
+          const primary = getPrimaryMergedMedia(cleanedPost.mergedMedia) || cleanedPost.mergedMedia.find(Boolean);
+          syncMediaFieldsFromPrimary(cleanedPost, primary);
         }
       }
       
@@ -3156,6 +3154,9 @@ export default function App() {
       }
     }
 
+    const primaryMedia = getPrimaryMergedMedia(mainPost.mergedMedia) || mainPost;
+    syncMediaFieldsFromPrimary(mainPost, primaryMedia);
+
     updatePosts(prev => {
       const filtered = prev.filter(p => !selectedThumbnails.includes(p.id) || p.id === mainPost.id);
       return filtered.map(p => p.id === mainPost.id ? mainPost : p);
@@ -3254,7 +3255,7 @@ export default function App() {
     };
 
     const thumbMedia = (post.mergedMedia && post.mergedMedia.length > 0)
-      ? post.mergedMedia[0]
+      ? (getPrimaryMergedMedia(post.mergedMedia) || post.mergedMedia.find(Boolean))
       : post;
 
     // IMPORTANT: Do not fall back to post.url/link as an image source.
@@ -3557,39 +3558,8 @@ export default function App() {
       <ConfirmSyncModal
         isOpen={cloudSyncState !== null}
         onClose={handleCancelCloudSync}
-        onConfirm={async () => {
-          if (!cloudSyncState) return;
-          const { items, r2Data } = cloudSyncState;
-          
-          console.log('[Sync] User confirmed. Applying cloud data to state:', items.length, 'items');
-          setIsR2Fallback(true);
-          setIsFlickrFallback(false);
-          setPortfolioTitle(r2Data.title || portfolioTitle);
-          setPortfolioSubtitle(r2Data.subtitle || portfolioSubtitle);
-          if (r2Data.scrapeConfig) {
-            if (r2Data.scrapeConfig.igAccount) setIgAccount(r2Data.scrapeConfig.igAccount);
-            if (r2Data.scrapeConfig.flickrUrl) setFlickrUrl(r2Data.scrapeConfig.flickrUrl);
-          }
-          if (r2Data.bio) setPortfolioBio(r2Data.bio);
-          
-          updatePosts(items, 'Aus Cloud geladen');
-          
-          if (r2Data.lastUpdated) setLocalLastUpdated(r2Data.lastUpdated);
-          setHasCloudChanges(false);
-          setHasUnpublishedChanges(false);
-          
-          try {
-            await fetch('/api/state', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(r2Data)
-            });
-          } catch (saveErr) {
-            console.error("Could not save R2 state locally:", saveErr);
-          }
-          
-          setCloudSyncState(null);
-        }}
+        onIgnore={handleIgnoreCloudSync}
+        onConfirm={handleApplyCloudSync}
         changes={cloudSyncState?.changes || []}
       />
 

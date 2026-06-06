@@ -410,6 +410,7 @@ async function startServer() {
       try {
         const data = await fs.readFile(path.join(DATA_DIR, 'instagram', 'insta_data.json'), 'utf-8');
         const scraped = JSON.parse(data);
+        const pickBestImage = (...candidates: any[]) => candidates.find(candidate => typeof candidate === 'string' && candidate.trim());
         for (const item of scraped) {
           const id = item.id;
           if (!existsInState(id) && !deletedIds.includes(id)) {
@@ -418,15 +419,16 @@ async function startServer() {
                   if (typeof media === 'string') {
                     return { type: media.endsWith('.mp4') ? 'video' : 'image', image: media, image_large: media, link: item.link };
                   }
+                  const bestImage = pickBestImage(media.image_original, media.image_3k, media.image_2k, media.image_large, media.image_1k, media.image_thumb, media.image);
                   return {
                     type: media.type || 'image',
-                    image: media.image || media.image_thumb || '',
-                    image_thumb: media.image_thumb || '',
-                    image_1k: media.image_1k || '',
-                    image_2k: media.image_2k || '',
-                    image_large: media.image_large || media.image_2k || media.image_3k || media.image_1k || media.image_thumb || '',
-                    image_3k: media.image_3k || '',
-                    image_original: media.image_original || '',
+                    image: bestImage || media.image || media.image_thumb || '',
+                    image_thumb: media.image_thumb || media.image || '',
+                    image_1k: media.image_1k || bestImage || '',
+                    image_2k: media.image_2k || media.image_3k || media.image_large || bestImage || '',
+                    image_large: media.image_large || media.image_2k || media.image_3k || media.image_1k || media.image_thumb || bestImage || '',
+                    image_3k: media.image_3k || media.image_2k || media.image_large || bestImage || '',
+                    image_original: media.image_original || media.image_3k || media.image_2k || media.image_large || bestImage || '',
                     image_width: media.image_width || 0,
                     image_height: media.image_height || 0,
                     link: media.link || item.link
@@ -447,17 +449,17 @@ async function startServer() {
                 }] : []);
             newItems.push({
               id,
-              type: mergedMedia[0]?.type === 'video' ? 'video' : 'image',
+              type: mergedMedia.some((media: any) => media.type === 'video') ? 'video' : 'image',
               source: 'instagram',
               title: item.title || '',
               description: item.description || '',
-              image: item.image || item.image_thumb || '',
+              image: pickBestImage(item.image_original, item.image_3k, item.image_2k, item.image_large, item.image_1k, item.image_thumb, item.image) || item.image || item.image_thumb || '',
               image_thumb: item.image_thumb || item.image || '',
               image_1k: item.image_1k || '',
-              image_2k: item.image_2k || '',
-              image_large: item.image_large || item.image_2k || item.image_3k || item.image_1k || item.image_thumb || '',
-              image_3k: item.image_3k || '',
-              image_original: item.image_original || '',
+              image_2k: item.image_2k || item.image_3k || item.image_large || item.image_1k || item.image_thumb || item.image || '',
+              image_large: item.image_large || item.image_2k || item.image_3k || item.image_1k || item.image_thumb || item.image || '',
+              image_3k: item.image_3k || item.image_2k || item.image_large || item.image_1k || item.image_thumb || item.image || '',
+              image_original: item.image_original || item.image_3k || item.image_2k || item.image_large || item.image_1k || item.image_thumb || item.image || '',
               image_width: item.image_width || 0,
               image_height: item.image_height || 0,
               mergedMedia,

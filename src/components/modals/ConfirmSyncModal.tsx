@@ -5,10 +5,11 @@ interface ConfirmSyncModalProps {
   isOpen: boolean;
   onClose: () => void;
   onConfirm: () => void;
+  onIgnore: () => void;
   changes: string[];
 }
 
-export function ConfirmSyncModal({ isOpen, onClose, onConfirm, changes }: ConfirmSyncModalProps) {
+export function ConfirmSyncModal({ isOpen, onClose, onConfirm, onIgnore, changes }: ConfirmSyncModalProps) {
   if (!isOpen) return null;
 
   return (
@@ -42,18 +43,24 @@ export function ConfirmSyncModal({ isOpen, onClose, onConfirm, changes }: Confir
             <div className="text-white/50">No changes found.</div>
           )}
         </div>
-        <div className="flex gap-4 mt-4">
+        <div className="flex flex-col sm:flex-row gap-3 mt-4">
+          <button
+            onClick={onIgnore}
+            className="flex-1 bg-white/15 hover:bg-white/25 text-white py-2 rounded-lg transition-colors border border-white/10"
+          >
+            Ignore changes
+          </button>
           <button
             onClick={onConfirm}
-            className="flex-1 bg-white/30 hover:bg-white/40 text-white py-2 rounded-lg transition-colors border border-white/20"
+            className="flex-1 bg-blue-500/30 hover:bg-blue-500/40 text-white py-2 rounded-lg transition-colors border border-blue-400/30"
           >
-            Apply changes
+            Sync actual version
           </button>
           <button
             onClick={onClose}
-            className="flex-1 bg-white/30 hover:bg-white/40 text-white py-2 rounded-lg transition-colors border border-white/20"
+            className="flex-1 bg-white/10 hover:bg-white/20 text-white py-2 rounded-lg transition-colors border border-white/10"
           >
-            Cancel changes
+            Cancel
           </button>
         </div>
       </div>
