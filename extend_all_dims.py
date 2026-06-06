@@ -19,16 +19,20 @@ import subprocess
 import sys
 import os
 
-def run_script(script_name, description):
+def run_script(script_name, description, args=None):
     """Run a Python script and track success"""
     print(f"\n{'='*60}")
     print(f"STEP: {description}")
     print(f"{'='*60}")
     
+    cmd = [sys.executable, script_name]
+    if args:
+        cmd.extend(args)
+        
     try:
         # Use sys.executable to run Python script in same interpreter
         result = subprocess.run(
-            [sys.executable, script_name],
+            cmd,
             cwd=os.path.dirname(os.path.abspath(__file__)) or '.'
         )
         
@@ -48,6 +52,7 @@ def main():
     skip_images = '--skip-images' in sys.argv
     skip_youtube = '--skip-youtube' in sys.argv
     skip_videos = '--skip-videos' in sys.argv
+    force = '--force' in sys.argv
     
     print("""
 ╔════════════════════════════════════════════════════════════╗
@@ -82,9 +87,11 @@ def main():
     
     # Step 3: Instagram Videos
     if not skip_videos:
+        video_args = ['--force'] if force else []
         results['videos'] = run_script(
             'extend_instagram_videos_dims.py',
-            'Add Instagram Video Dimensions'
+            'Add Instagram Video Dimensions',
+            args=video_args
         )
     else:
         print("\n[SKIPPED] Instagram video extension (--skip-videos)")

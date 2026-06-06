@@ -203,7 +203,44 @@
         "conscious",
         "Mapping"
       ],
-      "media": []
+      "type": "image",
+      "url": "https://www.flickr.com/photos/23689211@N04/47019127982/",
+      "link": "https://www.flickr.com/photos/23689211@N04/47019127982/",
+      "image": "https://live.staticflickr.com/7803/47019127982_2be3bcac4d_o.jpg",
+      "image_thumb": "https://live.staticflickr.com/7803/47019127982_cd736c7e0b_s.jpg",
+      "image_1k": "https://live.staticflickr.com/7803/47019127982_cd736c7e0b_b.jpg",
+      "image_2k": "https://live.staticflickr.com/7803/47019127982_cc6f56c2fc_k.jpg",
+      "image_3k": "https://live.staticflickr.com/7803/47019127982_2be3bcac4d_o.jpg",
+      "image_large": "https://live.staticflickr.com/7803/47019127982_2be3bcac4d_o.jpg",
+      "image_original": "https://live.staticflickr.com/7803/47019127982_2be3bcac4d_o.jpg",
+      "media": [
+        {
+          "type": "image",
+          "url": "https://www.flickr.com/photos/23689211@N04/47019127982/",
+          "link": "https://www.flickr.com/photos/23689211@N04/47019127982/",
+          "image": "https://live.staticflickr.com/7803/47019127982_2be3bcac4d_o.jpg",
+          "image_thumb": "https://live.staticflickr.com/7803/47019127982_cd736c7e0b_s.jpg",
+          "image_1k": "https://live.staticflickr.com/7803/47019127982_cd736c7e0b_b.jpg",
+          "image_2k": "https://live.staticflickr.com/7803/47019127982_cc6f56c2fc_k.jpg",
+          "image_3k": "https://live.staticflickr.com/7803/47019127982_2be3bcac4d_o.jpg",
+          "image_large": "https://live.staticflickr.com/7803/47019127982_2be3bcac4d_o.jpg",
+          "image_original": "https://live.staticflickr.com/7803/47019127982_2be3bcac4d_o.jpg"
+        }
+      ],
+      "mergedMedia": [
+        {
+          "type": "image",
+          "url": "https://www.flickr.com/photos/23689211@N04/47019127982/",
+          "link": "https://www.flickr.com/photos/23689211@N04/47019127982/",
+          "image": "https://live.staticflickr.com/7803/47019127982_2be3bcac4d_o.jpg",
+          "image_thumb": "https://live.staticflickr.com/7803/47019127982_cd736c7e0b_s.jpg",
+          "image_1k": "https://live.staticflickr.com/7803/47019127982_cd736c7e0b_b.jpg",
+          "image_2k": "https://live.staticflickr.com/7803/47019127982_cc6f56c2fc_k.jpg",
+          "image_3k": "https://live.staticflickr.com/7803/47019127982_2be3bcac4d_o.jpg",
+          "image_large": "https://live.staticflickr.com/7803/47019127982_2be3bcac4d_o.jpg",
+          "image_original": "https://live.staticflickr.com/7803/47019127982_2be3bcac4d_o.jpg"
+        }
+      ]
     },
     {
       "id": "B9BnRDTFcGB",

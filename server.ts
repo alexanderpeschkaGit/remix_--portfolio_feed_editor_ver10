@@ -10,7 +10,9 @@ import os from "os";
 import { createHash } from "crypto";
 import { imageHash } from "image-hash";
 import sharp from "sharp";
-import { spawn } from "child_process";
+import { spawn, exec } from "child_process";
+import { promisify } from "util";
+const execAsync = promisify(exec);
 
 async function startServer() {
   const app = express();
@@ -80,6 +82,117 @@ async function startServer() {
     await fs.mkdir(path.join(groupDir, 'originals'), { recursive: true }).catch(() => {});
     for (const variant of MEDIA_VARIANTS) {
       await fs.mkdir(path.join(groupDir, variant.dir), { recursive: true }).catch(() => {});
+    }
+  }
+
+  async function probeVideoDimensions(videoPathOrUrl: string): Promise<{ width: number; height: number } | null> {
+    if (!videoPathOrUrl) return null;
+    let target = videoPathOrUrl;
+    
+    // Resolve HTTP URLs to local files if they match our patterns
+    if (target.startsWith("http")) {
+      try {
+        const parsedUrl = new URL(target);
+        // e.g. R2 public domain URLs point to data/ or v2/
+        let pathname = decodeURIComponent(parsedUrl.pathname);
+        if (pathname.startsWith("/data_v2/")) {
+          const localPath = path.join(process.cwd(), pathname.replace(/^\/data_v2\//, 'data_v2/'));
+          if (await fs.access(localPath).then(() => true).catch(() => false)) {
+            target = localPath;
+          }
+        } else if (pathname.startsWith("/data/")) {
+          const localPath = path.join(DATA_DIR, pathname.replace(/^\/data\//, ''));
+          if (await fs.access(localPath).then(() => true).catch(() => false)) {
+            target = localPath;
+          }
+        }
+      } catch (err) {}
+    } else if (target.startsWith("/")) {
+      try {
+        let pathname = decodeURIComponent(target);
+        if (pathname.startsWith("/data_v2/")) {
+          const localPath = path.join(process.cwd(), pathname.replace(/^\/data_v2\//, 'data_v2/'));
+          if (await fs.access(localPath).then(() => true).catch(() => false)) {
+            target = localPath;
+          }
+        } else if (pathname.startsWith("/data/")) {
+          const localPath = path.join(DATA_DIR, pathname.replace(/^\/data\//, ''));
+          if (await fs.access(localPath).then(() => true).catch(() => false)) {
+            target = localPath;
+          }
+        }
+      } catch (err) {}
+    }
+
+    try {
+      const { stdout } = await execAsync(
+        `ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "${target}"`
+      );
+      const dims = stdout.trim().split('x');
+      if (dims.length === 2) {
+        const width = parseInt(dims[0], 10);
+        const height = parseInt(dims[1], 10);
+        if (width > 0 && height > 0) {
+          return { width, height };
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[Video Probe] Failed for ${videoPathOrUrl}:`, err.message || err);
+    }
+    return null;
+  }
+
+  async function ensureStateVideoDimensions(state: any) {
+    if (!state || !Array.isArray(state.items)) return;
+    
+    const isVideoUrl = (url?: string) => {
+      if (!url) return false;
+      return /\.(mp4|webm|mov|avi|mkv|flv)$/i.test(url.split('?')[0]);
+    };
+
+    for (const item of state.items) {
+      const itemType = String(item.type || '').toLowerCase();
+      const isVideo = itemType === 'video' || isVideoUrl(item.video) || isVideoUrl(item.image) || isVideoUrl(item.url);
+      
+      if (isVideo) {
+        const currentW = item.image_width;
+        const currentH = item.image_height;
+        const isFallback = (currentW === 1080 && currentH === 1080) || !currentH || !currentW;
+        
+        if (isFallback) {
+          const videoSrc = item.video || item.image || item.url;
+          const dims = await probeVideoDimensions(videoSrc);
+          if (dims) {
+            item.image_width = dims.width;
+            item.image_height = dims.height;
+            console.log(`[Video Dimensions] Auto-corrected item ${item.id} to ${dims.width}x${dims.height}`);
+          }
+        }
+      }
+
+      if (Array.isArray(item.mergedMedia)) {
+        for (let idx = 0; idx < item.mergedMedia.length; idx++) {
+          const media = item.mergedMedia[idx];
+          const mediaType = String(media.type || '').toLowerCase();
+          const isMediaVideo = mediaType === 'video' || isVideoUrl(media.video) || isVideoUrl(media.image) || isVideoUrl(media.url);
+          
+          if (isMediaVideo) {
+            const currentW = media.image_width;
+            const currentH = media.image_height;
+            const isFallback = (currentW === 1080 && currentH === 1080) || !currentH || !currentW;
+            
+            if (isFallback) {
+              const videoSrc = media.video || media.image || media.url;
+              const dims = await probeVideoDimensions(videoSrc);
+              if (dims) {
+                media.image_width = dims.width;
+                media.image_height = dims.height;
+                console.log(`[Video Dimensions] Auto-corrected item ${item.id} media#${idx} to ${dims.width}x${dims.height}`);
+              }
+            }
+          }
+        }
+      }
     }
   }
 
@@ -1797,8 +1910,10 @@ async function startServer() {
   // API route to save state
   app.post("/api/state", async (req, res) => {
     try {
+      const state = req.body;
+      await ensureStateVideoDimensions(state);
       await backupState();
-      await fs.writeFile(path.join(DATA_DIR, 'state.json'), JSON.stringify(req.body, null, 2));
+      await fs.writeFile(path.join(DATA_DIR, 'state.json'), JSON.stringify(state, null, 2));
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: 'Failed to save state' });
@@ -1829,6 +1944,9 @@ async function startServer() {
       }
       if (states !== undefined) state.items[itemIndex].states = states;
       
+      // Auto-correct video dimensions if fallback
+      await ensureStateVideoDimensions(state);
+
       // Update the lastUpdated timestamp so the frontend can detect the change
       state.lastUpdated = new Date().toISOString();
 

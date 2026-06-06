@@ -193,7 +193,7 @@ def is_instagram_video(item):
 
     return False
 
-def extend_instagram_video_dims():
+def extend_instagram_video_dims(force=False):
     """Add dimensions to Instagram videos from Cloudflare"""
     if not os.path.exists(STATE_PATH):
         print(f"[ERROR] {STATE_PATH} not found!")
@@ -214,6 +214,8 @@ def extend_instagram_video_dims():
     scrape_lookup = load_instagram_scrape_lookup()
     
     print(f"\n--- EXTENDING INSTAGRAM VIDEO DIMENSIONS ---")
+    if force:
+        print("⚠ Force flag active: Will re-probe and update all Instagram videos.")
     
     # Check for ffprobe
     ffprobe_available = check_ffprobe()
@@ -236,7 +238,12 @@ def extend_instagram_video_dims():
             total_instagram_videos += 1
             
             # Check top-level
-            if not item.get('image_width') or not item.get('image_height'):
+            current_w = item.get('image_width')
+            current_h = item.get('image_height')
+            is_fallback = (current_w == INSTAGRAM_VIDEO_WIDTH and current_h == INSTAGRAM_VIDEO_HEIGHT)
+            should_update = force or not current_w or not current_h or is_fallback
+            
+            if should_update:
                 # Try to get actual dimensions from video file
                 video_sources = collect_video_sources(item, scrape_lookup)
                 width, height = None, None
@@ -249,15 +256,20 @@ def extend_instagram_video_dims():
                 
                 # Use ffprobe result or fallback to Instagram standard
                 if width and height:
-                    item['image_width'] = width
-                    item['image_height'] = height
-                    print(f"  ✓ {item.get('title', 'Instagram Video')}: {width}×{height} (extracted)")
-                else:
+                    if width != current_w or height != current_h:
+                        item['image_width'] = width
+                        item['image_height'] = height
+                        print(f"  ✓ {item.get('title', 'Instagram Video')}: {current_w}x{current_h} -> {width}×{height} (extracted)")
+                        updated_count += 1
+                    else:
+                        skipped_count += 1
+                elif not current_w or not current_h:
                     item['image_width'] = INSTAGRAM_VIDEO_WIDTH
                     item['image_height'] = INSTAGRAM_VIDEO_HEIGHT
-                    print(f"  ✓ {item.get('title', 'Instagram Video')}: {INSTAGRAM_VIDEO_WIDTH}×{INSTAGRAM_VIDEO_HEIGHT} (standard)")
-                
-                updated_count += 1
+                    print(f"  ✓ {item.get('title', 'Instagram Video')}: {INSTAGRAM_VIDEO_WIDTH}×{INSTAGRAM_VIDEO_HEIGHT} (standard fallback)")
+                    updated_count += 1
+                else:
+                    skipped_count += 1
             else:
                 skipped_count += 1
         
@@ -266,7 +278,12 @@ def extend_instagram_video_dims():
             for idx, media in enumerate(item['mergedMedia']):
                 media_sources = collect_video_sources(media, scrape_lookup)
                 if media.get('type', '').lower() == 'video' or any(is_video_url(candidate) for candidate in media_sources):
-                    if not media.get('image_width') or not media.get('image_height'):
+                    current_w = media.get('image_width')
+                    current_h = media.get('image_height')
+                    is_fallback = (current_w == INSTAGRAM_VIDEO_WIDTH and current_h == INSTAGRAM_VIDEO_HEIGHT)
+                    should_update = force or not current_w or not current_h or is_fallback
+
+                    if should_update:
                         width, height = None, None
 
                         if ffprobe_available:
@@ -276,13 +293,19 @@ def extend_instagram_video_dims():
                                     break
 
                         if width and height:
-                            media['image_width'] = width
-                            media['image_height'] = height
-                        else:
+                            if width != current_w or height != current_h:
+                                media['image_width'] = width
+                                media['image_height'] = height
+                                print(f"    ✓ [media#{idx}]: {current_w}x{current_h} -> {width}×{height} (extracted)")
+                                updated_count += 1
+                            else:
+                                skipped_count += 1
+                        elif not current_w or not current_h:
                             media['image_width'] = INSTAGRAM_VIDEO_WIDTH
                             media['image_height'] = INSTAGRAM_VIDEO_HEIGHT
-
-                        updated_count += 1
+                            updated_count += 1
+                        else:
+                            skipped_count += 1
                     else:
                         skipped_count += 1
     
@@ -293,7 +316,7 @@ def extend_instagram_video_dims():
         print(f"\n✅ SUCCESS!")
         print(f"   Total Instagram videos found: {total_instagram_videos}")
         print(f"   Updated with dimensions: {updated_count}")
-        print(f"   Already had dimensions: {skipped_count}")
+        print(f"   Already had correct dimensions: {skipped_count}")
         print(f"   Saved to: {STATE_PATH}")
         return True
     except Exception as e:
@@ -301,7 +324,8 @@ def extend_instagram_video_dims():
         return False
 
 if __name__ == "__main__":
-    success = extend_instagram_video_dims()
+    force = "--force" in sys.argv
+    success = extend_instagram_video_dims(force=force)
     if not success:
         sys.exit(1)
     
