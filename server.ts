@@ -87,6 +87,8 @@ async function startServer() {
 
   async function probeVideoDimensions(videoPathOrUrl: string): Promise<{ width: number; height: number } | null> {
     if (!videoPathOrUrl) return null;
+    // blob: URLs are browser-only — ffprobe can't access them
+    if (videoPathOrUrl.startsWith("blob:")) return null;
     let target = videoPathOrUrl;
     
     // Resolve HTTP URLs to local files if they match our patterns
@@ -608,6 +610,12 @@ async function startServer() {
     secretAccessKey: process.env.CLOUDFLARE_SECRET_ACCESS_KEY || "54bcb9d673d5d53aa6e07b5be67963a01c4b90b7121ca5e1d5ac974e37c8f25d",
     bucketName: process.env.CLOUDFLARE_BUCKET_NAME || "portfoliodata",
     publicDomain: process.env.CLOUDFLARE_PUBLIC_DOMAIN ? (process.env.CLOUDFLARE_PUBLIC_DOMAIN.startsWith('http') ? process.env.CLOUDFLARE_PUBLIC_DOMAIN : `https://${process.env.CLOUDFLARE_PUBLIC_DOMAIN}`) : "https://pub-85bb68a84f3b4ba6b512b3d165c96497.r2.dev"
+  };
+
+  const BUNNY_CONFIG = {
+    apiKey: process.env.BUNNY_API_KEY || "",
+    libraryId: process.env.BUNNY_LIBRARY_ID || "",
+    pullZone: process.env.BUNNY_PULL_ZONE || ""
   };
 
   const s3Client = new S3Client({
@@ -2756,6 +2764,689 @@ async function startServer() {
     }
   });
 
+  // API route to upload a video, extract thumbnail via ffmpeg, generate variants
+  app.post("/api/upload-video", upload.single("video"), async (req, res) => {
+    let tmpDir: string | null = null;
+    let thumbBuffer: Buffer | null = null;
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No video provided" });
+      }
+
+      const ext = (req.file.originalname.split('.').pop() || 'mp4').toLowerCase();
+      const baseName = `vid-${Date.now()}`;
+      const group = 'uploads';
+      
+      // Save original video
+      const originalFilename = `${baseName}.${ext}`;
+      const originalPath = getVariantLocalPath(group, 'originals', originalFilename);
+      await fs.writeFile(originalPath, req.file.buffer);
+      const originalUrl = getVariantLocalUrl(group, 'originals', originalFilename);
+
+      // Extract thumbnail via ffmpeg (frame at 1 second)
+      tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'vidthumb-'));
+      const tmpVideoPath = path.join(tmpDir, `input.${ext}`);
+      await fs.writeFile(tmpVideoPath, req.file.buffer);
+      const thumbPath = path.join(tmpDir, 'thumb.jpg');
+
+      let ffmpegAvailable = false;
+      // Normalize paths to forward slashes – ffmpeg on Windows accepts them, and cmd.exe handles them better
+      const ffInput = tmpVideoPath.replace(/\\/g, '/');
+      const ffThumb = thumbPath.replace(/\\/g, '/');
+
+      const tryFfmpegFrame = async (seconds: number): Promise<Buffer | null> => {
+        try {
+          const cmd = `ffmpeg -y -i "${ffInput}" -ss ${seconds.toFixed(2)} -frames:v 1 -q:v 2 "${ffThumb}"`;
+          await execAsync(cmd, { timeout: 30000 });
+          const data = await fs.readFile(thumbPath).catch(() => null);
+          if (data && data.length > 100) return data;
+          return null;
+        } catch (e: any) {
+          console.warn(`ffmpeg frame at ${seconds}s failed:`, e.stderr || e.message);
+          return null;
+        }
+      };
+
+      // Try frame at 1s, then 0.1s
+      thumbBuffer = await tryFfmpegFrame(1);
+      if (!thumbBuffer) thumbBuffer = await tryFfmpegFrame(0.1);
+      if (thumbBuffer) ffmpegAvailable = true;
+
+      // Transcode to MP4 if not already browser-compatible (mov, avi, mkv, etc.)
+      let browserUrl = originalUrl;
+      if (ext !== 'mp4' && ext !== 'webm' && ffmpegAvailable) {
+        try {
+          const mp4Out = path.join(tmpDir, 'output.mp4').replace(/\\/g, '/');
+          await execAsync(`ffmpeg -y -i "${ffInput}" -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k -movflags +faststart "${mp4Out}"`, { timeout: 120000 });
+          const mp4Path = path.join(tmpDir, 'output.mp4');
+          const mp4Stat = await fs.stat(mp4Path).catch(() => null);
+          if (mp4Stat && mp4Stat.size > 0) {
+            const mp4Filename = `${baseName}.mp4`;
+            const mp4DestPath = getVariantLocalPath(group, 'originals', mp4Filename);
+            await fs.writeFile(mp4DestPath, await fs.readFile(mp4Path));
+            browserUrl = getVariantLocalUrl(group, 'originals', mp4Filename);
+          }
+        } catch (transcodeErr: any) {
+          console.warn("ffmpeg transcode to MP4 failed:", transcodeErr.stderr || transcodeErr.message);
+        }
+      }
+
+      let variantSet: any = {};
+      if (thumbBuffer && thumbBuffer.length > 0) {
+        variantSet = await materializeVariantSet(thumbBuffer, {
+          group: 'uploads',
+          baseName,
+          originalBuffer: thumbBuffer,
+          originalExt: 'jpg',
+          uploadToCloud: false,
+        });
+      }
+
+      const localThumb = variantSet.localUrls?.image_thumb || '';
+      const local1k = variantSet.localUrls?.image_1k || '';
+      const local2k = variantSet.localUrls?.image_2k || '';
+      const local3k = variantSet.localUrls?.image_3k || '';
+      const localOriginal = variantSet.localUrls?.image_original || '';
+
+      res.json({
+        success: true,
+        type: 'video',
+        url: browserUrl,
+        image: local2k || local3k || local1k || localThumb || '',
+        image_thumb: localThumb,
+        image_1k: local1k,
+        image_2k: local2k,
+        image_3k: local3k,
+        image_original: originalUrl,
+        image_width: variantSet.sourceWidth || 0,
+        image_height: variantSet.sourceHeight || 0,
+        missing_variants: variantSet.missingVariants || [],
+      });
+    } catch (error: any) {
+      console.error("Error processing video upload:", error);
+      res.status(500).json({ error: error.message || "Failed to process video upload" });
+    } finally {
+      if (tmpDir) {
+        await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      }
+    }
+  });
+
+  // ── Background task tracker for Bunny uploads ──
+  const bunnyTasks = new Map<string, { step: string; progress: number; result?: any; error?: string; startedAt: number }>();
+  // Auto-clean old tasks after 10 minutes
+  setInterval(() => {
+    const now = Date.now();
+    for (const [id, task] of bunnyTasks) {
+      if (now - task.startedAt > 600_000) bunnyTasks.delete(id);
+    }
+  }, 120_000);
+
+  const sanitizeProjectName = (name: string) =>
+    (name || 'uncategorized')
+      .toLowerCase()
+      .replace(/[^a-z0-9äöüß\-_ ]/gi, '')
+      .replace(/\s+/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '')
+      .substring(0, 60) || 'uncategorized';
+
+  // Helper: get project subfolder path within a variant dir
+  const getProjectSubPath = (group: keyof typeof V2_MEDIA_GROUPS, dir: string, projectName: string, projectId: string, filename: string) => {
+    const safeName = sanitizeProjectName(projectName);
+    const subfolder = `${safeName}_${projectId}`;
+    const groupDir = getGroupBaseDir(group);
+    return path.join(groupDir, dir, subfolder, filename);
+  };
+  const getProjectSubUrl = (group: keyof typeof V2_MEDIA_GROUPS, dir: string, projectName: string, projectId: string, filename: string) => {
+    const safeName = sanitizeProjectName(projectName);
+    const subfolder = `${safeName}_${projectId}`;
+    return joinUrlPath('data_v2', group, dir, subfolder, filename);
+  };
+
+  // Hybrid: upload video to local + Bunny Stream, get immediate ffmpeg thumb + better Bunny thumb later
+  // Phase 1 (synchronous): save locally, extract thumbnail → return immediately
+  // Phase 2 (background): upload to Bunny, poll for thumbnail, generate variants
+  app.post("/api/upload-video-to-bunny", upload.single("video"), async (req, res) => {
+    // Check if Bunny is configured BEFORE any processing
+    if (!BUNNY_CONFIG.apiKey || !BUNNY_CONFIG.libraryId) {
+      return res.status(400).json({ error: "Bunny nicht konfiguriert (API Key oder Library ID fehlt)", bunnyMissing: true });
+    }
+
+    let tmpDir: string | null = null;
+    let thumbBuffer: Buffer | null = null;
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No video provided" });
+      }
+
+      const projectId = (req.body?.projectId || '').toString();
+      const projectName = (req.body?.projectName || '').toString();
+      const projectDescription = (req.body?.projectDescription || '').toString();
+      const ext = (req.file.originalname.split('.').pop() || 'mp4').toLowerCase();
+      const baseName = `vidbunny-${Date.now()}`;
+      const group = 'uploads';
+
+      // ── Phase 1a: Save original video locally (in project subfolder if available) ──
+      let originalPath: string;
+      let originalUrl: string;
+      if (projectName && projectId) {
+        // Ensure subfolder exists
+        const safeName = sanitizeProjectName(projectName);
+        const subfolder = `${safeName}_${projectId}`;
+        const subDir = path.join(getGroupBaseDir(group), 'originals', subfolder);
+        await fs.mkdir(subDir, { recursive: true }).catch(() => {});
+        originalPath = path.join(subDir, `${baseName}.${ext}`);
+        originalUrl = getProjectSubUrl(group, 'originals', projectName, projectId, `${baseName}.${ext}`);
+      } else {
+        originalPath = getVariantLocalPath(group, 'originals', `${baseName}.${ext}`);
+        originalUrl = getVariantLocalUrl(group, 'originals', `${baseName}.${ext}`);
+      }
+      await fs.writeFile(originalPath, req.file.buffer);
+
+      // ── Phase 1b: Extract ffmpeg thumbnail (immediate preview) ──
+      tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'vidthumb-'));
+      const tmpVideoPath = path.join(tmpDir, `input.${ext}`);
+      await fs.writeFile(tmpVideoPath, req.file.buffer);
+      const ffmpegThumbPath = path.join(tmpDir, 'thumb.jpg');
+
+      const ffInputB = tmpVideoPath.replace(/\\/g, '/');
+      const ffThumbB = ffmpegThumbPath.replace(/\\/g, '/');
+
+      const tryFfmpegFrameB = async (seconds: number): Promise<Buffer | null> => {
+        try {
+          const cmd = `ffmpeg -y -i "${ffInputB}" -ss ${seconds.toFixed(2)} -frames:v 1 -q:v 2 "${ffThumbB}"`;
+          await execAsync(cmd, { timeout: 30000 });
+          const data = await fs.readFile(ffmpegThumbPath).catch(() => null);
+          if (data && data.length > 100) return data;
+          return null;
+        } catch (e: any) {
+          console.warn(`[bunny-hybrid] ffmpeg frame at ${seconds}s failed:`, e.stderr || e.message);
+          return null;
+        }
+      };
+
+      thumbBuffer = await tryFfmpegFrameB(1);
+      if (!thumbBuffer) thumbBuffer = await tryFfmpegFrameB(0.1);
+
+      let localVariantSet: any = {};
+      if (thumbBuffer && thumbBuffer.length > 0) {
+        localVariantSet = await materializeVariantSet(thumbBuffer, {
+          group: 'uploads',
+          baseName: `${baseName}_local`,
+          originalBuffer: thumbBuffer,
+          originalExt: 'jpg',
+          uploadToCloud: false,
+        });
+      }
+
+      const localThumb = localVariantSet.localUrls?.image_thumb || '';
+      const local1k = localVariantSet.localUrls?.image_1k || '';
+      const local2k = localVariantSet.localUrls?.image_2k || '';
+      const local3k = localVariantSet.localUrls?.image_3k || '';
+
+      // ── Phase 2: Start Bunny upload in background ──
+      const taskId = `bunny-${Date.now()}-${Math.random().toString(36).substring(4)}`;
+      const videoBuffer = req.file.buffer;
+      const originalFilename = req.file.originalname || `Video-${Date.now()}`;
+      // Build rich title: project name + filename for easy searching in Bunny dashboard
+      const bunnyTitle = projectName
+        ? `${projectName} — ${originalFilename}`
+        : originalFilename;
+
+      bunnyTasks.set(taskId, { step: 'starting', progress: 0, startedAt: Date.now() });
+
+      // Launch background task (do NOT await)
+      (async () => {
+        try {
+          bunnyTasks.set(taskId, { step: 'creating', progress: 5, startedAt: Date.now() });
+
+          // Step A: Create Bunny video entry with descriptive title
+          const createUrl = `https://video.bunnycdn.com/library/${BUNNY_CONFIG.libraryId}/videos`;
+          const createRes = await fetch(createUrl, {
+            method: 'POST',
+            headers: {
+              "AccessKey": BUNNY_CONFIG.apiKey,
+              "Accept": "application/json",
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ title: bunnyTitle })
+          });
+          if (!createRes.ok) throw new Error(`Bunny create error: ${createRes.statusText}`);
+          const videoData = await createRes.json();
+          const videoId = videoData.guid;
+
+          bunnyTasks.set(taskId, { step: 'uploading', progress: 15, startedAt: Date.now() });
+
+          // Step B: Upload video data to Bunny
+          const uploadUrl = `https://video.bunnycdn.com/library/${BUNNY_CONFIG.libraryId}/videos/${videoId}`;
+          const uploadRes = await fetch(uploadUrl, {
+            method: 'PUT',
+            headers: {
+              "AccessKey": BUNNY_CONFIG.apiKey,
+              "Content-Type": "application/octet-stream"
+            },
+            body: videoBuffer
+          });
+          if (!uploadRes.ok) throw new Error(`Bunny upload error: ${uploadRes.statusText}`);
+
+          // Step B2: Add project context as metaTags (searchable in Bunny dashboard)
+          bunnyTasks.set(taskId, { step: 'uploading', progress: 45, startedAt: Date.now() });
+          try {
+            const metaPayload: any = { title: bunnyTitle };
+            const metaTags: { property: string; value: string }[] = [];
+            if (projectName) metaTags.push({ property: 'project', value: projectName });
+            if (projectId) metaTags.push({ property: 'projectId', value: projectId });
+            if (projectDescription) {
+              // Bunny limits values; truncate to reasonable size
+              metaTags.push({ property: 'description', value: projectDescription.substring(0, 500) });
+            }
+            if (metaTags.length > 0) metaPayload.metaTags = metaTags;
+
+            await fetch(uploadUrl, {
+              method: 'POST',
+              headers: {
+                "AccessKey": BUNNY_CONFIG.apiKey,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify(metaPayload)
+            });
+          } catch (metaErr: any) {
+            console.warn('[bunny-bg] Failed to set metaTags:', metaErr.message);
+            // Non-fatal: continue even if metaTags fail
+          }
+
+          bunnyTasks.set(taskId, { step: 'encoding', progress: 50, startedAt: Date.now() });
+
+          // Step C: Poll Bunny for encoding & thumbnail (max 45 seconds)
+          let bunnyThumbUrl = '';
+          let bunnyDuration = 0;
+          const metaUrl = `https://video.bunnycdn.com/library/${BUNNY_CONFIG.libraryId}/videos/${videoId}`;
+
+          for (let attempt = 0; attempt < 15; attempt++) {
+            await new Promise(r => setTimeout(r, 3000));
+            const pollProgress = 50 + Math.floor((attempt / 15) * 40); // 50%–90%
+            bunnyTasks.set(taskId, { step: 'encoding', progress: pollProgress, startedAt: Date.now() });
+            try {
+              const metaRes = await fetch(metaUrl, {
+                headers: { "AccessKey": BUNNY_CONFIG.apiKey, "Accept": "application/json" }
+              });
+              if (!metaRes.ok) continue;
+              const meta = await metaRes.json();
+              bunnyDuration = meta.length || 0;
+              const thumbFilename = meta.thumbnailFileName;
+              if (meta.status === 'finished' && thumbFilename) {
+                bunnyThumbUrl = `https://${BUNNY_CONFIG.pullZone}/${videoId}/${thumbFilename}`;
+                break;
+              }
+            } catch {}
+          }
+
+          bunnyTasks.set(taskId, { step: 'variants', progress: 90, startedAt: Date.now() });
+
+          // Step D: Generate variants from Bunny thumbnail (better quality)
+          let bunnyVariantSet: any = {};
+          if (bunnyThumbUrl) {
+            try {
+              const thumbFetchRes = await fetch(bunnyThumbUrl);
+              if (thumbFetchRes.ok) {
+                const arrayBuffer = await thumbFetchRes.arrayBuffer();
+                const bunnyThumbBuffer = Buffer.from(arrayBuffer);
+                bunnyVariantSet = await materializeVariantSet(bunnyThumbBuffer, {
+                  group: 'uploads',
+                  baseName,
+                  originalBuffer: bunnyThumbBuffer,
+                  originalExt: 'jpg',
+                  uploadToCloud: false,
+                });
+              }
+            } catch (bErr: any) {
+              console.warn("Bunny thumbnail variant generation failed:", bErr.message);
+            }
+          }
+
+          const finalThumb = bunnyVariantSet.localUrls?.image_thumb || localThumb;
+          const final1k = bunnyVariantSet.localUrls?.image_1k || local1k;
+          const final2k = bunnyVariantSet.localUrls?.image_2k || local2k;
+          const final3k = bunnyVariantSet.localUrls?.image_3k || local3k;
+
+          bunnyTasks.set(taskId, {
+            step: 'done', progress: 100, startedAt: Date.now(),
+            result: {
+              success: true, type: 'bunny',
+              libraryId: BUNNY_CONFIG.libraryId, videoId,
+              url: originalUrl,
+              image: final2k || final3k || final1k || finalThumb || bunnyThumbUrl || '',
+              image_thumb: finalThumb,
+              image_1k: final1k, image_2k: final2k, image_3k: final3k,
+              image_original: originalUrl,
+              duration: bunnyDuration, bunnyThumbUrl,
+            }
+          });
+        } catch (bgError: any) {
+          console.error("[bunny-bg] Background upload failed:", bgError.message);
+          bunnyTasks.set(taskId, {
+            step: 'error', progress: 0, startedAt: Date.now(),
+            error: bgError.message || 'Unknown background error'
+          });
+        }
+      })();
+
+      // ── Respond immediately with local results ──
+      res.json({
+        success: true,
+        type: 'video', // local for now; will update to 'bunny' when bg task completes
+        url: originalUrl,
+        image: local2k || local3k || local1k || localThumb || '',
+        image_thumb: localThumb,
+        image_1k: local1k,
+        image_2k: local2k,
+        image_3k: local3k,
+        image_original: originalUrl,
+        bunnyTaskId: taskId,
+        bunnyStatus: 'starting',
+      });
+    } catch (error: any) {
+      console.error("[hybrid] Error processing video upload:", error.message);
+      if (error.response) console.error("[hybrid] Bunny API status:", error.response.status, error.response.statusText);
+      res.status(500).json({ error: error.message || "Failed to process hybrid video upload", bunnyMissing: false });
+    } finally {
+      if (tmpDir) {
+        await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      }
+    }
+  });
+
+  // Poll Bunny background task status
+  app.get("/api/bunny/task/:taskId/status", (req, res) => {
+    const { taskId } = req.params;
+    const task = bunnyTasks.get(taskId);
+    if (!task) {
+      return res.json({ step: 'unknown', progress: 0, found: false });
+    }
+    res.json({
+      step: task.step,
+      progress: task.progress,
+      result: task.result || null,
+      error: task.error || null,
+      found: true,
+    });
+  });
+
+  // Update Bunny video metadata (title + metaTags) when project title/description changes
+  app.post("/api/bunny/update-video-metadata", async (req, res) => {
+    try {
+      const { videoId, libraryId, title, projectId, description } = req.body;
+      if (!videoId) {
+        return res.status(400).json({ error: "videoId is required" });
+      }
+      if (!BUNNY_CONFIG.apiKey) {
+        return res.status(400).json({ error: "Bunny API key not configured" });
+      }
+
+      const libId = libraryId || BUNNY_CONFIG.libraryId;
+      const updateUrl = `https://video.bunnycdn.com/library/${libId}/videos/${videoId}`;
+
+      const metaPayload: any = {};
+      if (title) metaPayload.title = title;
+
+      const metaTags: { property: string; value: string }[] = [];
+      if (title) metaTags.push({ property: 'project', value: title });
+      if (projectId) metaTags.push({ property: 'projectId', value: String(projectId) });
+      if (description) metaTags.push({ property: 'description', value: String(description).substring(0, 500) });
+      if (metaTags.length > 0) metaPayload.metaTags = metaTags;
+
+      if (Object.keys(metaPayload).length === 0) {
+        return res.json({ success: true, message: 'Nothing to update' });
+      }
+
+      const updateRes = await fetch(updateUrl, {
+        method: 'POST',
+        headers: {
+          "AccessKey": BUNNY_CONFIG.apiKey,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(metaPayload)
+      });
+
+      if (!updateRes.ok) {
+        const errText = await updateRes.text().catch(() => '');
+        throw new Error(`Bunny update error ${updateRes.status}: ${errText || updateRes.statusText}`);
+      }
+
+      res.json({ success: true, message: `Updated metadata for video ${videoId}` });
+    } catch (error: any) {
+      console.error("[bunny-meta] Failed to update video metadata:", error.message);
+      res.status(500).json({ error: error.message || "Failed to update Bunny metadata" });
+    }
+  });
+
+  // Rename project folder when project name changes
+  app.post("/api/rename-project-folder", async (req, res) => {
+    try {
+      const { projectId, oldName, newName } = req.body;
+      if (!projectId || !newName) {
+        return res.status(400).json({ error: "projectId and newName are required" });
+      }
+
+      const oldSafe = sanitizeProjectName(oldName || '');
+      const newSafe = sanitizeProjectName(newName);
+      if (oldSafe === newSafe && oldName) {
+        return res.json({ success: true, changed: false, message: 'Name unchanged after sanitization' });
+      }
+
+      const group = 'uploads';
+      const dirs = ['originals', 'thumbs400', '1k', '2k', '3k'];
+      let renamed = 0;
+
+      for (const dir of dirs) {
+        const groupDir = getGroupBaseDir(group);
+        const baseDir = path.join(groupDir, dir);
+
+        // Find old folder: {oldSafe}_{projectId}
+        let oldFolder: string | null = null;
+        if (oldSafe) {
+          const candidate = path.join(baseDir, `${oldSafe}_${projectId}`);
+          try { await fs.access(candidate); oldFolder = candidate; } catch {}
+        }
+        // If oldName not given or not found, search by projectId suffix
+        if (!oldFolder) {
+          try {
+            const entries = await fs.readdir(baseDir);
+            for (const entry of entries) {
+              if (entry.endsWith(`_${projectId}`)) {
+                const candidate = path.join(baseDir, entry);
+                const stat = await fs.stat(candidate);
+                if (stat.isDirectory()) { oldFolder = candidate; break; }
+              }
+            }
+          } catch {}
+        }
+
+        if (!oldFolder) continue;
+
+        const newFolder = path.join(baseDir, `${newSafe}_${projectId}`);
+        if (oldFolder === newFolder) continue;
+
+        await fs.rename(oldFolder, newFolder);
+        renamed++;
+      }
+
+      // Update URLs in state.json
+      if (renamed > 0 && oldSafe) {
+        const statePath = path.join(DATA_DIR, 'state.json');
+        try {
+          let state: any = { items: [] };
+          const raw = await fs.readFile(statePath, 'utf-8');
+          state = JSON.parse(raw);
+          const oldSubPath = `/${oldSafe}_${projectId}/`;
+          const newSubPath = `/${newSafe}_${projectId}/`;
+          let stateChanged = false;
+          const replacer = (obj: any): any => {
+            if (typeof obj === 'string' && obj.includes(oldSubPath)) {
+              stateChanged = true;
+              return obj.split(oldSubPath).join(newSubPath);
+            }
+            if (Array.isArray(obj)) return obj.map(replacer);
+            if (obj && typeof obj === 'object') {
+              const n: any = {};
+              for (const [k, v] of Object.entries(obj)) n[k] = replacer(v);
+              return n;
+            }
+            return obj;
+          };
+          const newState = replacer(state);
+          if (stateChanged) {
+            await fs.writeFile(statePath, JSON.stringify(newState, null, 2));
+          }
+        } catch (e) {
+          console.warn('Failed to update state.json after rename:', e);
+        }
+      }
+
+      res.json({ success: true, changed: renamed > 0, renamed });
+    } catch (error: any) {
+      console.error("Error renaming project folder:", error);
+      res.status(500).json({ error: error.message || "Failed to rename project folder" });
+    }
+  });
+
+  // Check Bunny connection status
+  app.get("/api/bunny/check", async (req, res) => {
+    const hasApiKey = !!BUNNY_CONFIG.apiKey;
+    const hasLibraryId = !!BUNNY_CONFIG.libraryId;
+    const hasPullZone = !!BUNNY_CONFIG.pullZone;
+
+    if (!hasApiKey || !hasLibraryId) {
+      return res.json({
+        configured: false,
+        hasApiKey,
+        hasLibraryId,
+        hasPullZone,
+        message: 'Bunny nicht konfiguriert — .env fehlt BUNNY_API_KEY oder BUNNY_LIBRARY_ID'
+      });
+    }
+
+    try {
+      const testUrl = `https://video.bunnycdn.com/library/${BUNNY_CONFIG.libraryId}/videos?page=1&itemsPerPage=1`;
+      const testRes = await fetch(testUrl, {
+        headers: { "AccessKey": BUNNY_CONFIG.apiKey, "Accept": "application/json" }
+      });
+      if (testRes.ok) {
+        res.json({ configured: true, reachable: true, hasApiKey, hasLibraryId, hasPullZone, message: 'Bunny API erreichbar ✓' });
+      } else {
+        res.json({ configured: true, reachable: false, hasApiKey, hasLibraryId, hasPullZone, message: `Bunny API antwortet mit ${testRes.status}: ${testRes.statusText}` });
+      }
+    } catch (e: any) {
+      res.json({ configured: true, reachable: false, hasApiKey, hasLibraryId, hasPullZone, message: `Bunny nicht erreichbar: ${e.message}` });
+    }
+  });
+
+  app.post("/api/upload-bunny", upload.single("video"), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No video provided" });
+      }
+
+      if (!BUNNY_CONFIG.apiKey || !BUNNY_CONFIG.libraryId) {
+        throw new Error("Bunny API key or Library ID not configured in .env");
+      }
+
+      const title = req.file.originalname || `Video-${Date.now()}`;
+      
+      const createUrl = `https://video.bunnycdn.com/library/${BUNNY_CONFIG.libraryId}/videos`;
+      const createRes = await fetch(createUrl, {
+        method: 'POST',
+        headers: {
+          "AccessKey": BUNNY_CONFIG.apiKey,
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ title })
+      });
+      if (!createRes.ok) throw new Error(`Bunny create error: ${createRes.statusText}`);
+      const videoData = await createRes.json();
+      const videoId = videoData.guid;
+
+      const uploadUrl = `https://video.bunnycdn.com/library/${BUNNY_CONFIG.libraryId}/videos/${videoId}`;
+      const uploadRes = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: {
+          "AccessKey": BUNNY_CONFIG.apiKey,
+          "Content-Type": "application/octet-stream"
+        },
+        body: req.file.buffer
+      });
+      if (!uploadRes.ok) throw new Error(`Bunny upload error: ${uploadRes.statusText}`);
+
+      res.json({
+        success: true,
+        type: 'bunny',
+        libraryId: BUNNY_CONFIG.libraryId,
+        videoId: videoId,
+        message: 'Video uploaded to Bunny Stream. Processing might take a moment.'
+      });
+
+    } catch (error: any) {
+      console.error("Error processing Bunny video upload:", error);
+      res.status(500).json({ error: error.message || "Failed to process Bunny video upload" });
+    }
+  });
+
+  app.post("/api/bunny/sync-video", async (req, res) => {
+    try {
+      const { libraryId, videoId } = req.body;
+      if (!libraryId || !videoId) {
+        return res.status(400).json({ error: "Missing libraryId or videoId" });
+      }
+      if (!BUNNY_CONFIG.apiKey || !BUNNY_CONFIG.pullZone) {
+        throw new Error("Bunny API key or Pull Zone not configured in .env");
+      }
+
+      const metaUrl = `https://video.bunnycdn.com/library/${libraryId}/videos/${videoId}`;
+      const metaRes = await fetch(metaUrl, {
+        headers: {
+          "AccessKey": BUNNY_CONFIG.apiKey,
+          "Accept": "application/json"
+        }
+      });
+      if (!metaRes.ok) throw new Error(`Bunny metadata error: ${metaRes.statusText}`);
+      const metadata = await metaRes.json();
+
+      const thumbFilename = metadata.thumbnailFileName || 'thumbnail.jpg';
+      const thumbUrl = `https://${BUNNY_CONFIG.pullZone}/${videoId}/${thumbFilename}`;
+      const thumbFetchRes = await fetch(thumbUrl);
+      
+      let variantSet: any = {};
+      if (thumbFetchRes.ok) {
+        const arrayBuffer = await thumbFetchRes.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        const baseName = `bunny-${videoId}`;
+        
+        variantSet = await materializeVariantSet(buffer, {
+          group: 'uploads',
+          baseName,
+          originalBuffer: buffer,
+          originalExt: 'jpg',
+          uploadToCloud: true,
+        });
+      }
+
+      res.json({
+        success: true,
+        type: 'bunny',
+        libraryId,
+        videoId,
+        duration: metadata.length || 0,
+        url: thumbUrl,
+        ... (variantSet.remoteUrls || {})
+      });
+    } catch (error: any) {
+      console.error("Error syncing Bunny video:", error);
+      res.status(500).json({ error: error.message || "Failed to sync Bunny video" });
+    }
+  });
+
   app.get("/api/cloudflare/usage", async (req, res) => {
     // Calculate estimated costs
     // Free Tier: 1M Class A, 10M Class B, 10GB Storage
@@ -2784,6 +3475,11 @@ async function startServer() {
   // Catch-all for undefined API routes to prevent HTML responses
   app.all("/api/*", (req, res) => {
     res.status(404).json({ error: `API route ${req.method} ${req.url} not found` });
+  });
+
+  // Lightweight health check for batch file & auto-reload
+  app.get("/api/ping", (req, res) => {
+    res.json({ ok: true, time: Date.now() });
   });
 
   // Global error handler to ensure JSON responses for all errors

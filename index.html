@@ -13,6 +13,30 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <!-- Auto-Reload: lädt die Seite neu, wenn der Server nach einem Restart wieder antwortet -->
+    <script>
+      (function() {
+        let wasDown = false;
+        function ping() {
+          fetch('/api/ping', { cache: 'no-store' })
+            .then(r => {
+              if (r.ok && wasDown) {
+                console.log('[auto-reload] Server wieder da – lade neu...');
+                location.reload();
+              }
+              wasDown = false;
+            })
+            .catch(() => {
+              if (!wasDown) console.log('[auto-reload] Server nicht erreichbar – warte...');
+              wasDown = true;
+            });
+        }
+        // Prüfe alle 3 Sekunden
+        setInterval(ping, 3000);
+        // Auch beim ersten Laden prüfen (falls Seite erst nach Serverstart geöffnet wurde)
+        setTimeout(ping, 1000);
+      })();
+    </script>
   </body>
 </html>
 

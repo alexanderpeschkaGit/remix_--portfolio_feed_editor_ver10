@@ -84,6 +84,7 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
     const hasImage = !!(media.image || media.image_thumb || media.image_1k || media.image_2k || media.image_large || media.image_preview || media.image_3k || media.image_original);
     const hasUrl = !!(media.url || media.link);
     if (media.type === 'youtube') return !!(media.youtubeId || media.youtubeUrl || hasImage || hasUrl);
+    if (media.type === 'bunny') return true;
     return hasImage || hasUrl || !!media.youtubeId;
   };
 
@@ -193,7 +194,17 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
                   </div>
                 </div>
               )}
-              {media.type === 'youtube' && media.youtubeId ? (
+              {media.type === 'bunny' && media.videoId && media.libraryId ? (
+                <div className={`w-full max-w-5xl aspect-video rounded-lg overflow-hidden shadow-2xl shrink-0 ${isEditing ? 'pointer-events-none' : ''}`}>
+                  <iframe 
+                    src={`https://video.bunnycdn.com/embed/${media.libraryId}/${media.videoId}?autoplay=${i === 0 && !isEditing ? 'true' : 'false'}&loop=false&muted=true&preload=true&responsive=true`}
+                    loading="lazy"
+                    className="w-full h-full border-0"
+                    allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
+                    allowFullScreen
+                  ></iframe>
+                </div>
+              ) : media.type === 'youtube' && media.youtubeId ? (
                 <div className={`w-full max-w-5xl aspect-video rounded-lg overflow-hidden shadow-2xl shrink-0 ${isEditing ? 'pointer-events-none' : ''}`}>
                   <iframe 
                     src={`https://www.youtube.com/embed/${media.youtubeId}?autoplay=${i === 0 && !isEditing ? 1 : 0}&mute=1`} 
@@ -292,7 +303,14 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
                   onDrop={(e) => isEditing && handleLightboxDrop(e, i, currentLightboxPost.id)}
                   className={`aspect-square rounded bg-white/5 border overflow-hidden cursor-grab active:cursor-grabbing transition-colors ${lightboxDraggedIdx === i ? 'opacity-50 border-blue-500' : 'border-white/10 hover:border-white/30'}`}
                 >
-                  {media.type === 'youtube' && media.youtubeId ? (
+                  {media.type === 'bunny' && media.videoId ? (
+                    <div className="w-full h-full relative">
+                      <img src={getDisplayImage(getImageSrc(media), isR2Fallback, isEmbeddedData) || ''} className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                        <Youtube className="w-4 h-4 text-white" />
+                      </div>
+                    </div>
+                  ) : media.type === 'youtube' && media.youtubeId ? (
                     <div className="w-full h-full flex items-center justify-center bg-red-900/20">
                       <Youtube className="w-4 h-4 text-red-500" />
                     </div>

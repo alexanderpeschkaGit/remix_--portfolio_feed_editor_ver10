@@ -24,9 +24,10 @@ interface ThumbnailGalleryGridProps {
   // Callbacks
   handleDragEnd: (event: DragEndEvent) => void;
   handleImageUpload: (postId: string, file: File, mediaIndex?: number, isNew?: boolean) => void;
+  handleVideoFileUpload: (postId: string, file: File) => void;
   handleImageLoad: (id: string, e: React.SyntheticEvent<HTMLImageElement>) => void;
   handlePostChange: (postId: string, field: string, value: any) => void;
-  handleYoutubeChange: (postId: string, url: string) => void;
+  handleVideoLinkChange: (postId: string, url: string) => void;
   handleDeletePost: (postId: string) => void;
   handleMergeDown: (index: number) => void;
   handleUpdatePostMedia: (postId: string, media: any[]) => void;
@@ -39,6 +40,7 @@ interface ThumbnailGalleryGridProps {
   getVideoSrc: (media: any, preferLarge?: boolean) => string | undefined;
   formatDescription: (description: string, title: string) => string;
   isValidImageCandidate?: (url?: string) => boolean;
+  bunnyProgress?: Record<string, { step: string; progress: number; text: string }>;
 }
 
 export function ThumbnailGalleryGrid({
@@ -52,8 +54,9 @@ export function ThumbnailGalleryGrid({
   isEmbeddedData,
   handleDragEnd,
   handleImageUpload,
+  handleVideoFileUpload,
   handlePostChange,
-  handleYoutubeChange,
+  handleVideoLinkChange,
   handleDeletePost,
   handleMergeDown,
   handleUpdatePostMedia,
@@ -66,6 +69,7 @@ export function ThumbnailGalleryGrid({
   getVideoSrc,
   formatDescription,
   isValidImageCandidate,
+  bunnyProgress,
 }: ThumbnailGalleryGridProps) {
   const [isDraggingOverGrid, setIsDraggingOverGrid] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState(0);
@@ -89,7 +93,11 @@ export function ThumbnailGalleryGrid({
     files.forEach((file, index) => {
       // Slight delay to prevent race conditions
       setTimeout(() => {
-        handleImageUpload(firstPost.id, file, undefined, true);
+        if (file.type.startsWith('video/')) {
+          handleVideoFileUpload(firstPost.id, file);
+        } else {
+          handleImageUpload(firstPost.id, file, undefined, true);
+        }
       }, index * 100);
     });
   };
@@ -153,8 +161,9 @@ export function ThumbnailGalleryGrid({
               activeUploads={activeUploads}
               showResolutions={showResolutions}
               handleImageUpload={handleImageUpload}
+              handleVideoFileUpload={handleVideoFileUpload}
               handlePostChange={handlePostChange}
-              handleYoutubeChange={handleYoutubeChange}
+              handleVideoLinkChange={handleVideoLinkChange}
               handleDeletePost={handleDeletePost}
               handleMergeDown={handleMergeDown}
               handleUpdatePostMedia={handleUpdatePostMedia}
@@ -170,6 +179,7 @@ export function ThumbnailGalleryGrid({
               handleImageLoad={handleImageLoad}
               formatDescription={formatDescription}
               isValidImageCandidate={isValidImageCandidate}
+              bunnyProgress={bunnyProgress}
             />
           ))}
         </div>

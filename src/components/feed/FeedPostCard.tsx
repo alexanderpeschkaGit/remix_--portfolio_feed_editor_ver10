@@ -2,7 +2,7 @@
 import React, { useState, useRef, useLayoutEffect, useEffect, useMemo } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Loader2, Eye, GripVertical, ImageIcon, Youtube, X, Maximize2, FoldVertical, Trash2, ExternalLink } from 'lucide-react';
+import { Loader2, Eye, GripVertical, ImageIcon, Youtube, Film, X, Maximize2, FoldVertical, Trash2, ExternalLink, Check } from 'lucide-react';
 import { PROJECT_STATES } from '../../constants';
 
 interface FeedPostCardProps {
@@ -22,22 +22,25 @@ interface FeedPostCardProps {
   isEmbeddedData: boolean;
   isValidImageCandidate?: (url?: string) => boolean;
   handleImageUpload: (postId: string, file: File, mediaIndex?: number, isNew?: boolean) => void;
+  handleVideoFileUpload: (postId: string, file: File) => void;
   handlePostChange: (postId: string, field: string, value: any) => void;
-  handleYoutubeChange: (postId: string, url: string) => void;
+  handleVideoLinkChange: (postId: string, url: string) => void;
   handleDeletePost: (postId: string) => void;
   handleMergeDown: (index: number) => void;
   handleUpdatePostMedia: (postId: string, media: any[]) => void;
   setSelectedImage: (post: any) => void;
   handleStateToggle: (postId: string, stateId: string) => void;
   handleToggleHidden: (postId: string) => void;
+  bunnyProgress?: Record<string, { step: string; progress: number; text: string }>;
 }
 
 export function FeedPostCard({
   post, index, totalPosts, isEditing, activeUploads, showResolutions,
   imageDimensions, getDisplayImage, getImageSrc, getVideoSrc, handleImageLoad, formatDescription,
   isR2Fallback, isEmbeddedData, isValidImageCandidate,
-  handleImageUpload, handlePostChange, handleYoutubeChange, handleDeletePost,
-  handleMergeDown, handleUpdatePostMedia, setSelectedImage, handleStateToggle, handleToggleHidden
+  handleImageUpload, handleVideoFileUpload, handlePostChange, handleVideoLinkChange, handleDeletePost,
+  handleMergeDown, handleUpdatePostMedia, setSelectedImage, handleStateToggle, handleToggleHidden,
+  bunnyProgress
 }: FeedPostCardProps) {
   const {
     attributes, listeners, setNodeRef, transform, transition, isDragging
@@ -165,6 +168,8 @@ export function FeedPostCard({
   };
 
   const [draggedMediaIdx, setDraggedMediaIdx] = useState<number | null>(null);
+  const [applyLoading, setApplyLoading] = useState<Record<number, boolean>>({});
+  const [localUrlInputs, setLocalUrlInputs] = useState<Record<number, string>>({});
 
   const updateMediaItem = (i: number, field: string, value: any) => {
     const newMedia = [...mediaItems];
@@ -208,6 +213,33 @@ export function FeedPostCard({
     if (!thumbUrl) return;
     const finalUrl = getDisplayImage(thumbUrl, isR2Fallback, isEmbeddedData) || thumbUrl;
     window.open(finalUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  // Sync Bunny video metadata when project title/description changes
+  const syncBunnyMetadata = (newTitle?: string, newDescription?: string) => {
+    const mergedMedia = post.mergedMedia;
+    if (!mergedMedia || mergedMedia.length === 0) return;
+    const bunnyVideos = mergedMedia.filter((m: any) =>
+      (m.type === 'bunny') && (m.videoId) && (m.libraryId || '')
+    );
+    if (bunnyVideos.length === 0) return;
+    const title = newTitle !== undefined ? newTitle : localTitle;
+    const desc = newDescription !== undefined ? newDescription : localDescription;
+    bunnyVideos.forEach((m: any) => {
+      fetch('/api/bunny/update-video-metadata', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          videoId: m.videoId,
+          libraryId: m.libraryId || '',
+          title: title || '',
+          projectId: post.id,
+          description: desc || '',
+        })
+      }).then(r => r.json()).then(data => {
+        if (!data.success) console.warn('[bunny-meta] Update failed:', data.error);
+      }).catch(() => {});
+    });
   };
 
   return (
@@ -260,9 +292,9 @@ export function FeedPostCard({
         )}
         {isEditing ? (
           <div className={`flex flex-col gap-2 p-2 ${isDragging ? 'pointer-events-none' : ''}`}>
-            <div className="flex gap-2 mb-2" onClick={(e) => e.stopPropagation()}>
+            <div className="flex gap-2 mb-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
               <label
-                className="flex-1 flex items-center justify-center gap-2 bg-white/30 hover:bg-white/40 border border-white/20 rounded py-1.5 text-xs cursor-pointer transition-colors"
+                className="flex-1 flex items-center justify-center gap-2 bg-white/30 hover:bg-white/40 border border-white/20 rounded py-1.5 text-xs cursor-pointer transition-colors min-w-[100px]"
                 onClick={(e) => e.stopPropagation()}
               >
                 <ImageIcon className="w-3 h-3" /> + Bild
@@ -286,10 +318,30 @@ export function FeedPostCard({
                   e.stopPropagation();
                   addMedia('youtube');
                 }}
-                className="flex-1 flex items-center justify-center gap-2 bg-white/30 hover:bg-white/40 border border-white/20 rounded py-1.5 text-xs transition-colors"
+                className="flex-1 flex items-center justify-center gap-2 bg-white/30 hover:bg-white/40 border border-white/20 rounded py-1.5 text-xs transition-colors min-w-[100px]"
               >
-                <Youtube className="w-3 h-3" /> + YouTube
+                <Youtube className="w-3 h-3" /> + Video (URL)
               </button>
+              <label
+                className="flex-1 flex items-center justify-center gap-2 bg-white/30 hover:bg-white/40 border border-white/20 rounded py-1.5 text-xs cursor-pointer transition-colors min-w-[100px]"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Film className="w-3 h-3" /> + Video (Datei)
+                <input 
+                  type="file" 
+                  accept="video/*" 
+                  multiple
+                  className="hidden" 
+                  onChange={(e) => {
+                    if (e.target.files) {
+                      Array.from(e.target.files).forEach(file => {
+                        handleVideoFileUpload(post.id, file);
+                      });
+                      e.target.value = '';
+                    }
+                  }}
+                />
+              </label>
             </div>
             {mediaItems.map((media: any, i: number) => (
               <div 
@@ -309,7 +361,7 @@ export function FeedPostCard({
                 </button>
                 <div className="flex items-center gap-2 mb-2 pr-8">
                   <GripVertical className="w-4 h-4 text-white/30 cursor-grab" />
-                  <span className="text-xs text-white/50">{media.type === 'youtube' ? 'YouTube' : 'Bild'}</span>
+                  <span className="text-xs text-white/50">{media.type === 'youtube' ? 'YouTube' : media.type === 'bunny' ? 'Bunny' : media.type === 'video' ? 'Video' : 'Bild'}</span>
                   {media.type !== 'youtube' && media.image_thumb && thumbAvailability[i] && (
                     <button
                       type="button"
@@ -324,27 +376,141 @@ export function FeedPostCard({
                     </button>
                   )}
                 </div>
-                {media.type === 'youtube' ? (
-                  <input
-                    type="text"
-                    value={media.youtubeUrl || ''}
-                    onChange={(e) => {
-                      const url = e.target.value;
-                      const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-                      const match = url.match(regExp);
-                      const youtubeId = (match && match[2].length === 11) ? match[2] : null;
-                      if (youtubeId) {
-                        const thumbnailUrl = `https://img.youtube.com/vi/${youtubeId}/maxresdefault.jpg`;
-                        const newMedia = [...mediaItems];
-                        newMedia[i] = { ...media, youtubeUrl: url, youtubeId, image: thumbnailUrl, image_large: thumbnailUrl, url: url };
-                        handleUpdatePostMedia(post.id, newMedia);
-                      } else {
-                        updateMediaItem(i, 'youtubeUrl', url);
-                      }
-                    }}
-                    className="w-full bg-black/50 border border-white/20 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-white/40 mb-2"
-                    placeholder="YouTube URL einfügen..."
-                  />
+                {media.type === 'youtube' || media.type === 'bunny' ? (
+                  <div className="flex flex-col gap-1 mb-2">
+                    <div className="flex gap-1">
+                      <input
+                        type="text"
+                          value={localUrlInputs[i] ?? (media.youtubeUrl || media.url || '')}
+                          onChange={(e) => {
+                            setLocalUrlInputs(prev => ({ ...prev, [i]: e.target.value }));
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const url = localUrlInputs[i] ?? (media.youtubeUrl || media.url || '');
+                            if (url.trim()) {
+                              handleVideoLinkChange(post.id, url);
+                              // Also update the media item's displayed URL immediately
+                              updateMediaItem(i, 'url', url);
+                            }
+                          }
+                        }}
+                        className="flex-1 bg-black/50 border border-white/20 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-white/40"
+                        placeholder="YouTube oder Bunny URL einfügen..."
+                      />
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                            const url = (localUrlInputs[i] ?? (media.youtubeUrl || media.url || '')).trim();
+                          if (!url) return;
+                          setApplyLoading(prev => ({ ...prev, [i]: true }));
+
+                          // Detect YouTube
+                          const ytRegExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+                          const ytMatch = url.match(ytRegExp);
+                          const youtubeId = (ytMatch && ytMatch[2].length === 11) ? ytMatch[2] : null;
+
+                          // Detect Bunny
+                          const bunnyRegExp = /video\.bunnycdn\.com\/play\/(\d+)\/([a-zA-Z0-9-]+)/i;
+                          const bunnyMatch = url.match(bunnyRegExp);
+                          let bunnyLibraryId: string | null = null;
+                          let bunnyVideoId: string | null = null;
+                          if (bunnyMatch) {
+                            bunnyLibraryId = bunnyMatch[1];
+                            bunnyVideoId = bunnyMatch[2];
+                          } else if (url.startsWith('bunny:')) {
+                            const parts = url.replace('bunny:', '').split('/');
+                            if (parts.length === 2) {
+                              bunnyLibraryId = parts[0];
+                              bunnyVideoId = parts[1];
+                            }
+                          }
+
+                          if (bunnyLibraryId && bunnyVideoId) {
+                            // Bunny video: optimistic update + background sync
+                            const newMedia = [...mediaItems];
+                            newMedia[i] = { ...media, type: 'bunny', libraryId: bunnyLibraryId, videoId: bunnyVideoId, url };
+                            handleUpdatePostMedia(post.id, newMedia);
+
+                            fetch('/api/bunny/sync-video', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ libraryId: bunnyLibraryId, videoId: bunnyVideoId })
+                            }).then(res => res.json()).then(data => {
+                              setApplyLoading(prev => ({ ...prev, [i]: false }));
+                              if (data.success) {
+                                const syncedMedia = [...mediaItems];
+                                syncedMedia[i] = {
+                                  ...syncedMedia[i],
+                                  image: data.url,
+                                  image_thumb: data.image_thumb || data.url,
+                                  image_1k: data.image_1k,
+                                  image_2k: data.image_2k,
+                                  image_3k: data.image_3k,
+                                  duration: data.duration
+                                };
+                                handleUpdatePostMedia(post.id, syncedMedia);
+                              }
+                            }).catch(() => setApplyLoading(prev => ({ ...prev, [i]: false })));
+                          } else if (youtubeId) {
+                            // YouTube: apply immediately
+                            const thumbnailUrl = `https://img.youtube.com/vi/${youtubeId}/maxresdefault.jpg`;
+                            const newMedia = [...mediaItems];
+                            newMedia[i] = { ...media, type: 'youtube', youtubeUrl: url, youtubeId, image: thumbnailUrl, image_large: thumbnailUrl, url };
+                            handleUpdatePostMedia(post.id, newMedia);
+                            setApplyLoading(prev => ({ ...prev, [i]: false }));
+                          } else {
+                            // Unknown: just store URL
+                            updateMediaItem(i, 'url', url);
+                            setApplyLoading(prev => ({ ...prev, [i]: false }));
+                          }
+                        }}
+                        disabled={applyLoading[i]}
+                        className="flex items-center gap-1 bg-white/20 hover:bg-white/30 border border-white/20 rounded px-2 py-1 text-xs text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="URL anwenden"
+                      >
+                        {applyLoading[i] ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Check className="w-3 h-3" />
+                        )}
+                        <span>Anwenden</span>
+                      </button>
+                    </div>
+                    {applyLoading[i] && (
+                      <div className="flex items-center gap-1 text-white/50 text-[10px]">
+                        <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                        <span>Bunny Metadaten werden geladen…</span>
+                      </div>
+                    )}
+                  </div>
+                ) : media.type === 'video' ? (
+                  <div className="flex flex-col gap-1 mb-2">
+                    <div className="flex items-center gap-1 mb-1">
+                      <div className="flex items-center gap-1 bg-white/10 rounded px-2 py-1 text-xs text-white/60 flex-1">
+                        <Film className="w-3 h-3 text-white/40" />
+                        <span className="truncate">{media.url ? media.url.split('/').pop() : 'Video-Datei'}</span>
+                        {!media.image_thumb && !media.image && (
+                          <span className="text-yellow-400/60 ml-1">(kein Thumbnail)</span>
+                        )}
+                      </div>
+                      <label className="flex items-center gap-1 bg-white/20 hover:bg-white/30 border border-white/20 rounded px-2 py-1 text-xs text-white cursor-pointer transition-colors">
+                        <ImageIcon className="w-3 h-3" /> Ändern
+                        <input
+                          type="file"
+                          accept="video/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            if (e.target.files && e.target.files[0]) {
+                              handleVideoFileUpload(post.id, e.target.files[0]);
+                              e.target.value = '';
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
                 ) : (
                   <label className="block w-full text-center bg-white/30 hover:bg-white/40 border border-white/20 rounded py-1 mb-2 text-xs cursor-pointer transition-colors">
                     Bild ändern
@@ -362,7 +528,25 @@ export function FeedPostCard({
                   </label>
                 )}
                 {media.image || media.image_preview || media.url ? (
-                  getVideoSrc(media) ? (
+                  media.type === 'video' ? (
+                    <>
+                      <img 
+                        src={getDisplayImage(getImageSrc(media) ?? media.image_thumb ?? media.image ?? undefined, isR2Fallback, isEmbeddedData)} 
+                        alt="" 
+                        className="w-full h-24 object-cover rounded cursor-pointer"
+                        onClick={() => setSelectedImage(post)}
+                        onError={(e) => {
+                          const img = e.currentTarget as HTMLImageElement;
+                          img.style.display = 'none';
+                          const next = img.nextElementSibling as HTMLElement | null;
+                          if (next) next.style.display = 'flex';
+                        }}
+                      />
+                      <div className="w-full h-24 bg-white/10 rounded items-center justify-center text-white/40 hidden" style={{ display: 'none' }}>
+                        <Film className="w-6 h-6" />
+                      </div>
+                    </>
+                  ) : getVideoSrc(media) ? (
                     <video 
                       src={getDisplayImage(getVideoSrc(media) ?? undefined, isR2Fallback, isEmbeddedData)} 
                       className="w-full h-24 object-cover rounded cursor-pointer"
@@ -387,7 +571,7 @@ export function FeedPostCard({
                   )
                 ) : (
                   <div className="w-full h-24 bg-white/10 rounded flex items-center justify-center text-white/40">
-                    {media.type === 'youtube' ? <Youtube className="w-6 h-6" /> : <ImageIcon className="w-6 h-6" />}
+                    {media.type === 'youtube' ? <Youtube className="w-6 h-6" /> : media.type === 'video' ? <Film className="w-6 h-6" /> : media.type === 'bunny' ? <Youtube className="w-6 h-6" /> : <ImageIcon className="w-6 h-6" />}
                   </div>
                 )}
               </div>
@@ -396,7 +580,23 @@ export function FeedPostCard({
         ) : (
           <>
             {displayMedia.image || displayMedia.image_preview || displayMedia.url ? (
-              getVideoSrc(displayMedia) ? (
+              displayMedia.type === 'video' ? (
+                <img 
+                  src={getDisplayImage(getImageSrc(displayMedia) ?? displayMedia.image_thumb ?? displayMedia.image ?? undefined, isR2Fallback, isEmbeddedData)} 
+                  alt={post.title} 
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                  className={`w-full h-full object-cover transition-transform duration-500 ease-out cursor-pointer ${!isEditing ? 'group-hover:scale-[1.03]' : ''}`}
+                  onLoad={handleFeedImageLoad}
+                  onClick={() => setSelectedImage(post)}
+                  onError={(e) => {
+                    const target = e.currentTarget;
+                    if (displayMedia.image_preview && target.src !== getDisplayImage(displayMedia.image_preview, isR2Fallback, isEmbeddedData)) {
+                      target.src = getDisplayImage(displayMedia.image_preview, isR2Fallback, isEmbeddedData) || '';
+                    }
+                  }}
+                />
+              ) : getVideoSrc(displayMedia) ? (
                 <video 
                   src={getDisplayImage(getVideoSrc(displayMedia) ?? undefined, isR2Fallback, isEmbeddedData)} 
                   className={`w-full h-full object-cover transition-transform duration-500 ease-out cursor-pointer ${!isEditing ? 'group-hover:scale-[1.03]' : ''}`}
@@ -424,14 +624,14 @@ export function FeedPostCard({
               )
             ) : (
               <div className="w-full h-full flex items-center justify-center text-white/20">
-                <ImageIcon className="w-12 h-12" />
+                {displayMedia.type === 'video' ? <Film className="w-12 h-12" /> : <ImageIcon className="w-12 h-12" />}
               </div>
             )}
             
-            {displayMedia.type === 'youtube' && !isEditing && (
+            {(displayMedia.type === 'youtube' || displayMedia.type === 'bunny' || displayMedia.type === 'video') && !isEditing && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                   <div className="w-16 h-16 bg-white/30 hover:bg-white/40 rounded-full flex items-center justify-center shadow-lg pointer-events-auto cursor-pointer" onClick={(e) => { e.stopPropagation(); setSelectedImage(post); }}>
-                  <Youtube className="w-8 h-8 text-white ml-1" />
+                  {displayMedia.type === 'video' ? <Film className="w-8 h-8 text-white" /> : <Youtube className="w-8 h-8 text-white ml-1" />}
                 </div>
               </div>
             )}
@@ -451,6 +651,32 @@ export function FeedPostCard({
           </div>
         )}
       </div>
+      {/* Bunny Upload Progress Bar */}
+      {bunnyProgress?.[post.id] && (
+        <div className="px-4 pb-2">
+          <div className="flex items-center gap-2 mb-1">
+            {bunnyProgress[post.id].step !== 'done' && bunnyProgress[post.id].step !== 'error' ? (
+              <Loader2 className="w-3 h-3 animate-spin text-blue-400" />
+            ) : bunnyProgress[post.id].step === 'done' ? (
+              <Check className="w-3 h-3 text-green-400" />
+            ) : (
+              <span className="text-red-400 text-xs">⚠</span>
+            )}
+            <span className={`text-xs ${bunnyProgress[post.id].step === 'done' ? 'text-green-400' : bunnyProgress[post.id].step === 'error' ? 'text-red-400' : 'text-blue-400'}`}>
+              {bunnyProgress[post.id].text}
+            </span>
+          </div>
+          <div className="w-full bg-white/10 rounded-full h-1.5 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${
+                bunnyProgress[post.id].step === 'error' ? 'bg-red-500' :
+                bunnyProgress[post.id].step === 'done' ? 'bg-green-500' : 'bg-blue-500'
+              }`}
+              style={{ width: `${bunnyProgress[post.id].progress}%` }}
+            />
+          </div>
+        </div>
+      )}
       <div className={`p-4 flex flex-col gap-2 flex-grow ${isDragging ? 'pointer-events-none' : ''}`}>
         {isEditing ? (
           <>
@@ -458,7 +684,28 @@ export function FeedPostCard({
               type="text"
               value={localTitle}
               onChange={(e) => setLocalTitle(e.target.value)}
-              onBlur={() => handlePostChange(post.id, 'title', localTitle)}
+              onBlur={() => {
+                const oldTitle = (typeof post.title === 'string' ? post.title : (post.title?.title || ''));
+                const newTitle = localTitle.trim();
+                handlePostChange(post.id, 'title', localTitle);
+                // Trigger project folder rename if title changed
+                if (newTitle !== oldTitle && oldTitle !== undefined && post.mergedMedia?.length > 0) {
+                  const hasVideo = post.mergedMedia.some((m: any) => 
+                    (m.type === 'video' || m.type === 'bunny') && m.image_original
+                  );
+                  if (hasVideo) {
+                    fetch('/api/rename-project-folder', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ projectId: post.id, oldName: oldTitle, newName: newTitle })
+                    }).then(r => r.json()).then(data => {
+                      if (data.changed) console.log(`[rename] Project folder renamed: ${data.renamed} dirs updated`);
+                    }).catch(() => {});
+                  }
+                }
+                // Sync Bunny video metadata with new title
+                if (newTitle !== oldTitle) syncBunnyMetadata(newTitle);
+              }}
               className="w-full bg-black/50 border border-white/10 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-white/30"
               placeholder="Titel..."
             />
@@ -466,7 +713,13 @@ export function FeedPostCard({
               ref={textareaRef}
               value={localDescription}
               onChange={(e) => setLocalDescription(e.target.value)}
-              onBlur={() => handlePostChange(post.id, 'description', localDescription)}
+              onBlur={() => {
+                const oldDesc = (typeof post.description === 'string' ? post.description : (post.description?.description || ''));
+                handlePostChange(post.id, 'description', localDescription);
+                // Sync Bunny video metadata with new description
+                const newDesc = localDescription.trim();
+                if (newDesc !== oldDesc) syncBunnyMetadata(undefined, newDesc);
+              }}
               className="w-full bg-black/50 border border-white/10 rounded px-2 py-1 text-xs text-white/80 focus:outline-none focus:border-white/30 min-h-[80px]"
               placeholder="Beschreibung..."
             />

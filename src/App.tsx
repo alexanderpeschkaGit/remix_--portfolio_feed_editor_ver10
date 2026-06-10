@@ -105,6 +105,7 @@ const parseDimensions = (dimensions?: string) => {
 
 const getResolutionLabel = (m: any, dimensions?: string) => {
   if (m.type === 'youtube') return 'YouTube';
+  if (m.type === 'bunny') return 'Bunny Video';
 
   const url = String(
     m.image_3k || m.image_2k || m.image_1k || m.image_original || m.image_large || m.imageLarge || m.largeUrl || m.image || m.image_thumb || m.image_preview || m.url || m.link || ''
@@ -169,7 +170,7 @@ const getImageSrc = (media: any, preferLarge = false) => {
 };
 
 const getVideoSrc = (media: any, preferLarge = false) => {
-  if (media?.type === 'youtube' || media?.youtubeId) return undefined;
+  if (media?.type === 'youtube' || media?.youtubeId || media?.type === 'bunny') return undefined;
 
   const primary = preferLarge
     ? [media?.video, media?.video_large, media?.image_3k, media?.image_2k, media?.image_large, media?.imageLarge, media?.largeUrl, media?.image, media?.url, media?.link]
@@ -182,7 +183,7 @@ const getVideoSrc = (media: any, preferLarge = false) => {
 
 const getMediaPriorityScore = (media: any) => {
   if (!media) return -1;
-  if (media.type === 'youtube' || media.youtubeId) return 25;
+  if (media.type === 'youtube' || media.youtubeId || media.type === 'bunny') return 25;
   if (isValidImageCandidate(media.image_original)) return 100;
   if (isValidImageCandidate(media.image_3k)) return 90;
   if (isValidImageCandidate(media.image_2k)) return 80;
@@ -1097,7 +1098,7 @@ export default function App() {
             if (cleanM.image_3k?.startsWith('blob:')) cleanM.image_3k = '';
             if (cleanM.uploadId) delete cleanM.uploadId;
             return cleanM;
-          }).filter((m: any) => m.type === 'youtube' || !!(m.image || m.image_large || m.image_3k || m.youtubeId || m.youtubeUrl || m.link || m.url));
+          }).filter((m: any) => m.type === 'youtube' || m.type === 'bunny' || !!(m.image || m.image_large || m.image_3k || m.youtubeId || m.youtubeUrl || m.link || m.url));
           if (cleanPost.mergedMedia.length === 0) {
             delete cleanPost.mergedMedia;
           }
@@ -1396,7 +1397,7 @@ export default function App() {
           if (post.mergedMedia && post.mergedMedia.length > 0) {
             // Strikte Validierung: Nur Elemente mit echten finalen URLs beibehalten
             validatedMedia = post.mergedMedia.filter((m: any) => {
-              if (m.type === 'youtube') return true;
+              if (m.type === 'youtube' || m.type === 'bunny') return true;
               // uploadId-Elemente MÜSSEN finale URLs haben
               if (m.uploadId) {
                 return !!(m.image || m.image_thumb || m.image_1k || m.image_2k || m.image_large || m.image_3k || m.image_original);
@@ -1431,7 +1432,7 @@ export default function App() {
         } else if (mediaIndex !== undefined && !post.mergedMedia) {
           const newMediaRaw = [{ type: post.type || 'image', image: post.image, image_thumb: post.image_thumb, image_1k: post.image_1k, image_2k: post.image_2k, image_large: post.image_large, image_3k: post.image_3k, image_original: post.image_original, youtubeId: post.youtubeId, link: post.url }];
           newMediaRaw[mediaIndex] = { ...cleanOldUrls(newMediaRaw[mediaIndex]), uploadId, image: localUrl, image_thumb: localUrl, image_1k: localUrl, image_2k: localUrl, image_large: localUrl, image_preview: localUrl, image_3k: localUrl, image_original: localUrl, type: 'image' } as any;
-          const newMedia = newMediaRaw.filter((m: any) => m.type === 'youtube' || !!(m.image || m.image_thumb || m.image_1k || m.image_2k || m.image_large || m.image_preview || m.image_3k || m.uploadId || m.youtubeId));
+          const newMedia = newMediaRaw.filter((m: any) => m.type === 'youtube' || m.type === 'bunny' || !!(m.image || m.image_thumb || m.image_1k || m.image_2k || m.image_large || m.image_preview || m.image_3k || m.uploadId || m.youtubeId));
           const primaryMedia = getPrimaryMergedMedia(newMedia) || newMedia.find(Boolean);
           const updatedPost = syncMediaFieldsFromPrimary({ ...cleanOldUrls(post) }, primaryMedia);
           return {
@@ -1593,12 +1594,291 @@ export default function App() {
     }
   };
 
-  const handleYoutubeChange = (id: string, url: string) => {
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-    const match = url.match(regExp);
-    const youtubeId = (match && match[2].length === 11) ? match[2] : null;
+  // Track Bunny upload progress per post
+  const [bunnyProgress, setBunnyProgress] = useState<Record<string, { step: string; progress: number; text: string }>>({});
+
+  const bunnyStepLabels: Record<string, string> = {
+    starting: 'Starte Bunny-Upload…',
+    creating: 'Erstelle Eintrag bei Bunny…',
+    uploading: 'Lade Video zu Bunny hoch…',
+    encoding: 'Bunny verarbeitet das Video…',
+    variants: 'Generiere Thumbnail-Varianten…',
+    done: 'Bunny-Upload abgeschlossen ✓',
+    error: 'Bunny-Fehler – lokal gespeichert',
+  };
+
+  const handleVideoFileUpload = async (id: string, file: File) => {
+    if (!file) return;
+    setActiveUploads(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
+    setHasUnsyncedMedia(true);
+
+    const uploadId = Math.random().toString(36).substring(7);
+    const localUrl = URL.createObjectURL(file);
+
+    // Get project name for folder organization
+    const post = flickrPosts.find(p => String(p.id) === String(id));
+    const projectName = post?.title || '';
+    const projectDescription = typeof post?.description === 'string'
+      ? post.description
+      : (post?.description?.description || post?.description?.text || '');
+
+    // Optimistic update: add video item to mergedMedia
+    updatePosts(posts => posts.map(post => {
+      if (String(post.id) !== String(id)) return post;
+      const newItem: any = { uploadId, type: 'video', image: localUrl, image_thumb: localUrl, url: localUrl };
+      const existingMedia = post.mergedMedia && post.mergedMedia.length > 0
+        ? post.mergedMedia.filter((m: any) => m.type === 'youtube' || m.type === 'bunny' || !!(m.image || m.image_thumb || m.image_1k))
+        : [];
+      return { ...post, mergedMedia: [...existingMedia, newItem] };
+    }), `Video wird hochgeladen…`);
+
+    // Show initial progress
+    setBunnyProgress(prev => ({ ...prev, [id]: { step: 'local', progress: 10, text: 'Speichere lokal & extrahiere Vorschau…' } }));
+
+    try {
+      const formData = new FormData();
+      formData.append('video', file);
+      formData.append('projectId', id);
+      formData.append('projectName', projectName);
+      formData.append('projectDescription', projectDescription);
+
+      // Try Bunny hybrid first, fall back to local-only if anything goes wrong
+      let uploadRes = await fetch('/api/upload-video-to-bunny', {
+        method: 'POST',
+        body: formData
+      });
+
+      // If hybrid fails for ANY reason, fall back to local upload silently
+      if (!uploadRes.ok) {
+        const errBody = await uploadRes.json().catch(() => ({}));
+        console.warn('Bunny hybrid failed, falling back to local:', errBody.error || uploadRes.status);
+        // Retry with local-only endpoint
+        uploadRes = await fetch('/api/upload-video', {
+          method: 'POST',
+          body: formData
+        });
+      }
+
+      if (!uploadRes.ok) {
+        const errData = await uploadRes.json().catch(() => ({}));
+        throw new Error(errData.error || `Upload fehlgeschlagen (${uploadRes.status})`);
+      }
+
+      const uploadData = await uploadRes.json();
+      const hasThumb = !!(uploadData.image_thumb || uploadData.image || uploadData.bunnyThumbUrl);
+      const thumbUrl = hasThumb ? (uploadData.image_thumb || uploadData.image || uploadData.bunnyThumbUrl) : '';
+      const url1k = uploadData.image_1k || thumbUrl;
+      const url2k = uploadData.image_2k || '';
+      const url3k = uploadData.image_3k || '';
+      const videoUrl = uploadData.url || uploadData.image_original || '';
+      const bunnyTaskId: string | null = uploadData.bunnyTaskId || null;
+
+      // Update local state immediately
+      updatePosts(posts => posts.map(post => {
+        if (String(post.id) !== String(id)) return post;
+        const newMedia = post.mergedMedia && post.mergedMedia.length > 0
+          ? [...post.mergedMedia]
+          : [];
+        const itemIdx = newMedia.findIndex(m => m.uploadId === uploadId);
+
+        const updatedItem: any = {
+          type: 'video', // local for now; will update to 'bunny' when bg task completes
+          uploadId,
+          videoId: uploadData.videoId,
+          libraryId: uploadData.libraryId,
+          duration: uploadData.duration || 0,
+          image: thumbUrl,
+          image_thumb: thumbUrl,
+          image_1k: url1k,
+          image_2k: url2k,
+          image_3k: url3k,
+          image_original: videoUrl,
+          url: videoUrl,
+          image_width: uploadData.image_width,
+          image_height: uploadData.image_height,
+          bunnyTaskId,
+        };
+
+        if (itemIdx !== -1) {
+          newMedia[itemIdx] = updatedItem;
+        } else {
+          newMedia.push(updatedItem);
+        }
+
+        return { ...post, mergedMedia: newMedia };
+      }), `Video lokal gespeichert ✓`);
+
+      // ── Poll Bunny background task if available ──
+      if (bunnyTaskId) {
+        setBunnyProgress(prev => ({ ...prev, [id]: { step: 'starting', progress: 5, text: bunnyStepLabels.starting } }));
+
+        const pollInterval = 2500;
+        const maxPolls = 60; // max 2.5 minutes
+        let pollCount = 0;
+
+        const pollBunnyTask = async () => {
+          try {
+            const statusRes = await fetch(`/api/bunny/task/${bunnyTaskId}/status`);
+            const statusData = await statusRes.json();
+
+            if (!statusData.found) {
+              // Task not found (maybe cleaned up), stop polling
+              setBunnyProgress(prev => { const n = { ...prev }; delete n[id]; return n; });
+              return;
+            }
+
+            setBunnyProgress(prev => ({
+              ...prev,
+              [id]: {
+                step: statusData.step,
+                progress: statusData.progress,
+                text: bunnyStepLabels[statusData.step] || statusData.step,
+              }
+            }));
+
+            if (statusData.step === 'done' && statusData.result) {
+              // Update media entry with Bunny results
+              const result = statusData.result;
+              updatePosts(posts => posts.map(post => {
+                if (String(post.id) !== String(id)) return post;
+                const newMedia = post.mergedMedia && post.mergedMedia.length > 0
+                  ? [...post.mergedMedia]
+                  : [];
+                const itemIdx = newMedia.findIndex(m => m.uploadId === uploadId || m.bunnyTaskId === bunnyTaskId);
+                if (itemIdx !== -1) {
+                  newMedia[itemIdx] = {
+                    ...newMedia[itemIdx],
+                    type: 'bunny',
+                    videoId: result.videoId,
+                    libraryId: result.libraryId,
+                    duration: result.duration || 0,
+                    image: result.image || newMedia[itemIdx].image,
+                    image_thumb: result.image_thumb || newMedia[itemIdx].image_thumb,
+                    image_1k: result.image_1k || newMedia[itemIdx].image_1k,
+                    image_2k: result.image_2k || newMedia[itemIdx].image_2k,
+                    image_3k: result.image_3k || newMedia[itemIdx].image_3k,
+                    image_original: result.image_original || newMedia[itemIdx].image_original,
+                    bunnyThumbUrl: result.bunnyThumbUrl,
+                  };
+                }
+                return { ...post, mergedMedia: newMedia };
+              }), `Bunny-Upload abgeschlossen ✓`);
+              // Clear progress after short delay
+              setTimeout(() => setBunnyProgress(prev => { const n = { ...prev }; delete n[id]; return n; }), 3000);
+              return;
+            }
+
+            if (statusData.step === 'error') {
+              console.warn('Bunny background task failed:', statusData.error);
+              setBunnyProgress(prev => ({
+                ...prev,
+                [id]: { step: 'error', progress: 0, text: `Bunny: ${statusData.error || 'Fehler'} – Video lokal gespeichert` }
+              }));
+              setTimeout(() => setBunnyProgress(prev => { const n = { ...prev }; delete n[id]; return n; }), 8000);
+              return;
+            }
+
+            // Continue polling
+            pollCount++;
+            if (pollCount < maxPolls) {
+              setTimeout(pollBunnyTask, pollInterval);
+            } else {
+              setBunnyProgress(prev => { const n = { ...prev }; delete n[id]; return n; });
+            }
+          } catch {
+            // Network error during poll, try again
+            pollCount++;
+            if (pollCount < maxPolls) {
+              setTimeout(pollBunnyTask, pollInterval);
+            } else {
+              setBunnyProgress(prev => { const n = { ...prev }; delete n[id]; return n; });
+            }
+          }
+        };
+
+        // Start polling after a short delay (let Bunny start processing)
+        setTimeout(pollBunnyTask, 2000);
+      } else {
+        setBunnyProgress(prev => { const n = { ...prev }; delete n[id]; return n; });
+      }
+
+    } catch (err: any) {
+      setError(err.message);
+      setBunnyProgress(prev => { const n = { ...prev }; delete n[id]; return n; });
+    } finally {
+      setActiveUploads(prev => {
+        const next = { ...prev };
+        if (next[id] > 1) next[id]--;
+        else delete next[id];
+        return next;
+      });
+    }
+  };
+
+  const handleVideoLinkChange = (id: string, url: string) => {
+    // Check YouTube
+    const ytRegExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+    const ytMatch = url.match(ytRegExp);
+    const youtubeId = (ytMatch && ytMatch[2].length === 11) ? ytMatch[2] : null;
     
-    if (youtubeId) {
+    // Check Bunny (assuming they paste e.g. "bunny:LIBRARY_ID/VIDEO_ID" or a full bunnycdn url)
+    const bunnyRegExp = /video\.bunnycdn\.com\/play\/(\d+)\/([a-zA-Z0-9-]+)/i;
+    const bunnyMatch = url.match(bunnyRegExp);
+    let bunnyLibraryId = null;
+    let bunnyVideoId = null;
+    
+    if (bunnyMatch) {
+      bunnyLibraryId = bunnyMatch[1];
+      bunnyVideoId = bunnyMatch[2];
+    } else if (url.startsWith('bunny:')) {
+      const parts = url.replace('bunny:', '').split('/');
+      if (parts.length === 2) {
+        bunnyLibraryId = parts[0];
+        bunnyVideoId = parts[1];
+      }
+    }
+
+    if (bunnyLibraryId && bunnyVideoId) {
+      // It's a Bunny video!
+      // Trigger the sync API in the background.
+      fetch('/api/bunny/sync-video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ libraryId: bunnyLibraryId, videoId: bunnyVideoId })
+      }).then(res => res.json()).then(data => {
+        if (data.success) {
+           updatePosts(posts => posts.map(post => 
+             String(post.id) === String(id) ? {
+               ...post,
+               type: 'bunny',
+               videoId: bunnyVideoId,
+               libraryId: bunnyLibraryId,
+               url: url,
+               image: data.url,
+               image_thumb: data.image_thumb || data.url,
+               image_1k: data.image_1k,
+               image_2k: data.image_2k,
+               image_3k: data.image_3k,
+               duration: data.duration
+             } : post
+           ), `Bunny Video hinzugefügt`);
+        } else {
+           console.error("Failed to sync Bunny video", data.error);
+           alert("Fehler beim Abrufen der Bunny.net Metadaten: " + data.error);
+        }
+      });
+      
+      // Update immediately to show loading or set base data
+      updatePosts(posts => posts.map(post => 
+        String(post.id) === String(id) ? { 
+          ...post, 
+          type: 'bunny',
+          videoId: bunnyVideoId,
+          libraryId: bunnyLibraryId,
+          url: url
+        } : post
+      ));
+    } else if (youtubeId) {
       const thumbnailUrl = `https://img.youtube.com/vi/${youtubeId}/maxresdefault.jpg`;
       updatePosts(posts => posts.map(post => 
         String(post.id) === String(id) ? { 
@@ -1612,7 +1892,7 @@ export default function App() {
         } : post
       ), `YouTube Link hinzugefügt (${flickrPosts.find(p => String(p.id) === String(id))?.title || 'Unbenannt'})`);
     } else {
-      handlePostChange(id, 'youtubeUrl', url);
+      handlePostChange(id, 'url', url); // fallback
     }
   };
 
@@ -2456,11 +2736,59 @@ export default function App() {
     }
     if (r2Data.bio) setPortfolioBio(r2Data.bio);
 
+    // Capture old posts for comparison BEFORE applying changes
+    const oldPosts = flickrPostsRef.current;
+    const oldPostMap = new Map(oldPosts.map((p: any) => [String(p.id), p]));
+
     updatePosts(items, 'Aus Cloud geladen');
 
     if (r2Data.lastUpdated) setLocalLastUpdated(r2Data.lastUpdated);
     setHasCloudChanges(false);
     setHasUnpublishedChanges(false);
+
+    // Sync Bunny video metadata ONLY for posts whose title or description changed
+    setTimeout(() => {
+      const updatedPosts = flickrPostsRef.current;
+      let synced = 0;
+      for (const newPost of updatedPosts) {
+        const oldPost = oldPostMap.get(String(newPost.id));
+        const newTitle = typeof newPost.title === 'string' ? newPost.title : (newPost.title?.title || '');
+        const newDesc = typeof newPost.description === 'string' ? newPost.description : (newPost.description?.description || '');
+        const oldTitle = oldPost
+          ? (typeof oldPost.title === 'string' ? oldPost.title : (oldPost.title?.title || ''))
+          : '';
+        const oldDesc = oldPost
+          ? (typeof oldPost.description === 'string' ? oldPost.description : (oldPost.description?.description || ''))
+          : '';
+
+        if (!oldPost || newTitle !== oldTitle || newDesc !== oldDesc) {
+          const mergedMedia = newPost.mergedMedia;
+          if (!mergedMedia || mergedMedia.length === 0) continue;
+          const bunnyVideos = mergedMedia.filter((m: any) =>
+            m.type === 'bunny' && m.videoId
+          );
+          if (bunnyVideos.length === 0) continue;
+
+          bunnyVideos.forEach((m: any) => {
+            fetch('/api/bunny/update-video-metadata', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                videoId: m.videoId,
+                libraryId: m.libraryId || '',
+                title: newTitle || '',
+                projectId: newPost.id,
+                description: newDesc || '',
+              })
+            }).then(r => r.json()).then(data => {
+              if (!data.success) console.warn('[bunny-meta-cloud] Update failed for', m.videoId, data.error);
+            }).catch(() => {});
+          });
+          synced++;
+        }
+      }
+      console.log(`[bunny-meta-cloud] Metadata updated for ${synced} changed projects`);
+    }, 500);
 
     try {
       await fetch('/api/state', {
@@ -2614,8 +2942,8 @@ export default function App() {
       if (cleanedPost.mergedMedia && cleanedPost.mergedMedia.length > 0) {
         const seenUrls = new Set<string>();
         cleanedPost.mergedMedia = cleanedPost.mergedMedia.filter((m: any) => {
-          // YouTube entries are valid even without an image
-          if (m.type === 'youtube' && m.youtubeId) return true;
+          // YouTube and Bunny entries are valid even without an image
+          if ((m.type === 'youtube' && m.youtubeId) || (m.type === 'bunny' && m.videoId)) return true;
           const key = m.image || m.image_large || m.image_3k || m.url || '';
           if (!key) return false; // drop items without any usable URL
           if (seenUrls.has(key)) return false; // duplicate
@@ -3486,8 +3814,9 @@ export default function App() {
           isEmbeddedData={isEmbeddedData}
           handleDragEnd={handleDragEnd}
           handleImageUpload={handleImageUpload}
+          handleVideoFileUpload={handleVideoFileUpload}
           handlePostChange={handlePostChange}
-          handleYoutubeChange={handleYoutubeChange}
+          handleVideoLinkChange={handleVideoLinkChange}
           handleDeletePost={handleDeletePost}
           handleMergeDown={handleMergeDown}
           handleUpdatePostMedia={handleUpdatePostMedia}
@@ -3500,6 +3829,7 @@ export default function App() {
           getVideoSrc={getVideoSrc}
           formatDescription={formatDescription}
           isValidImageCandidate={isValidImageCandidate}
+          bunnyProgress={bunnyProgress}
         />
       )}
 
