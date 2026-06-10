@@ -3120,6 +3120,8 @@ async function startServer() {
               image_thumb: finalThumb,
               image_1k: final1k, image_2k: final2k, image_3k: final3k,
               image_original: originalUrl,
+              image_width: bunnyVariantSet.sourceWidth || localVariantSet.sourceWidth || 0,
+              image_height: bunnyVariantSet.sourceHeight || localVariantSet.sourceHeight || 0,
               duration: bunnyDuration, bunnyThumbUrl,
             }
           });
@@ -3143,6 +3145,8 @@ async function startServer() {
         image_2k: local2k,
         image_3k: local3k,
         image_original: originalUrl,
+        image_width: localVariantSet.sourceWidth || 0,
+        image_height: localVariantSet.sourceHeight || 0,
         bunnyTaskId: taskId,
         bunnyStatus: 'starting',
       });

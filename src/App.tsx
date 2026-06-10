@@ -228,6 +228,10 @@ const syncMediaFieldsFromPrimary = (target: any, primary: any) => {
   target.url = primary.url || primary.link || target.url || '';
   target.youtubeId = primary.youtubeId || target.youtubeId || '';
   target.youtubeUrl = primary.youtubeUrl || target.youtubeUrl || '';
+  target.videoId = primary.videoId || target.videoId || '';
+  target.libraryId = primary.libraryId || target.libraryId || '';
+  target.image_width = primary.image_width || target.image_width || 0;
+  target.image_height = primary.image_height || target.image_height || 0;
 
   return target;
 };
@@ -1203,7 +1207,7 @@ export default function App() {
       description: '',
       network_name: 'Custom',
       type: 'image',
-      states: ['-all']
+      states: []
     };
     updatePosts([newPost, ...flickrPosts], 'Neuen Post hinzugefügt');
     setIsEditing(true);
@@ -1935,6 +1939,8 @@ export default function App() {
           const yid = m.youtubeId || getYoutubeId(m.url || m.link);
           if (yid) {
             return `<div class="video-container mb-2" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'><iframe src="https://www.youtube.com/embed/${yid}?mute=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>`;
+          } else if (m.type === 'bunny' && m.videoId && m.libraryId) {
+            return `<div class="video-container mb-2" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'><iframe src="https://iframe.mediadelivery.net/embed/${m.libraryId}/${m.videoId}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>`;
           } else if (m.type === 'video' || (m.image && m.image.endsWith('.mp4')) || ((m.url || m.link) && (m.url || m.link).endsWith('.mp4'))) {
             const videoUrl = getProxiedUrl(getVideoSrc(m, true) || getVideoSrc(m));
             if (!videoUrl) return '';
@@ -1951,6 +1957,12 @@ export default function App() {
           mediaHtml = `
             <div class="video-container" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'>
               <iframe src="https://www.youtube.com/embed/${yid}?mute=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+            </div>
+          `;
+        } else if (post.type === 'bunny' && post.videoId && post.libraryId) {
+          mediaHtml = `
+            <div class="video-container" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'>
+              <iframe src="https://iframe.mediadelivery.net/embed/${post.libraryId}/${post.videoId}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
             </div>
           `;
         } else if (post.type === 'video' || (post.image && post.image.endsWith('.mp4')) || ((post.url || post.link) && (post.url || post.link).endsWith('.mp4'))) {
@@ -2289,13 +2301,13 @@ export default function App() {
 
           currentPostMedia = [];
           if (currentPost.mergedMedia && currentPost.mergedMedia.length > 0) {
-            const filteredMedia = currentPost.mergedMedia.filter(m => getImageSrc(m, true) || getImageSrc(m) || getVideoSrc(m, true) || getVideoSrc(m) || m.youtubeId || getYoutubeId(m.url || m.link));
+            const filteredMedia = currentPost.mergedMedia.filter(m => m.type === 'bunny' || getImageSrc(m, true) || getImageSrc(m) || getVideoSrc(m, true) || getVideoSrc(m) || m.youtubeId || getYoutubeId(m.url || m.link));
             const primaryMedia = getPrimaryMergedMedia(filteredMedia);
             currentPostMedia = primaryMedia
               ? [primaryMedia, ...filteredMedia.filter(m => m !== primaryMedia)]
               : filteredMedia;
           } else {
-            currentPostMedia = [currentPost].filter(m => getImageSrc(m, true) || getImageSrc(m) || getVideoSrc(m, true) || getVideoSrc(m) || m.youtubeId || getYoutubeId(m.url || m.link));
+            currentPostMedia = [currentPost].filter(m => m.type === 'bunny' || getImageSrc(m, true) || getImageSrc(m) || getVideoSrc(m, true) || getVideoSrc(m) || m.youtubeId || getYoutubeId(m.url || m.link));
           }
 
           currentMediaIndex = 0;
@@ -2351,6 +2363,8 @@ export default function App() {
           const yid = m.youtubeId || getYoutubeId(m.url || m.link);
           if (yid) {
             html = \`<iframe width="800" height="450" src="https://www.youtube.com/embed/\${yid}?mute=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>\`;
+          } else if (m.type === 'bunny' && m.videoId && m.libraryId) {
+            html = \`<iframe width="800" height="450" src="https://iframe.mediadelivery.net/embed/\${m.libraryId}/\${m.videoId}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>\`;
           } else if (m.type === 'video' || (m.image && m.image.endsWith('.mp4')) || ((m.url || m.link) && (m.url || m.link).endsWith('.mp4'))) {
             const videoUrl = getProxiedUrl(getVideoSrc(m, true) || getVideoSrc(m));
             if (videoUrl) {
@@ -2389,12 +2403,13 @@ export default function App() {
             item.dataset.index = i;
             
             const isVideoFile = m.type === 'video' || (m.image && m.image.endsWith('.mp4')) || (m.url && m.url.endsWith('.mp4'));
+            const isBunny = m.type === 'bunny';
             const isYoutube = m.type === 'youtube' || !!getYoutubeId(m.url || m.link);
             const thumbUrl = getProxiedUrl(getImageSrc(m) || getImageSrc(m, true));
             
             item.innerHTML = \`
               \${isVideoFile ? \`<video src="\${thumbUrl}" muted></video>\` : \`<img src="\${thumbUrl}" />\`}
-              <div class="type-icon">\${isYoutube ? 'VIDEO' : isVideoFile ? 'VIDEO' : 'IMG'}</div>
+              <div class="type-icon">\${isYoutube ? 'VIDEO' : isBunny ? 'BUNNY' : isVideoFile ? 'VIDEO' : 'IMG'}</div>
             \`;
             
             item.addEventListener('click', () => {
@@ -2923,6 +2938,7 @@ export default function App() {
       if (cleanedPost.mergedMedia) {
         cleanedPost.mergedMedia = cleanedPost.mergedMedia.filter((m: any) => {
           if (m.type === 'youtube') return true;
+          if (m.type === 'bunny') return true;
           // uploadId-Elemente MÜSSEN finale URLs haben (keine Phantom-Uploads)
           if (m.uploadId) {
             return !!(m.image || m.image_thumb || m.image_1k || m.image_2k || m.image_large || m.image_3k || m.image_original || m.image_preview);
@@ -2970,7 +2986,7 @@ export default function App() {
       return cleanedPost;
     }).filter(post => {
       // Only publish posts that have either a title, a description, or at least one piece of media
-      const hasMedia = !!(post.image || post.image_thumb || post.image_1k || post.image_2k || post.image_large || post.image_preview || post.image_3k || post.image_original || (post.mergedMedia && post.mergedMedia.length > 0) || post.youtubeId);
+      const hasMedia = !!(post.image || post.image_thumb || post.image_1k || post.image_2k || post.image_large || post.image_preview || post.image_3k || post.image_original || (post.mergedMedia && post.mergedMedia.length > 0) || post.youtubeId || post.videoId);
       return hasMedia || post.title.trim() !== '' || post.description.trim() !== '';
     });
 

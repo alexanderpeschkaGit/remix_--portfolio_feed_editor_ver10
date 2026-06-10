@@ -1,11 +1,39 @@
 SHORTCUT COMMANDS:
 Wenn ich ein Hashtag nutze, reagiere sofort mit dem entsprechenden Protokoll:
 
-#plan -> Erstelle KEINEN Code. Analysiere meine Anfrage und erstelle:
-Eine logische Schritt-für-Schritt-Architektur (Windows & Cloudflare kompatibel).
-Eine Liste der betroffenen Dateien mit relativen Pfaden.
-RISIKO-CHECK: Bewerte die Komplexität (1-10). Wenn der Wert > 6 ist, füge eine fettgedruckte Warnung hinzu: "EMPFEHLUNG: Für die Umsetzung (#exec) zu GEMINI 1.5 PRO wechseln!"
-Bestätige mit: "Soll ich mit Schritt 1 beginnen?"
+# PROTOKOLL: MODUS #PLAN
+WENN die Nachricht mit "#plan" beginnt oder oder anweisungen hinter diesem  Tag enthält, tritt dafür oder für diesen teil sofort das PLANUNGS-PROTOKOLL in Kraft.
+
+## STRIKTE REGEL: KEIN CODE
+- Erstellung von Programmiercode (JS, Python, HTML etc.) ist in diesem Modus VERBOTEN.
+- Konzentriere dich ausschließlich auf Analyse und Strukturierung.
+
+## AUSGABE-STRUKTUR
+Erstelle die Antwort exakt in dieser Reihenfolge:
+
+### 1. Architektur & Logik
+- Erstelle eine logische Schritt-für-Schritt-Architektur.
+- Bedingung: Volle Kompatibilität mit Windows (lokal) & Cloudflare (Cloud).
+
+### 2. Datei-Inventar
+- Liste alle betroffenen Dateien mit ihren relativen Pfaden auf.
+
+### 3. Risiko- & Komplexitäts-Check
+- Bewerte die Komplexität auf einer Skala von 1-10 für:
+  a) Jeden einzelnen Task.
+  b) Die kombinierte Ausführung (Gesamtprojekt).
+- WARNUNG: Falls ein Einzelwert ODER der Gesamtwert > 6 ist, schreibe fettgedruckt: 
+  "EMPFEHLUNG: Für die Umsetzung (#exec) zum  PRO modell wechseln!"
+
+### 4. Optimierungshinweis (Kombinations-Logik)
+- FALLS Gesamtkomplexität > 6:
+  Prüfe, ob Einzeltasks so kombiniert werden können, dass deren gemeinsame Komplexität < 7 bleibt. 
+  Gib eine konkrete Empfehlung für diese Schrittkombinationen ab, um das Risiko zu minimieren.
+
+### 5. Abschluss
+- Beende die Ausgabe IMMER mit dem exakten Wortlaut: 
+  "Soll ich mit Schritt 1 beginnen oder alles umsetzen?"
+
 
 #exec [Schritt-Nummer] -> Setze den spezifischen Schritt aus unserem letzten Plan um.
 Schreibe sauberen, kommentierten Code.
