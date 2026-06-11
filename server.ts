@@ -55,7 +55,7 @@ async function startServer() {
   ] as const;
   
   app.use('/data/preview.html', (req, res, next) => {
-    res.setHeader("Content-Security-Policy", "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data: https://www.youtube.com https://s.ytimg.com;");
+    res.setHeader("Content-Security-Policy", "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data: https://www.youtube.com https://s.ytimg.com; frame-src https://iframe.mediadelivery.net https://www.youtube.com;");
     next();
   });
   app.use('/data', express.static(DATA_DIR));

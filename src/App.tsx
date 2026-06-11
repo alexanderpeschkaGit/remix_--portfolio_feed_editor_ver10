@@ -1944,7 +1944,9 @@ export default function App() {
           } else if (m.type === 'video' || (m.image && m.image.endsWith('.mp4')) || ((m.url || m.link) && (m.url || m.link).endsWith('.mp4'))) {
             const videoUrl = getProxiedUrl(getVideoSrc(m, true) || getVideoSrc(m));
             if (!videoUrl) return '';
-            return `<video src="${videoUrl}" class="block mb-2" controls muted playsinline onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})' style="width: 100%; max-height: 400px; background: #000; cursor: pointer;"></video>`;
+            const posterUrl = getProxiedUrl(getImageSrc(m));
+            const poster = posterUrl ? ` poster="${posterUrl}"` : '';
+            return `<video src="${videoUrl}"${poster} class="block mb-2" controls muted playsinline onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})' style="width: 100%; max-height: 400px; background: #000; cursor: pointer;"></video>`;
           } else {
             const imageUrl = getProxiedUrl(getImageSrc(m, true) || getImageSrc(m));
             if (!imageUrl) return '';
@@ -1968,8 +1970,10 @@ export default function App() {
         } else if (post.type === 'video' || (post.image && post.image.endsWith('.mp4')) || ((post.url || post.link) && (post.url || post.link).endsWith('.mp4'))) {
           const videoUrl = getProxiedUrl(getVideoSrc(post, true) || getVideoSrc(post));
           if (videoUrl) {
+            const posterUrl = getProxiedUrl(getImageSrc(post));
+            const poster = posterUrl ? ` poster="${posterUrl}"` : '';
             mediaHtml = `
-              <video src="${videoUrl}" controls muted playsinline onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})' style="width: 100%; max-height: 400px; background: #000; cursor: pointer;"></video>
+              <video src="${videoUrl}"${poster} controls muted playsinline onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})' style="width: 100%; max-height: 400px; background: #000; cursor: pointer;"></video>
             `;
           }
         } else {
@@ -2188,6 +2192,77 @@ export default function App() {
         const isLocalFile = window.location.protocol === 'file:';
         const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.includes('.run.app');
         
+        function isDirectMediaFile(url) {
+          return !!url && /\.(jpg|jpeg|png|webp|gif|avif|bmp|mp4|webm|mov)(\\?.*)?$/i.test(url);
+        }
+
+        function isValidImageCandidate(url) {
+          if (!url) return false;
+          if (url.startsWith('data:') || url.startsWith('blob:')) return true;
+          if (url.startsWith('/data/') || url.startsWith('/data_v2/') || url.startsWith('/originals/')) return true;
+          if (url.includes('img.youtube.com/vi/')) return true;
+          if (url.startsWith('http')) return true;
+          return !!url.match(/\.(jpe?g|png|webp|gif|avif|bmp)(\\?.*)?$/i);
+        }
+
+        function getImageSrc(media, preferLarge) {
+          if (!media) return undefined;
+          if (media.type === 'youtube' || media.youtubeId) {
+            const id = media.youtubeId;
+            if (id) {
+              const stored = preferLarge
+                ? (media.image_3k || media.image_2k || media.image_original || media.image_1k || media.image_large || media.imageLarge || media.image)
+                : (media.image_thumb || media.image_preview || media.image_original || media.image);
+              if (isValidImageCandidate(stored)) return stored;
+              return 'https://img.youtube.com/vi/' + id + '/maxresdefault.jpg';
+            }
+          }
+          const primary = preferLarge
+            ? [media.image_3k, media.image_2k, media.image_original, media.image_1k, media.image_large, media.imageLarge, media.largeUrl, media.image, media.image_preview, media.image_thumb, media.url, media.link]
+            : [media.image_thumb, media.image_preview, media.image, media.image_original, media.image_1k, media.image_2k, media.image_3k, media.image_large, media.imageLarge, media.largeUrl, media.url, media.link];
+          for (var i = 0; i < primary.length; i++) {
+            if (isValidImageCandidate(primary[i])) return primary[i];
+          }
+          return undefined;
+        }
+
+        function getYoutubeId(url) {
+          if (!url) return null;
+          if (url.includes('youtu.be/')) return url.split('youtu.be/')[1].substring(0, 11);
+          if (url.includes('v=')) return url.split('v=')[1].substring(0, 11);
+          if (url.includes('embed/')) return url.split('embed/')[1].substring(0, 11);
+          return null;
+        }
+
+        function getMediaPriorityScore(media) {
+          if (!media) return -1;
+          if (media.type === 'youtube' || media.youtubeId || media.type === 'bunny') return 25;
+          if (isValidImageCandidate(media.image_original)) return 100;
+          if (isValidImageCandidate(media.image_3k)) return 90;
+          if (isValidImageCandidate(media.image_2k)) return 80;
+          if (isValidImageCandidate(media.image_large) || isValidImageCandidate(media.largeUrl)) return 70;
+          if (isValidImageCandidate(media.image_1k)) return 60;
+          if (isValidImageCandidate(media.image)) return 50;
+          if (isValidImageCandidate(media.image_preview)) return 40;
+          if (isValidImageCandidate(media.image_thumb)) return 30;
+          if (isValidImageCandidate(media.url) || isValidImageCandidate(media.link)) return 10;
+          return 0;
+        }
+
+        function getPrimaryMergedMedia(mediaList) {
+          if (!Array.isArray(mediaList) || mediaList.length === 0) return undefined;
+          var bestMedia = mediaList[0];
+          var bestScore = getMediaPriorityScore(bestMedia);
+          for (var i = 1; i < mediaList.length; i++) {
+            var candidateScore = getMediaPriorityScore(mediaList[i]);
+            if (candidateScore > bestScore) {
+              bestMedia = mediaList[i];
+              bestScore = candidateScore;
+            }
+          }
+          return bestMedia;
+        }
+
         function getVideoSrc(media, preferLarge) {
           if (!media) return undefined;
           const primary = preferLarge
@@ -2209,7 +2284,7 @@ export default function App() {
           let cleanUrl = url;
           if (cleanUrl.startsWith('./')) cleanUrl = cleanUrl.substring(2);
           if (cleanUrl.startsWith('/')) cleanUrl = cleanUrl.substring(1);
-          if (cleanUrl.startsWith('data_v2/')) cleanUrl = cleanUrl.substring(1);
+          if (cleanUrl.startsWith('data_v2/')) cleanUrl = cleanUrl.substring('data_v2/'.length);
           
           // Fallback domain if window.portfolioData.publicDomain is not available
           const domain = (window.portfolioData && window.portfolioData.publicDomain) ? window.portfolioData.publicDomain : publicDomain;
@@ -2368,7 +2443,9 @@ export default function App() {
           } else if (m.type === 'video' || (m.image && m.image.endsWith('.mp4')) || ((m.url || m.link) && (m.url || m.link).endsWith('.mp4'))) {
             const videoUrl = getProxiedUrl(getVideoSrc(m, true) || getVideoSrc(m));
             if (videoUrl) {
-              html = \`<video src="\${videoUrl}" controls muted playsinline style="max-width: 100%; max-height: 85vh;"></video>\`;
+              const posterUrl = getProxiedUrl(getImageSrc(m));
+              const posterAttr = posterUrl ? ' poster="' + posterUrl + '"' : '';
+              html = \`<video src="\${videoUrl}"\` + posterAttr + \` controls muted playsinline style="max-width: 100%; max-height: 85vh;"></video>\`;
             } else {
               html = '<div style="color: #aaa; padding: 40px; text-align: center;">Video konnte nicht geladen werden</div>';
             }
