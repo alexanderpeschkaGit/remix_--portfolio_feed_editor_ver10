@@ -2976,7 +2976,7 @@ async function startServer() {
           baseName: `${baseName}_local`,
           originalBuffer: thumbBuffer,
           originalExt: 'jpg',
-          uploadToCloud: false,
+          uploadToCloud: true,
         });
       }
 
@@ -3097,7 +3097,7 @@ async function startServer() {
                   baseName,
                   originalBuffer: bunnyThumbBuffer,
                   originalExt: 'jpg',
-                  uploadToCloud: false,
+                  uploadToCloud: true,
                 });
               }
             } catch (bErr: any) {
@@ -3115,11 +3115,11 @@ async function startServer() {
             result: {
               success: true, type: 'bunny',
               libraryId: BUNNY_CONFIG.libraryId, videoId,
-              url: originalUrl,
+              url: `https://iframe.mediadelivery.net/embed/${BUNNY_CONFIG.libraryId}/${videoId}`,
               image: final2k || final3k || final1k || finalThumb || bunnyThumbUrl || '',
               image_thumb: finalThumb,
               image_1k: final1k, image_2k: final2k, image_3k: final3k,
-              image_original: originalUrl,
+              image_original: `https://iframe.mediadelivery.net/embed/${BUNNY_CONFIG.libraryId}/${videoId}`,
               image_width: bunnyVariantSet.sourceWidth || localVariantSet.sourceWidth || 0,
               image_height: bunnyVariantSet.sourceHeight || localVariantSet.sourceHeight || 0,
               duration: bunnyDuration, bunnyThumbUrl,

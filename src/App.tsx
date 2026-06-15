@@ -1756,6 +1756,7 @@ export default function App() {
                     videoId: result.videoId,
                     libraryId: result.libraryId,
                     duration: result.duration || 0,
+                    url: result.url || newMedia[itemIdx].url,
                     image: result.image || newMedia[itemIdx].image,
                     image_thumb: result.image_thumb || newMedia[itemIdx].image_thumb,
                     image_1k: result.image_1k || newMedia[itemIdx].image_1k,
