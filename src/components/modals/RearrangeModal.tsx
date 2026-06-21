@@ -173,8 +173,8 @@ const SortableThumbnailInner: React.FC<{
     transition,
     zIndex: isDragging ? 100 : 1,
     opacity: isDragging ? 0.5 : 1,
-    contentVisibility: 'auto' as const,
-    containIntrinsicSize: '240px 240px',
+    border: isSelected ? '3px solid #38bdf8' : '1px solid rgba(255,255,255,0.12)',
+    boxShadow: isSelected ? '0 0 0 2px rgba(56,189,248,0.45), 0 0 14px rgba(56,189,248,0.25)' : undefined,
   };
 
   const thumbMediaList = React.useMemo(
@@ -194,8 +194,9 @@ const SortableThumbnailInner: React.FC<{
         setNodeRef(node);
       }}
       style={style}
-      className={`aspect-square relative rounded-lg overflow-hidden group ${isSelected ? 'ring-2 ring-blue-500' : 'ring-1 ring-white/10'} ${isMoving ? 'cursor-crosshair' : 'cursor-pointer'} ${post.hidden ? 'grayscale brightness-50' : ''}`}
-      onClick={isMoving ? () => onMoveToTarget() : onSelect}
+      className={`aspect-square relative rounded-lg overflow-hidden group ${isMoving ? (isSelected ? 'cursor-not-allowed' : 'cursor-crosshair') : 'cursor-pointer'} ${post.hidden ? 'grayscale brightness-50' : ''}`}
+      onClick={isMoving ? (isSelected ? undefined : () => onMoveToTarget()) : onSelect}
+      title={isMoving && isSelected ? 'Bereits ausgewählt' : undefined}
     >
       {shouldLoadMedia && displaySrc && thumbDescriptor?.kind === 'image' ? (
         <img 
@@ -228,9 +229,17 @@ const SortableThumbnailInner: React.FC<{
           <ImageIcon className="w-6 h-6" />
         </div>
       )}
+
+      {isMoving && !isSelected && (
+        <div className="absolute inset-x-1 bottom-1 rounded bg-sky-400/90 text-black text-[10px] font-semibold text-center py-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+          nach hier
+        </div>
+      )}
+
       <div 
         {...attributes} 
         {...listeners}
+        onClick={(e) => e.stopPropagation()}
         className="absolute top-1 right-1 p-1 bg-black/50 rounded opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing z-10"
       >
         <GripVertical className="w-3 h-3 text-white/50" />
@@ -262,6 +271,11 @@ export const RearrangeModal: React.FC<RearrangeModalProps> = (props) => {
   } = props;
 
   if (!isReorderView) return null;
+
+  const selectedCount = selectedThumbnails.length;
+  const canMove = selectedCount > 0;
+  const canMerge = selectedCount >= 2;
+  const canDelete = selectedCount > 0;
 
   return (
     <div 
@@ -313,18 +327,18 @@ export const RearrangeModal: React.FC<RearrangeModalProps> = (props) => {
               <>
                 <button
                   onClick={() => setIsMoving(true)}
-                  disabled={selectedThumbnails.length === 0}
-                className="flex items-center gap-2 px-6 py-2 bg-white/30 text-white rounded-full text-sm font-medium disabled:opacity-30 hover:bg-white/40"
-                ><ArrowLeft className="w-4 h-4" /> Verschieben ({selectedThumbnails.length})</button>
+                  disabled={!canMove}
+                className={`flex items-center gap-2 px-6 py-2 rounded-full text-sm font-medium transition-all disabled:opacity-30 ${canMove ? 'bg-sky-400 text-black hover:bg-sky-300 shadow-lg shadow-sky-400/20' : 'bg-white/30 text-white hover:bg-white/40'}`}
+                ><ArrowLeft className="w-4 h-4" /> Verschieben ({selectedCount})</button>
                 <button
                   onClick={handleMerge}
-                  disabled={selectedThumbnails.length < 2}
-                className="flex items-center gap-2 px-6 py-2 bg-white/30 text-white rounded-full text-sm font-medium disabled:opacity-30 hover:bg-white/40"
+                  disabled={!canMerge}
+                className={`flex items-center gap-2 px-6 py-2 rounded-full text-sm font-medium transition-all disabled:opacity-30 ${canMerge ? 'bg-emerald-400 text-black hover:bg-emerald-300 shadow-lg shadow-emerald-400/20' : 'bg-white/30 text-white hover:bg-white/40'}`}
                 ><Layers className="w-4 h-4" /> Merge</button>
                 <button
                   onClick={handleBulkDelete}
-                  disabled={selectedThumbnails.length === 0}
-                className="flex items-center gap-2 px-6 py-2 bg-white/30 text-white rounded-full text-sm font-medium disabled:opacity-30 hover:bg-white/40"
+                  disabled={!canDelete}
+                className={`flex items-center gap-2 px-6 py-2 rounded-full text-sm font-medium transition-all disabled:opacity-30 ${canDelete ? 'bg-rose-500 text-white hover:bg-rose-400 shadow-lg shadow-rose-500/20' : 'bg-white/30 text-white hover:bg-white/40'}`}
                 ><Trash2 className="w-4 h-4" /> Löschen</button>
               </>
             ) : null}
@@ -344,9 +358,9 @@ export const RearrangeModal: React.FC<RearrangeModalProps> = (props) => {
             {flickrPosts.map((post: any, idx: number) => (
               <SortableThumbnailInner
                 key={post.id} post={post} index={idx}
-                isSelected={selectedThumbnails.includes(post.id)}
+                isSelected={selectedThumbnails.includes(String(post.id))}
                 isMoving={isMoving}
-                onMoveToTarget={() => handleMoveToTarget(post.id)}
+                onMoveToTarget={() => handleMoveToTarget(String(post.id))}
                 onSelect={(e: React.MouseEvent) => onSelect(post, e)}
                 getImageSrc={getImageSrc}
                 getVideoSrc={getVideoSrc}

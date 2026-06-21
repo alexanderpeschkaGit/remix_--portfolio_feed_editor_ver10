@@ -1342,8 +1342,10 @@ export default function App() {
   };
 
   const handleMoveToTarget = (targetId: string) => {
-    const selectedPosts = flickrPosts.filter(p => selectedThumbnails.includes(p.id));
-    const remainingPosts = flickrPosts.filter(p => !selectedThumbnails.includes(p.id));
+    if (selectedThumbnails.includes(String(targetId))) return;
+
+    const selectedPosts = flickrPosts.filter(p => selectedThumbnails.includes(String(p.id)));
+    const remainingPosts = flickrPosts.filter(p => !selectedThumbnails.includes(String(p.id)));
     
     const targetIndex = remainingPosts.findIndex(p => String(p.id) === String(targetId));
     
@@ -3678,7 +3680,7 @@ export default function App() {
   const handleMerge = async () => {
     if (selectedThumbnails.length < 2) return;
     
-    const postsToMerge = flickrPosts.filter(p => selectedThumbnails.includes(p.id));
+    const postsToMerge = flickrPosts.filter(p => selectedThumbnails.includes(String(p.id)));
     // Sort them by their current order in the feed
     postsToMerge.sort((a, b) => {
       return flickrPosts.indexOf(a) - flickrPosts.indexOf(b);
@@ -3738,12 +3740,12 @@ export default function App() {
     syncMediaFieldsFromPrimary(mainPost, primaryMedia);
 
     updatePosts(prev => {
-      const filtered = prev.filter(p => !selectedThumbnails.includes(p.id) || p.id === mainPost.id);
-      return filtered.map(p => p.id === mainPost.id ? mainPost : p);
+      const filtered = prev.filter(p => !selectedThumbnails.includes(String(p.id)) || String(p.id) === String(mainPost.id));
+      return filtered.map(p => String(p.id) === String(mainPost.id) ? mainPost : p);
     }, `Posts zusammengeführt (${mainPost.title || 'Unbenannt'})`);
 
     // Stay in rearrange mode and select the newly merged post
-    setSelectedThumbnails([mainPost.id]);
+    setSelectedThumbnails([String(mainPost.id)]);
   };
 
   const handleBulkDelete = async () => {
@@ -4206,21 +4208,22 @@ export default function App() {
         handleDragEnd={handleDragEnd}
         handleMoveToTarget={handleMoveToTarget}
         onSelect={(post: any, e: React.MouseEvent) => {
+          const postId = String(post.id);
           if (e.shiftKey && lastSelectedId) {
-            const startIndex = flickrPosts.findIndex(p => p.id === lastSelectedId);
-            const endIndex = flickrPosts.findIndex(p => p.id === post.id);
+            const startIndex = flickrPosts.findIndex(p => String(p.id) === String(lastSelectedId));
+            const endIndex = flickrPosts.findIndex(p => String(p.id) === postId);
             if (startIndex !== -1 && endIndex !== -1) {
               const start = Math.min(startIndex, endIndex);
               const end = Math.max(startIndex, endIndex);
-              const range = flickrPosts.slice(start, end + 1).map(p => p.id);
+              const range = flickrPosts.slice(start, end + 1).map(p => String(p.id));
               setSelectedThumbnails(prev => Array.from(new Set([...prev, ...range])));
             }
           } else {
             setSelectedThumbnails(prev => 
-              prev.includes(post.id) ? prev.filter(id => id !== post.id) : [...prev, post.id]
+              prev.includes(postId) ? prev.filter(id => id !== postId) : [...prev, postId]
             );
           }
-          setLastSelectedId(post.id);
+          setLastSelectedId(postId);
         }}
         reorderScrollRef={reorderScrollRef}
         isR2Fallback={isR2Fallback}
