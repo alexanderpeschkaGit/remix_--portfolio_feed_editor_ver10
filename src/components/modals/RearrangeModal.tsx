@@ -5,6 +5,79 @@ import { SortableContext, rectSortingStrategy, useSortable } from '@dnd-kit/sort
 import { CSS } from '@dnd-kit/utilities';
 import { X, Undo2, Redo2, Layers, Trash2, ArrowLeft, GripVertical, Maximize2, Image as ImageIcon } from 'lucide-react';
 
+type ThumbKind = 'image' | 'video';
+type ThumbDescriptor = { kind: ThumbKind; src: string; rank: number };
+type ThumbState = { descriptor: ThumbDescriptor | null; fallbackSources: string[] };
+
+const isVideoUrl = (url?: string) =>
+  !!url && /\.(mp4|webm|mov)(\?.*)?$/i.test(url);
+
+const isValidThumbCandidate = (url?: string) => {
+  if (!url) return false;
+  if (isVideoUrl(url)) return false;
+  if (url.startsWith('data:') || url.startsWith('blob:')) return true;
+  if (url.startsWith('/data/') || url.startsWith('/data_v2/') || url.startsWith('/originals/')) return true;
+  if (url.includes('img.youtube.com/vi/')) return true;
+  return !!url.match(/\.(jpe?g|png|webp|gif|avif|bmp)(\?.*)?$/i);
+};
+
+const getImageCandidateValue = (media: any, key: string) => {
+  if (key === 'image_large') return media?.image_large || media?.largeUrl;
+  return media?.[key];
+};
+
+const resolveThumbState = (mediaList: any[], getVideoSrc: (media: any, preferLarge?: boolean) => string | undefined): ThumbState => {
+  const fallbackSources: string[] = [];
+  const fallbackSourceSet = new Set<string>();
+  let bestDescriptor: ThumbDescriptor | null = null;
+
+  const addCandidate = (src: string | undefined, rank: number, kind: ThumbKind) => {
+    if (!isValidThumbCandidate(src)) return;
+    const normalized = String(src);
+    if (!fallbackSourceSet.has(normalized)) {
+      fallbackSourceSet.add(normalized);
+      fallbackSources.push(normalized);
+    }
+    if (!bestDescriptor || rank > bestDescriptor.rank) {
+      bestDescriptor = { kind, src: normalized, rank };
+    }
+  };
+
+  for (const media of mediaList) {
+    if (!media) continue;
+
+    addCandidate(getImageCandidateValue(media, 'image_thumb'), 100, 'image');
+    addCandidate(getImageCandidateValue(media, 'image_preview'), 95, 'image');
+    addCandidate(getImageCandidateValue(media, 'image_1k'), 90, 'image');
+    addCandidate(getImageCandidateValue(media, 'image_2k'), 85, 'image');
+    addCandidate(getImageCandidateValue(media, 'image_3k'), 80, 'image');
+    addCandidate(getImageCandidateValue(media, 'image_large'), 75, 'image');
+    addCandidate(getImageCandidateValue(media, 'image_original'), 70, 'image');
+    addCandidate(getImageCandidateValue(media, 'image'), 60, 'image');
+    addCandidate(getImageCandidateValue(media, 'url'), 40, 'image');
+    addCandidate(getImageCandidateValue(media, 'link'), 35, 'image');
+
+    if (!bestDescriptor && media.youtubeId) {
+      const youtubeThumb = `https://img.youtube.com/vi/${media.youtubeId}/maxresdefault.jpg`;
+      addCandidate(youtubeThumb, 30, 'image');
+    }
+  }
+
+  if (!bestDescriptor) {
+    for (const media of mediaList) {
+      const videoSrc = getVideoSrc(media, false) || getVideoSrc(media, true);
+      if (videoSrc) {
+        const normalized = String(videoSrc);
+        fallbackSources.push(normalized);
+        bestDescriptor = { kind: 'video', src: normalized, rank: 10 };
+        break;
+      }
+    }
+  }
+
+  return { descriptor: bestDescriptor, fallbackSources };
+};
+
 interface RearrangeModalProps {
   isReorderView: boolean;
   setIsReorderView: (v: boolean) => void;
@@ -35,6 +108,7 @@ interface RearrangeModalProps {
   isR2Fallback: boolean;
   isEmbeddedData: boolean;
   getImageSrc: (media: any, preferLarge?: boolean) => string | undefined;
+  getVideoSrc: (media: any, preferLarge?: boolean) => string | undefined;
   getDisplayImage: (url: string | undefined, r2: boolean, embedded: boolean) => string | undefined;
   setSelectedImage: (post: any) => void;
 }
@@ -47,6 +121,7 @@ const SortableThumbnailInner: React.FC<{
   onSelect: (e: React.MouseEvent) => void;
   onMoveToTarget: () => void;
   getImageSrc: (media: any, preferLarge?: boolean) => string | undefined;
+  getVideoSrc: (media: any, preferLarge?: boolean) => string | undefined;
   getDisplayImage: (url: string | undefined, r2: boolean, embedded: boolean) => string | undefined;
   isR2Fallback: boolean;
   isEmbeddedData: boolean;
@@ -55,9 +130,11 @@ const SortableThumbnailInner: React.FC<{
   post,
   isSelected,
   isMoving,
+  index,
   onSelect,
   onMoveToTarget,
   getImageSrc,
+  getVideoSrc,
   getDisplayImage,
   isR2Fallback,
   isEmbeddedData,
@@ -71,38 +148,80 @@ const SortableThumbnailInner: React.FC<{
     transition,
     isDragging
   } = useSortable({ id: post.id });
+  const tileRef = React.useRef<HTMLDivElement | null>(null);
+  const [shouldLoadMedia, setShouldLoadMedia] = React.useState(index < 60);
+
+  React.useEffect(() => {
+    if (shouldLoadMedia || !tileRef.current || typeof IntersectionObserver === 'undefined') return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setShouldLoadMedia(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '900px 0px' }
+    );
+
+    observer.observe(tileRef.current);
+    return () => observer.disconnect();
+  }, [shouldLoadMedia]);
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     zIndex: isDragging ? 100 : 1,
     opacity: isDragging ? 0.5 : 1,
+    contentVisibility: 'auto' as const,
+    containIntrinsicSize: '240px 240px',
   };
 
-  const thumbMedia = (post.mergedMedia && post.mergedMedia.length > 0)
-    ? post.mergedMedia[0]
-    : post;
-
-  const src = getImageSrc(thumbMedia, false);
-  const displaySrc = src ? getDisplayImage(src, isR2Fallback, isEmbeddedData) : undefined;
+  const thumbMediaList = React.useMemo(
+    () => ((post.mergedMedia && post.mergedMedia.length > 0) ? post.mergedMedia : [post]),
+    [post, post.mergedMedia]
+  );
+  const { descriptor: thumbDescriptor, fallbackSources: thumbFallbackSources } = React.useMemo(
+    () => resolveThumbState(thumbMediaList, getVideoSrc),
+    [thumbMediaList, getVideoSrc]
+  );
+  const displaySrc = thumbDescriptor?.src ? getDisplayImage(thumbDescriptor.src, isR2Fallback, isEmbeddedData) : undefined;
 
   return (
     <div
-      ref={setNodeRef}
+      ref={(node) => {
+        tileRef.current = node;
+        setNodeRef(node);
+      }}
       style={style}
       className={`aspect-square relative rounded-lg overflow-hidden group ${isSelected ? 'ring-2 ring-blue-500' : 'ring-1 ring-white/10'} ${isMoving ? 'cursor-crosshair' : 'cursor-pointer'} ${post.hidden ? 'grayscale brightness-50' : ''}`}
       onClick={isMoving ? () => onMoveToTarget() : onSelect}
     >
-      {displaySrc ? (
+      {shouldLoadMedia && displaySrc && thumbDescriptor?.kind === 'image' ? (
         <img 
           src={displaySrc} 
           alt="" 
           className="w-full h-full object-cover" 
+          loading={index < 30 ? 'eager' : 'lazy'}
+          decoding="async"
+          draggable={false}
+          data-thumb-fallback-index="0"
           onError={(e) => {
-            if (thumbMedia?.image_preview && e.currentTarget.src !== thumbMedia.image_preview) {
-              e.currentTarget.src = thumbMedia.image_preview;
+            const currentIndex = Number(e.currentTarget.dataset.thumbFallbackIndex || '0');
+            const nextSource = thumbFallbackSources[currentIndex + 1];
+            if (nextSource) {
+              e.currentTarget.dataset.thumbFallbackIndex = String(currentIndex + 1);
+              e.currentTarget.src = getDisplayImage(nextSource, isR2Fallback, isEmbeddedData) || nextSource;
             }
           }}
+        />
+      ) : shouldLoadMedia && displaySrc && thumbDescriptor?.kind === 'video' ? (
+        <video
+          src={displaySrc}
+          className="w-full h-full object-cover"
+          muted
+          playsInline
+          preload="metadata"
         />
       ) : (
         <div className="w-full h-full bg-[#111] flex items-center justify-center text-white/40">
@@ -139,7 +258,7 @@ export const RearrangeModal: React.FC<RearrangeModalProps> = (props) => {
     isMoving, setIsMoving, flickrPosts, past, future, activeId, setActiveId,
     sensors, reorderScrollRef, handleUndo, handleRedo, handleMerge,
     handleBulkDelete, handleMoveToTarget, handleDragEnd, onSelect,
-    isR2Fallback, isEmbeddedData, getImageSrc, getDisplayImage, setSelectedImage
+    isR2Fallback, isEmbeddedData, getImageSrc, getVideoSrc, getDisplayImage, setSelectedImage
   } = props;
 
   if (!isReorderView) return null;
@@ -230,6 +349,7 @@ export const RearrangeModal: React.FC<RearrangeModalProps> = (props) => {
                 onMoveToTarget={() => handleMoveToTarget(post.id)}
                 onSelect={(e: React.MouseEvent) => onSelect(post, e)}
                 getImageSrc={getImageSrc}
+                getVideoSrc={getVideoSrc}
                 getDisplayImage={getDisplayImage}
                 isR2Fallback={isR2Fallback}
                 isEmbeddedData={isEmbeddedData}

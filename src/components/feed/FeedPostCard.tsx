@@ -1,8 +1,8 @@
 // src/components/feed/FeedPostCard.tsx
-import React, { useState, useRef, useLayoutEffect, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useLayoutEffect, useEffect, useMemo, useCallback } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Loader2, Eye, GripVertical, ImageIcon, Youtube, Film, X, Maximize2, FoldVertical, Trash2, ExternalLink, Check } from 'lucide-react';
+import { Loader2, Eye, GripVertical, ImageIcon, Youtube, Film, X, Maximize2, FoldVertical, Trash2, ExternalLink, Check, Upload, CheckCircle2, AlertCircle } from 'lucide-react';
 import { PROJECT_STATES } from '../../constants';
 
 interface FeedPostCardProps {
@@ -167,9 +167,211 @@ export function FeedPostCard({
     }
   };
 
+  const isVideoMediaUrl = (url?: string) =>
+    !!url && /\.(mp4|webm|mov)(\?.*)?$/i.test(url);
+
+  const getPreviewImageSrc = (media: any, preferLarge = false) => {
+    const src = getImageSrc(media, preferLarge);
+    return src && !isVideoMediaUrl(src) ? src : undefined;
+  };
+
+  const getPreviewVideoSrc = (media: any, preferLarge = false) => {
+    const src = getVideoSrc(media, preferLarge);
+    return src && isVideoMediaUrl(src) ? src : undefined;
+  };
+
   const [draggedMediaIdx, setDraggedMediaIdx] = useState<number | null>(null);
   const [applyLoading, setApplyLoading] = useState<Record<number, boolean>>({});
   const [localUrlInputs, setLocalUrlInputs] = useState<Record<number, string>>({});
+  const [isFileDragOverCard, setIsFileDragOverCard] = useState(false);
+  const cardDragDepthRef = useRef(0);
+  const uploadStatusTimerRef = useRef<number | null>(null);
+  const [cardUploadStatus, setCardUploadStatus] = useState<{
+    phase: 'hover' | 'preparing' | 'uploading' | 'done' | 'error';
+    message: string;
+    count?: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!isEditing) {
+      cardDragDepthRef.current = 0;
+      setIsFileDragOverCard(false);
+      setCardUploadStatus(null);
+    }
+  }, [isEditing]);
+
+  const hasFileDrag = (e: React.DragEvent<HTMLElement>) =>
+    Array.from(e.dataTransfer?.types || []).includes('Files');
+
+  const clearCardDragState = useCallback(() => {
+    cardDragDepthRef.current = 0;
+    setIsFileDragOverCard(false);
+    setCardUploadStatus(prev => prev?.phase === 'hover' ? null : prev);
+  }, []);
+
+  const clearUploadStatusLater = useCallback((delay = 2200) => {
+    if (uploadStatusTimerRef.current) {
+      window.clearTimeout(uploadStatusTimerRef.current);
+    }
+    uploadStatusTimerRef.current = window.setTimeout(() => {
+      setCardUploadStatus(null);
+      uploadStatusTimerRef.current = null;
+    }, delay);
+  }, []);
+
+  useEffect(() => {
+    const handleWindowDragEnd = () => clearCardDragState();
+    const handleWindowDrop = () => clearCardDragState();
+
+    window.addEventListener('dragend', handleWindowDragEnd);
+    window.addEventListener('drop', handleWindowDrop);
+
+    return () => {
+      window.removeEventListener('dragend', handleWindowDragEnd);
+      window.removeEventListener('drop', handleWindowDrop);
+    };
+  }, [clearCardDragState]);
+
+  useEffect(() => {
+    return () => {
+      if (uploadStatusTimerRef.current) {
+        window.clearTimeout(uploadStatusTimerRef.current);
+      }
+    };
+  }, []);
+
+  const queueDroppedFiles = (files: File[], sourceLabel: string) => {
+    if (!isEditing) return;
+
+    const filteredFiles = files.filter(file =>
+      file.type.startsWith('image/') || file.type.startsWith('video/')
+    );
+    if (filteredFiles.length === 0) return;
+
+    if (uploadStatusTimerRef.current) {
+      window.clearTimeout(uploadStatusTimerRef.current);
+      uploadStatusTimerRef.current = null;
+    }
+
+    setCardUploadStatus({
+      phase: 'preparing',
+      message: `${filteredFiles.length} Datei${filteredFiles.length === 1 ? '' : 'en'} werden vorbereitet (${sourceLabel})…`,
+      count: filteredFiles.length
+    });
+
+    filteredFiles.forEach((file, index) => {
+      window.setTimeout(() => {
+        if (file.type.startsWith('video/')) {
+          handleVideoFileUpload(post.id, file);
+        } else {
+          handleImageUpload(post.id, file, undefined, true);
+        }
+      }, index * 100);
+    });
+  };
+
+  const handleCardDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!isEditing || !hasFileDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    cardDragDepthRef.current += 1;
+    setIsFileDragOverCard(true);
+    setCardUploadStatus(prev => {
+      if (prev?.phase === 'preparing' || prev?.phase === 'uploading') return prev;
+      return {
+        phase: 'hover',
+        message: 'Dateien hier ablegen, um in dieses Projekt hochzuladen.'
+      };
+    });
+  };
+
+  const handleCardDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!isEditing || !hasFileDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    if (!isFileDragOverCard) setIsFileDragOverCard(true);
+  };
+
+  const handleCardDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!isEditing || !hasFileDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    cardDragDepthRef.current = Math.max(0, cardDragDepthRef.current - 1);
+    if (cardDragDepthRef.current === 0) {
+      setIsFileDragOverCard(false);
+    }
+  };
+
+  const handleCardDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!isEditing || !hasFileDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    clearCardDragState();
+    queueDroppedFiles(Array.from(e.dataTransfer.files), 'Drag & Drop');
+  };
+
+  useEffect(() => {
+    const uploadingCount = activeUploads[post.id] || 0;
+    if (!cardUploadStatus) return;
+
+    if (cardUploadStatus.phase === 'preparing' && uploadingCount > 0) {
+      setCardUploadStatus(prev => prev ? {
+        ...prev,
+        phase: 'uploading',
+        message: `${uploadingCount} Datei${uploadingCount === 1 ? '' : 'en'} werden hochgeladen…`
+      } : prev);
+      return;
+    }
+
+    if (cardUploadStatus.phase === 'uploading') {
+      if (uploadingCount > 0) {
+        setCardUploadStatus(prev => prev ? {
+          ...prev,
+          message: `${uploadingCount} Datei${uploadingCount === 1 ? '' : 'en'} werden hochgeladen…`
+        } : prev);
+        return;
+      }
+
+      setCardUploadStatus({
+        phase: 'done',
+        message: 'Gespeichert und für R2 synchronisiert.',
+        count: cardUploadStatus.count
+      });
+      clearUploadStatusLater();
+    }
+  }, [activeUploads, cardUploadStatus, clearUploadStatusLater, post.id]);
+
+  const handleImportInputChange = (
+    e: React.ChangeEvent<HTMLInputElement>,
+    sourceLabel: string,
+    options: { kind: 'image' | 'video'; mediaIndex?: number; isNew?: boolean }
+  ) => {
+    if (!e.target.files) return;
+    const files = Array.from(e.target.files);
+    if (options.kind === 'video') {
+      queueDroppedFiles(files, sourceLabel);
+    } else {
+      if (!isEditing) return;
+      const filteredFiles = files.filter(file => file.type.startsWith('image/'));
+      if (filteredFiles.length === 0) return;
+      if (uploadStatusTimerRef.current) {
+        window.clearTimeout(uploadStatusTimerRef.current);
+        uploadStatusTimerRef.current = null;
+      }
+      setCardUploadStatus({
+        phase: 'preparing',
+        message: `${filteredFiles.length} Datei${filteredFiles.length === 1 ? '' : 'en'} werden vorbereitet (${sourceLabel})…`,
+        count: filteredFiles.length
+      });
+      filteredFiles.forEach((file, index) => {
+        window.setTimeout(() => {
+          handleImageUpload(post.id, file, options.mediaIndex, options.isNew);
+        }, index * 100);
+      });
+    }
+    e.target.value = '';
+  };
 
   const updateMediaItem = (i: number, field: string, value: any) => {
     const newMedia = [...mediaItems];
@@ -246,8 +448,27 @@ export function FeedPostCard({
     <div 
       ref={setNodeRef}
       style={style}
-      className={`group bg-[#111] rounded-xl overflow-hidden border ${isDragging ? 'border-blue-500 shadow-xl shadow-black/50' : 'border-white/5 hover:border-white/20'} transition-all duration-300 flex flex-col relative`}
+      className={`group bg-[#111] rounded-xl overflow-hidden border ${isDragging ? 'border-blue-500 shadow-xl shadow-black/50' : 'border-white/5 hover:border-white/20'} transition-all duration-300 flex flex-col relative ${isFileDragOverCard ? 'ring-2 ring-blue-400/50 ring-offset-0' : ''}`}
+      onDragEnter={handleCardDragEnter}
+      onDragOver={handleCardDragOver}
+      onDragLeave={handleCardDragLeave}
+      onDrop={handleCardDrop}
     >
+      {isEditing && isFileDragOverCard && cardUploadStatus?.phase === 'hover' && (
+        <div className="absolute top-3 left-3 right-3 z-30 pointer-events-none">
+          <div className="rounded-2xl border border-blue-400/40 bg-black/55 backdrop-blur-md px-4 py-3 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <Upload className="w-5 h-5 text-blue-300 animate-bounce shrink-0" />
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-blue-100">Files can be dropped here</div>
+                <div className="text-[11px] sm:text-xs text-blue-100/70 truncate">
+                  {cardUploadStatus.message}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {isEditing && (
         <div className="absolute top-2 left-2 z-20 flex gap-2">
           <button 
@@ -304,12 +525,7 @@ export function FeedPostCard({
                   multiple
                   className="hidden" 
                   onChange={(e) => {
-                    if (e.target.files) {
-                      Array.from(e.target.files).forEach(file => {
-                        handleImageUpload(post.id, file, undefined, true);
-                      });
-                      e.target.value = '';
-                    }
+                    handleImportInputChange(e, '+ Bild', { kind: 'image', isNew: true });
                   }}
                 />
               </label>
@@ -333,12 +549,7 @@ export function FeedPostCard({
                   multiple
                   className="hidden" 
                   onChange={(e) => {
-                    if (e.target.files) {
-                      Array.from(e.target.files).forEach(file => {
-                        handleVideoFileUpload(post.id, file);
-                      });
-                      e.target.value = '';
-                    }
+                    handleImportInputChange(e, '+ Video (Datei)', { kind: 'video' });
                   }}
                 />
               </label>
@@ -502,10 +713,7 @@ export function FeedPostCard({
                           accept="video/*"
                           className="hidden"
                           onChange={(e) => {
-                            if (e.target.files && e.target.files[0]) {
-                              handleVideoFileUpload(post.id, e.target.files[0]);
-                              e.target.value = '';
-                            }
+                            handleImportInputChange(e, 'Video ersetzen', { kind: 'video' });
                           }}
                         />
                       </label>
@@ -519,20 +727,17 @@ export function FeedPostCard({
                       accept="image/*" 
                       className="hidden" 
                       onChange={(e) => {
-                        if (e.target.files && e.target.files[0]) {
-                          handleImageUpload(post.id, e.target.files[0], i);
-                          e.target.value = '';
-                        }
+                        handleImportInputChange(e, 'Bild ersetzen', { kind: 'image', mediaIndex: i });
                       }}
                     />
                   </label>
                 )}
                 {media.image || media.image_preview || media.url ? (
                   media.type === 'video' ? (
-                    <>
-                      <img 
-                        src={getDisplayImage(getImageSrc(media) ?? media.image_thumb ?? media.image ?? undefined, isR2Fallback, isEmbeddedData)} 
-                        alt="" 
+                    getPreviewImageSrc(media) ? (
+                      <img
+                        src={getDisplayImage(getPreviewImageSrc(media) ?? undefined, isR2Fallback, isEmbeddedData)}
+                        alt=""
                         className="w-full h-24 object-cover rounded cursor-pointer"
                         onClick={() => setSelectedImage(post)}
                         onError={(e) => {
@@ -542,10 +747,23 @@ export function FeedPostCard({
                           if (next) next.style.display = 'flex';
                         }}
                       />
-                      <div className="w-full h-24 bg-white/10 rounded items-center justify-center text-white/40 hidden" style={{ display: 'none' }}>
-                        <Film className="w-6 h-6" />
-                      </div>
-                    </>
+                    ) : getPreviewVideoSrc(media) ? (
+                      <video
+                        src={getDisplayImage(getPreviewVideoSrc(media) ?? undefined, isR2Fallback, isEmbeddedData)}
+                        className="w-full h-24 object-cover rounded cursor-pointer"
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                        onClick={() => setSelectedImage(post)}
+                      />
+                    ) : (
+                      <>
+                        <div className="w-full h-24 bg-white/10 rounded flex items-center justify-center text-white/40">
+                          <Film className="w-6 h-6" />
+                        </div>
+                      </>
+                    )
                   ) : getVideoSrc(media) ? (
                     <video 
                       src={getDisplayImage(getVideoSrc(media) ?? undefined, isR2Fallback, isEmbeddedData)} 
@@ -581,21 +799,37 @@ export function FeedPostCard({
           <>
             {displayMedia.image || displayMedia.image_preview || displayMedia.url ? (
               displayMedia.type === 'video' ? (
-                <img 
-                  src={getDisplayImage(getImageSrc(displayMedia) ?? displayMedia.image_thumb ?? displayMedia.image ?? undefined, isR2Fallback, isEmbeddedData)} 
-                  alt={post.title} 
-                  loading="lazy"
-                  referrerPolicy="no-referrer"
-                  className={`w-full h-full object-cover transition-transform duration-500 ease-out cursor-pointer ${!isEditing ? 'group-hover:scale-[1.03]' : ''}`}
-                  onLoad={handleFeedImageLoad}
-                  onClick={() => setSelectedImage(post)}
-                  onError={(e) => {
-                    const target = e.currentTarget;
-                    if (displayMedia.image_preview && target.src !== getDisplayImage(displayMedia.image_preview, isR2Fallback, isEmbeddedData)) {
-                      target.src = getDisplayImage(displayMedia.image_preview, isR2Fallback, isEmbeddedData) || '';
-                    }
-                  }}
-                />
+                getPreviewImageSrc(displayMedia) ? (
+                  <img
+                    src={getDisplayImage(getPreviewImageSrc(displayMedia) ?? undefined, isR2Fallback, isEmbeddedData)}
+                    alt={post.title}
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                    className={`w-full h-full object-cover transition-transform duration-500 ease-out cursor-pointer ${!isEditing ? 'group-hover:scale-[1.03]' : ''}`}
+                    onLoad={handleFeedImageLoad}
+                    onClick={() => setSelectedImage(post)}
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      if (displayMedia.image_preview && target.src !== getDisplayImage(displayMedia.image_preview, isR2Fallback, isEmbeddedData)) {
+                        target.src = getDisplayImage(displayMedia.image_preview, isR2Fallback, isEmbeddedData) || '';
+                      }
+                    }}
+                  />
+                ) : getPreviewVideoSrc(displayMedia) ? (
+                  <video
+                    src={getDisplayImage(getPreviewVideoSrc(displayMedia) ?? undefined, isR2Fallback, isEmbeddedData)}
+                    className={`w-full h-full object-cover transition-transform duration-500 ease-out cursor-pointer ${!isEditing ? 'group-hover:scale-[1.03]' : ''}`}
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    onClick={() => setSelectedImage(post)}
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-white/20">
+                    <Film className="w-12 h-12" />
+                  </div>
+                )
               ) : getVideoSrc(displayMedia) ? (
                 <video 
                   src={getDisplayImage(getVideoSrc(displayMedia) ?? undefined, isR2Fallback, isEmbeddedData)} 
@@ -644,10 +878,18 @@ export function FeedPostCard({
           </>
         )}
         
-        {isEditing && activeUploads[post.id] > 0 && (
-          <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center z-10">
-            <Loader2 className="w-8 h-8 animate-spin text-white mb-2" />
-            <span className="text-xs text-white/70">Lädt hoch... ({activeUploads[post.id]})</span>
+        {isEditing && (activeUploads[post.id] > 0 || (cardUploadStatus && cardUploadStatus.phase !== 'hover')) && (
+          <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center z-20 px-4 text-center">
+            {cardUploadStatus?.phase === 'done' ? (
+              <CheckCircle2 className="w-8 h-8 text-green-400 mb-2" />
+            ) : cardUploadStatus?.phase === 'error' ? (
+              <AlertCircle className="w-8 h-8 text-red-400 mb-2" />
+            ) : (
+              <Loader2 className="w-8 h-8 animate-spin text-white mb-2" />
+            )}
+            <span className={`text-xs sm:text-sm ${cardUploadStatus?.phase === 'done' ? 'text-green-300' : cardUploadStatus?.phase === 'error' ? 'text-red-300' : 'text-white/70'}`}>
+              {cardUploadStatus?.message || `Lädt hoch... (${activeUploads[post.id]})`}
+            </span>
           </div>
         )}
       </div>

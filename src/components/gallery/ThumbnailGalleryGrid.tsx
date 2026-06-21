@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -10,7 +10,6 @@ import {
   rectSortingStrategy,
 } from '@dnd-kit/sortable';
 import { FeedPostCard } from '../feed/FeedPostCard';
-import { Upload } from 'lucide-react';
 
 interface ThumbnailGalleryGridProps {
   flickrPosts: any[];
@@ -71,74 +70,8 @@ export function ThumbnailGalleryGrid({
   isValidImageCandidate,
   bunnyProgress,
 }: ThumbnailGalleryGridProps) {
-  const [isDraggingOverGrid, setIsDraggingOverGrid] = useState(false);
-  const [uploadingFiles, setUploadingFiles] = useState(0);
-
-  // Handle drop of files into the gallery
-  const handleGridDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDraggingOverGrid(false);
-
-    if (!isEditing || flickrPosts.length === 0) return;
-
-    const files = Array.from(e.dataTransfer.files).filter(file => 
-      file.type.startsWith('image/') || file.type.startsWith('video/')
-    );
-
-    if (files.length === 0) return;
-
-    // Add files to the first post
-    const firstPost = flickrPosts[0];
-    files.forEach((file, index) => {
-      // Slight delay to prevent race conditions
-      setTimeout(() => {
-        if (file.type.startsWith('video/')) {
-          handleVideoFileUpload(firstPost.id, file);
-        } else {
-          handleImageUpload(firstPost.id, file, undefined, true);
-        }
-      }, index * 100);
-    });
-  };
-
-  const handleGridDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    // Only trigger file upload overlay if actual files are being dragged
-    if (e.dataTransfer.types && e.dataTransfer.types.includes('Files')) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (isEditing) {
-        setIsDraggingOverGrid(true);
-      }
-    }
-  };
-
-  const handleGridDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-    // Only hide if we're leaving the grid entirely
-    if (e.currentTarget === e.target) {
-      setIsDraggingOverGrid(false);
-    }
-  };
-
   return (
-    <div 
-      className="relative w-full"
-      onDragOver={handleGridDragOver}
-      onDragLeave={handleGridDragLeave}
-      onDrop={handleGridDrop}
-    >
-      {/* Drag-over overlay with visual feedback - constrained to grid area */}
-      {isDraggingOverGrid && isEditing && (
-        <div className="absolute inset-0 z-40 bg-black/50 backdrop-blur-sm pointer-events-auto">
-          <div className="sticky top-[50vh] left-1/2 -translate-x-1/2 -translate-y-1/2 w-max bg-blue-500/20 border-2 border-blue-400 border-dashed rounded-xl p-8 flex flex-col items-center gap-4 shadow-2xl">
-            <Upload className="w-16 h-16 text-blue-400 animate-bounce" />
-            <span className="text-blue-300 font-bold text-2xl">Drop files to upload</span>
-            <span className="text-blue-300/70 text-sm max-w-xs text-center">Files will be added to the first post</span>
-            <span className="text-blue-300/50 text-xs mt-2">Images & Videos supported</span>
-          </div>
-        </div>
-      )}
-      
+    <div className="relative w-full">
       <DndContext 
         sensors={sensors}
         collisionDetection={closestCenter}

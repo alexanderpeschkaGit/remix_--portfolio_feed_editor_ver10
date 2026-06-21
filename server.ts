@@ -1920,13 +1920,28 @@ async function startServer() {
   // API route to save state
   app.post("/api/state", async (req, res) => {
     try {
-      const state = req.body;
+      const { pushToR2, ...state } = req.body;
       await ensureStateVideoDimensions(state);
       await backupState();
-      await fs.writeFile(path.join(DATA_DIR, 'state.json'), JSON.stringify(state, null, 2));
+
+      const stateString = JSON.stringify(state, null, 2);
+      await fs.writeFile(path.join(DATA_DIR, 'state.json'), stateString);
+
+      if (pushToR2) {
+        console.log("[R2 Sync] Pushing state.json to R2...");
+        await s3Client.send(new PutObjectCommand({
+          Bucket: R2_CONFIG.bucketName,
+          Key: 'state.json',
+          Body: Buffer.from(stateString),
+          ContentType: "application/json; charset=utf-8",
+        }));
+        console.log("[R2 Sync] Pushing state.json to R2 completed successfully.");
+      }
+
       res.json({ success: true });
-    } catch (e) {
-      res.status(500).json({ error: 'Failed to save state' });
+    } catch (e: any) {
+      console.error("Failed to save state:", e);
+      res.status(500).json({ error: 'Failed to save state', details: e.message });
     }
   });
 
@@ -2154,6 +2169,7 @@ async function startServer() {
         bio: portfolioData.bio || '',
         projectStates: portfolioData.projectStates || [],
         publicDomain: portfolioData.publicDomain || '',
+        scrapeConfig: portfolioData.scrapeConfig || undefined,
         lastUpdated: new Date().toISOString()
       }, null, 2);
 
@@ -2168,7 +2184,8 @@ async function startServer() {
       res.json({
         success: true,
         restoredBackup: latestBackup,
-        url: `${cleanBaseUrl}/index.html`
+        url: `${cleanBaseUrl}/index.html`,
+        state: JSON.parse(stateData)
       });
     } catch (error: any) {
       console.error("Error restoring latest published backup:", error);
@@ -3013,7 +3030,7 @@ async function startServer() {
             body: JSON.stringify({ title: bunnyTitle })
           });
           if (!createRes.ok) throw new Error(`Bunny create error: ${createRes.statusText}`);
-          const videoData = await createRes.json();
+          const videoData: any = await createRes.json();
           const videoId = videoData.guid;
 
           bunnyTasks.set(taskId, { step: 'uploading', progress: 15, startedAt: Date.now() });
@@ -3072,7 +3089,7 @@ async function startServer() {
                 headers: { "AccessKey": BUNNY_CONFIG.apiKey, "Accept": "application/json" }
               });
               if (!metaRes.ok) continue;
-              const meta = await metaRes.json();
+              const meta: any = await metaRes.json();
               bunnyDuration = meta.length || 0;
               const thumbFilename = meta.thumbnailFileName;
               if (meta.status === 'finished' && thumbFilename) {
@@ -3369,7 +3386,7 @@ async function startServer() {
         body: JSON.stringify({ title })
       });
       if (!createRes.ok) throw new Error(`Bunny create error: ${createRes.statusText}`);
-      const videoData = await createRes.json();
+      const videoData: any = await createRes.json();
       const videoId = videoData.guid;
 
       const uploadUrl = `https://video.bunnycdn.com/library/${BUNNY_CONFIG.libraryId}/videos/${videoId}`;
@@ -3415,7 +3432,7 @@ async function startServer() {
         }
       });
       if (!metaRes.ok) throw new Error(`Bunny metadata error: ${metaRes.statusText}`);
-      const metadata = await metaRes.json();
+      const metadata: any = await metaRes.json();
 
       const thumbFilename = metadata.thumbnailFileName || 'thumbnail.jpg';
       const thumbUrl = `https://${BUNNY_CONFIG.pullZone}/${videoId}/${thumbFilename}`;
@@ -3476,14 +3493,14 @@ async function startServer() {
     });
   });
 
-  // Catch-all for undefined API routes to prevent HTML responses
-  app.all("/api/*", (req, res) => {
-    res.status(404).json({ error: `API route ${req.method} ${req.url} not found` });
-  });
-
   // Lightweight health check for batch file & auto-reload
   app.get("/api/ping", (req, res) => {
     res.json({ ok: true, time: Date.now() });
+  });
+
+  // Catch-all for undefined API routes to prevent HTML responses
+  app.all("/api/*", (req, res) => {
+    res.status(404).json({ error: `API route ${req.method} ${req.url} not found` });
   });
 
   // Global error handler to ensure JSON responses for all errors

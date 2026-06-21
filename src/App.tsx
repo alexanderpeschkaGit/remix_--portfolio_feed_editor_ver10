@@ -181,6 +181,39 @@ const getVideoSrc = (media: any, preferLarge = false) => {
   return isDirectMediaFile(media?.url) && /\.(mp4|webm|mov)(\?.*)?$/i.test(media.url) ? media.url : undefined;
 };
 
+const getRenderableMediaSource = (media: any) => {
+  if (!media || typeof media !== 'object') return '';
+  if (media.type === 'youtube' && media.youtubeId) return `yt:${media.youtubeId}`;
+  if (media.type === 'bunny' && media.videoId) return `bunny:${media.libraryId || ''}:${media.videoId}`;
+  return (
+    getImageSrc(media, true) ||
+    getImageSrc(media) ||
+    getVideoSrc(media, true) ||
+    getVideoSrc(media) ||
+    media.image_original ||
+    media.image_3k ||
+    media.image_2k ||
+    media.image_large ||
+    media.largeUrl ||
+    media.image_1k ||
+    media.image_preview ||
+    media.image_thumb ||
+    media.image ||
+    media.url ||
+    media.link ||
+    media.youtubeId ||
+    media.youtubeUrl ||
+    ''
+  );
+};
+
+const hasRenderableMedia = (media: any) => !!getRenderableMediaSource(media);
+
+const getMediaDedupeKey = (media: any) => {
+  if (!media || typeof media !== 'object') return '';
+  return String(getRenderableMediaSource(media));
+};
+
 const getMediaPriorityScore = (media: any) => {
   if (!media) return -1;
   if (media.type === 'youtube' || media.youtubeId || media.type === 'bunny') return 25;
@@ -296,6 +329,7 @@ export default function App() {
   const [localLastUpdated, setLocalLastUpdated] = useState<string | null>(null);
   const [hasCloudChanges, setHasCloudChanges] = useState(false);
   const ignoreCloudChangesRef = useRef(false);
+  const shouldPushStateToR2Ref = useRef(false);
   const [cloudSyncChanges, setCloudSyncChanges] = useState<string[] | null>(null);
   const [cloudSyncState, setCloudSyncState] = useState<{ changes: string[]; items: any[]; r2Data: any } | null>(null);
   const [showTrashModal, setShowTrashModal] = useState(false);
@@ -1102,13 +1136,18 @@ export default function App() {
             if (cleanM.image_3k?.startsWith('blob:')) cleanM.image_3k = '';
             if (cleanM.uploadId) delete cleanM.uploadId;
             return cleanM;
-          }).filter((m: any) => m.type === 'youtube' || m.type === 'bunny' || !!(m.image || m.image_large || m.image_3k || m.youtubeId || m.youtubeUrl || m.link || m.url));
+          }).filter(hasRenderableMedia);
           if (cleanPost.mergedMedia.length === 0) {
             delete cleanPost.mergedMedia;
           }
         }
         return cleanPost;
       });
+
+      const pushToR2 = shouldPushStateToR2Ref.current;
+      if (pushToR2) {
+        shouldPushStateToR2Ref.current = false;
+      }
 
       fetch('/api/state', {
         method: 'POST',
@@ -1122,7 +1161,8 @@ export default function App() {
           scrapeConfig: {
             igAccount,
             flickrUrl
-          }
+          },
+          pushToR2
         })
       }).catch(console.error);
     }
@@ -1232,15 +1272,37 @@ export default function App() {
 
       // FIX #2c: Merge-Operation - Strikte Filter-Logik
       const mergedMedia = [
-        ...(current.mergedMedia || [{ type: current.type || 'image', image: current.image, image_large: current.image_large, youtubeId: current.youtubeId, link: current.url }]),
-        ...(next.mergedMedia || [{ type: next.type || 'image', image: next.image, image_large: next.image_large, youtubeId: next.youtubeId, link: next.url }])
-      ].filter((m: any) => {
-        if (m.type === 'youtube') return true;
-        if (m.uploadId) {
-          return !!(m.image || m.image_large || m.image_3k);
-        }
-        return !!(m.image || m.youtubeId);
-      });
+        ...(current.mergedMedia || [{
+          type: current.type || 'image',
+          image: current.image,
+          image_thumb: current.image_thumb,
+          image_1k: current.image_1k,
+          image_2k: current.image_2k,
+          image_large: current.image_large,
+          image_preview: current.image_preview,
+          image_3k: current.image_3k,
+          image_original: current.image_original,
+          youtubeId: current.youtubeId,
+          youtubeUrl: current.youtubeUrl,
+          link: current.url,
+          url: current.url
+        }]),
+        ...(next.mergedMedia || [{
+          type: next.type || 'image',
+          image: next.image,
+          image_thumb: next.image_thumb,
+          image_1k: next.image_1k,
+          image_2k: next.image_2k,
+          image_large: next.image_large,
+          image_preview: next.image_preview,
+          image_3k: next.image_3k,
+          image_original: next.image_original,
+          youtubeId: next.youtubeId,
+          youtubeUrl: next.youtubeUrl,
+          link: next.url,
+          url: next.url
+        }])
+      ].filter(hasRenderableMedia);
 
       const mergedDescription = [current.description, next.description].filter(Boolean).join('<br/><br/>');
       const primaryMedia = getPrimaryMergedMedia(mergedMedia) || current;
@@ -1260,15 +1322,7 @@ export default function App() {
   const handleUpdatePostMedia = (id: string, newMediaRaw: any[]) => {
     // FIX #3: Strikte Filter-Logik - Phantom-Elemente entfernen
     // uploadId ist NUR während des Uploads erlaubt, danach müssen finale URLs vorhanden sein
-    const newMedia = newMediaRaw.filter(m => {
-      if (m.type === 'youtube') return true;
-      // Elemente mit uploadId MÜSSEN finale URLs haben (sonst: Phantom-Upload)
-      if (m.uploadId) {
-        return !!(m.image || m.image_thumb || m.image_1k || m.image_2k || m.image_large || m.image_3k || m.image_preview);
-      }
-      // Normale Elemente
-      return !!(m.image || m.image_thumb || m.image_1k || m.image_2k || m.image_large || m.image_preview || m.image_3k || m.youtubeId);
-    });
+    const newMedia = newMediaRaw.filter(hasRenderableMedia);
     const targetTitle = flickrPosts.find(p => String(p.id) === String(id))?.title || 'Unbenannt';
     updatePosts(posts => posts.map(post => {
       if (String(post.id) === String(id)) {
@@ -1284,6 +1338,7 @@ export default function App() {
       }
       return post;
     }), `Post Media aktualisiert (${targetTitle})`);
+    shouldPushStateToR2Ref.current = true;
   };
 
   const handleMoveToTarget = (targetId: string) => {
@@ -1400,15 +1455,7 @@ export default function App() {
           let validatedMedia: any[] = [];
           if (post.mergedMedia && post.mergedMedia.length > 0) {
             // Strikte Validierung: Nur Elemente mit echten finalen URLs beibehalten
-            validatedMedia = post.mergedMedia.filter((m: any) => {
-              if (m.type === 'youtube' || m.type === 'bunny') return true;
-              // uploadId-Elemente MÜSSEN finale URLs haben
-              if (m.uploadId) {
-                return !!(m.image || m.image_thumb || m.image_1k || m.image_2k || m.image_large || m.image_3k || m.image_original);
-              }
-              // Normale Elemente
-              return !!(m.image || m.image_thumb || m.image_1k || m.image_2k || m.image_large || m.image_preview || m.image_3k || m.image_original || m.youtubeId);
-            });
+            validatedMedia = post.mergedMedia.filter(hasRenderableMedia);
           } else if (hasPrimaryMedia(post)) {
             // Falls keine mergedMedia aber primäre Post-Daten vorhanden: Diese als Basis verwenden
             validatedMedia = [postToMediaItem(post)];
@@ -1436,7 +1483,7 @@ export default function App() {
         } else if (mediaIndex !== undefined && !post.mergedMedia) {
           const newMediaRaw = [{ type: post.type || 'image', image: post.image, image_thumb: post.image_thumb, image_1k: post.image_1k, image_2k: post.image_2k, image_large: post.image_large, image_3k: post.image_3k, image_original: post.image_original, youtubeId: post.youtubeId, link: post.url }];
           newMediaRaw[mediaIndex] = { ...cleanOldUrls(newMediaRaw[mediaIndex]), uploadId, image: localUrl, image_thumb: localUrl, image_1k: localUrl, image_2k: localUrl, image_large: localUrl, image_preview: localUrl, image_3k: localUrl, image_original: localUrl, type: 'image' } as any;
-          const newMedia = newMediaRaw.filter((m: any) => m.type === 'youtube' || m.type === 'bunny' || !!(m.image || m.image_thumb || m.image_1k || m.image_2k || m.image_large || m.image_preview || m.image_3k || m.uploadId || m.youtubeId));
+          const newMedia = newMediaRaw.filter(hasRenderableMedia);
           const primaryMedia = getPrimaryMergedMedia(newMedia) || newMedia.find(Boolean);
           const updatedPost = syncMediaFieldsFromPrimary({ ...cleanOldUrls(post) }, primaryMedia);
           return {
@@ -1475,6 +1522,7 @@ export default function App() {
       
       console.log('Upload successful, thumb:', thumbUrl, 'large:', highResUrl, 'variant:', uploadData.local_large_variant, 'dims:', imageWidth, 'x', imageHeight);
       
+      shouldPushStateToR2Ref.current = true;
       updatePosts(posts => posts.map(post => {
         if (String(post.id) === String(id)) {
           if (post.mergedMedia && post.mergedMedia.length > 0) {
@@ -1521,7 +1569,7 @@ export default function App() {
               // CLEANUP: uploadId nicht gefunden oder Index-Problem
               // Entferne alle uploadId-Elemente ohne finale URLs (Phantom-Uploads)
               const cleanedMedia = newMedia.filter(m => {
-                if (m.uploadId && !m.image && !m.image_thumb && !m.image_1k && !m.image_2k && !m.image_large && !m.image_3k) {
+                if (m.uploadId && !hasRenderableMedia(m)) {
                   // Phantom-Element: uploadId aber keine finale URL - entfernen
                   return false;
                 }
@@ -1631,7 +1679,7 @@ export default function App() {
       if (String(post.id) !== String(id)) return post;
       const newItem: any = { uploadId, type: 'video', image: localUrl, image_thumb: localUrl, url: localUrl };
       const existingMedia = post.mergedMedia && post.mergedMedia.length > 0
-        ? post.mergedMedia.filter((m: any) => m.type === 'youtube' || m.type === 'bunny' || !!(m.image || m.image_thumb || m.image_1k))
+        ? post.mergedMedia.filter(hasRenderableMedia)
         : [];
       return { ...post, mergedMedia: [...existingMedia, newItem] };
     }), `Video wird hochgeladen…`);
@@ -1677,6 +1725,7 @@ export default function App() {
       const videoUrl = uploadData.url || uploadData.image_original || '';
       const bunnyTaskId: string | null = uploadData.bunnyTaskId || null;
 
+      shouldPushStateToR2Ref.current = true;
       // Update local state immediately
       updatePosts(posts => posts.map(post => {
         if (String(post.id) !== String(id)) return post;
@@ -1741,6 +1790,7 @@ export default function App() {
             }));
 
             if (statusData.step === 'done' && statusData.result) {
+              shouldPushStateToR2Ref.current = true;
               // Update media entry with Bunny results
               const result = statusData.result;
               updatePosts(posts => posts.map(post => {
@@ -1852,6 +1902,7 @@ export default function App() {
         body: JSON.stringify({ libraryId: bunnyLibraryId, videoId: bunnyVideoId })
       }).then(res => res.json()).then(data => {
         if (data.success) {
+           shouldPushStateToR2Ref.current = true;
            updatePosts(posts => posts.map(post => 
              String(post.id) === String(id) ? {
                ...post,
@@ -1885,6 +1936,7 @@ export default function App() {
       ));
     } else if (youtubeId) {
       const thumbnailUrl = `https://img.youtube.com/vi/${youtubeId}/maxresdefault.jpg`;
+      shouldPushStateToR2Ref.current = true;
       updatePosts(posts => posts.map(post => 
         String(post.id) === String(id) ? { 
           ...post, 
@@ -1935,7 +1987,7 @@ export default function App() {
       let mediaHtml = '';
       
       if (post.mergedMedia && post.mergedMedia.length > 0) {
-        const sortedMedia = [...post.mergedMedia];
+        const sortedMedia = post.mergedMedia.filter(hasRenderableMedia);
         mediaHtml = `<div class="media-stack">` + sortedMedia.map((m: any) => {
           const yid = m.youtubeId || getYoutubeId(m.url || m.link);
           if (yid) {
@@ -2177,6 +2229,7 @@ export default function App() {
                       // 3. Update global window object for Lightbox sync
                       newData.posts = newData.items.filter(p => !p.hidden); // Map items back to posts property for Lightbox
                       window.portfolioData = newData;
+                      renderGallery();
                     }
                   }
                 })
@@ -2303,14 +2356,102 @@ export default function App() {
           return '/' + cleanUrl;
         }
 
+        function hasRenderableMedia(media) {
+          return !!(media && (
+            media.type === 'bunny' ||
+            getImageSrc(media, true) ||
+            getImageSrc(media) ||
+            getVideoSrc(media, true) ||
+            getVideoSrc(media) ||
+            media.youtubeId ||
+            getYoutubeId(media.url || media.link)
+          ));
+        }
+
+        function renderMediaMarkup(post) {
+          let mediaHtml = '';
+          if (post.mergedMedia && post.mergedMedia.length > 0) {
+            const sortedMedia = post.mergedMedia.filter(hasRenderableMedia);
+            mediaHtml = '<div class="media-stack">' + sortedMedia.map((m) => {
+              const yid = m.youtubeId || getYoutubeId(m.url || m.link);
+              if (yid) {
+                return '<div class="video-container mb-2"><iframe src="https://www.youtube.com/embed/' + yid + '?mute=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>';
+              } else if (m.type === 'bunny' && m.videoId && m.libraryId) {
+                return '<div class="video-container mb-2"><iframe src="https://iframe.mediadelivery.net/embed/' + m.libraryId + '/' + m.videoId + '" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>';
+              } else if (m.type === 'video' || (m.image && m.image.endsWith('.mp4')) || ((m.url || m.link) && (m.url || m.link).endsWith('.mp4'))) {
+                const videoUrl = getProxiedUrl(getVideoSrc(m, true) || getVideoSrc(m));
+                if (!videoUrl) return '';
+                const posterUrl = getProxiedUrl(getImageSrc(m));
+                const poster = posterUrl ? ' poster="' + posterUrl + '"' : '';
+                return '<video src="' + videoUrl + '"' + poster + ' class="block mb-2" controls muted playsinline style="width: 100%; max-height: 400px; background: #000; cursor: pointer;"></video>';
+              } else {
+                const imageUrl = getProxiedUrl(getImageSrc(m, true) || getImageSrc(m));
+                if (!imageUrl) return '';
+                return '<div class="block mb-2"><img src="' + imageUrl + '" alt="" loading="lazy" onerror="if(this.src.includes(\'maxresdefault.jpg\')) this.src=this.src.replace(\'maxresdefault.jpg\', \'hqdefault.jpg\')" /></div>';
+              }
+            }).join('') + '</div>';
+          } else {
+            const yid = post.youtubeId || getYoutubeId(post.url || post.link);
+            if (yid) {
+              mediaHtml = '<div class="video-container"><iframe src="https://www.youtube.com/embed/' + yid + '?mute=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>';
+            } else if (post.type === 'bunny' && post.videoId && post.libraryId) {
+              mediaHtml = '<div class="video-container"><iframe src="https://iframe.mediadelivery.net/embed/' + post.libraryId + '/' + post.videoId + '" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>';
+            } else if (post.type === 'video' || (post.image && post.image.endsWith('.mp4')) || ((post.url || post.link) && (post.url || post.link).endsWith('.mp4'))) {
+              const videoUrl = getProxiedUrl(getVideoSrc(post, true) || getVideoSrc(post));
+              if (videoUrl) {
+                const posterUrl = getProxiedUrl(getImageSrc(post));
+                const poster = posterUrl ? ' poster="' + posterUrl + '"' : '';
+                mediaHtml = '<video src="' + videoUrl + '"' + poster + ' controls muted playsinline style="width: 100%; max-height: 400px; background: #000; cursor: pointer;"></video>';
+              }
+            } else {
+              const imageUrl = getProxiedUrl(getImageSrc(post, true) || getImageSrc(post));
+              if (imageUrl) {
+                mediaHtml = '<div><img src="' + imageUrl + '" alt="' + String(post.title || '').replace(/"/g, '&quot;') + '" loading="lazy" onerror="if(this.src.includes(\'maxresdefault.jpg\')) this.src=this.src.replace(\'maxresdefault.jpg\', \'hqdefault.jpg\')" /></div>';
+              }
+            }
+          }
+          return mediaHtml;
+        }
+
+        function renderCard(post) {
+          if (!post || post.hidden) return '';
+          const mediaHtml = renderMediaMarkup(post);
+          const descriptionHtml = post.description ? '<p>' + post.description + '</p>' : '';
+          const tagsHtml = post.states && post.states.length > 0 ? '<div class="tags" style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px;">' + post.states.map(stateId => {
+            const state = window.portfolioData.projectStates.find(s => String(s.id).toLowerCase() === String(stateId).toLowerCase());
+            return state ? '<span class="tag-label" style="background-color: ' + state.bright + '; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">' + state.label + '</span>' : '';
+          }).join('') + '</div>' : '';
+          const linksHtml = post.mergedMedia ? '<div class="links">' + post.mergedMedia.map((m, i) => (m.url || m.link) ? '<a href="' + (m.url || m.link) + '" target="_blank">Link ' + (i + 1) + '</a>' : '').join(' ') + '</div>' : '';
+          return '<div class="card" data-post-id="' + post.id + '" role="button" tabindex="0">' +
+            mediaHtml +
+            '<div class="content">' +
+              '<h2>' + (post.title || '') + '</h2>' +
+              descriptionHtml +
+              tagsHtml +
+              linksHtml +
+            '</div>' +
+          '</div>';
+        }
+
+        function renderGallery() {
+          const galleryRoot = document.getElementById('gallery-root');
+          if (!galleryRoot || !window.portfolioData) return;
+          const sourcePosts = (window.portfolioData.posts && window.portfolioData.posts.length > 0)
+            ? window.portfolioData.posts
+            : (window.portfolioData.items || []);
+          galleryRoot.innerHTML = sourcePosts.filter(p => !p.hidden).map(renderCard).join('');
+        }
+
         // Filter logic
         const filterBtns = document.querySelectorAll('.filter-btn');
-        const cards = document.querySelectorAll('.card');
-        console.log('Cards found in DOM:', cards.length);
+        const galleryRoot = document.getElementById('gallery-root');
+        renderGallery();
+        console.log('Cards found in DOM:', galleryRoot ? galleryRoot.querySelectorAll('.card').length : 0);
         
         filterBtns.forEach(btn => {
           btn.addEventListener('click', () => {
             const filter = btn.getAttribute('data-filter');
+            const cards = galleryRoot ? galleryRoot.querySelectorAll('.card') : document.querySelectorAll('.card');
             
             filterBtns.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
@@ -2367,7 +2508,7 @@ export default function App() {
         let currentPostMedia = [];
         let currentMediaIndex = 0;
         
-        console.log('Cards found:', cards.length);
+        console.log('Cards found:', galleryRoot ? galleryRoot.querySelectorAll('.card').length : 0);
         const openLightboxForPostId = (postId) => {
           if (!postId) return;
           if (!window.portfolioData || !window.portfolioData.posts) return;
@@ -2378,10 +2519,10 @@ export default function App() {
           currentPostMedia = [];
           if (currentPost.mergedMedia && currentPost.mergedMedia.length > 0) {
             const filteredMedia = currentPost.mergedMedia.filter(m => m.type === 'bunny' || getImageSrc(m, true) || getImageSrc(m) || getVideoSrc(m, true) || getVideoSrc(m) || m.youtubeId || getYoutubeId(m.url || m.link));
-            const primaryMedia = getPrimaryMergedMedia(filteredMedia);
-            currentPostMedia = primaryMedia
-              ? [primaryMedia, ...filteredMedia.filter(m => m !== primaryMedia)]
-              : filteredMedia;
+            // Preserve the saved order exactly as stored in mergedMedia.
+            // The first item is still treated as the primary media elsewhere,
+            // but opening the lightbox must not reshuffle the list.
+            currentPostMedia = filteredMedia;
           } else {
             currentPostMedia = [currentPost].filter(m => m.type === 'bunny' || getImageSrc(m, true) || getImageSrc(m) || getVideoSrc(m, true) || getVideoSrc(m) || m.youtubeId || getYoutubeId(m.url || m.link));
           }
@@ -2630,7 +2771,7 @@ export default function App() {
         ${bio ? `<div class="bio">${linkifyToHtml(bio)}</div>` : ''}
     </header>
     ${filterBar}
-    <div class="gallery">
+    <div class="gallery" id="gallery-root">
         ${cards}
     </div>
     
@@ -2663,10 +2804,14 @@ export default function App() {
 
   const getDisplayImage = (url: string | undefined, isR2Fallback: boolean, isEmbeddedData: boolean): string | undefined => {
     if (!url) return undefined;
+    const localV2Match = url.match(/^https?:\/\/[^/]+\/(?:v2\/data|data_v2)\/(.+)$/);
+    if (localV2Match) return `/data_v2/${localV2Match[1]}`;
+    const localDataMatch = url.match(/^https?:\/\/[^/]+\/data\/(.+)$/);
+    if (localDataMatch) return `/data/${localDataMatch[1]}`;
     if (url.startsWith('http') || url.startsWith('blob:') || url.startsWith('data:')) return url;
     // Always keep root-relative local asset paths working in the editor runtime.
     // This is important for scraped/local files served via `app.use('/data', ...)`.
-    if (url.startsWith('/data/') || url.startsWith('/originals/')) return url;
+    if (url.startsWith('/data/') || url.startsWith('/data_v2/') || url.startsWith('/originals/')) return url;
     
     // If we are in R2 fallback mode or if the local server is not available,
     // we should prefix local paths with the Cloudflare domain.
@@ -3014,16 +3159,7 @@ export default function App() {
       
       // 1. Filter mergedMedia for valid items only (FIX #2b: Konsistent mit handleUpdatePostMedia)
       if (cleanedPost.mergedMedia) {
-        cleanedPost.mergedMedia = cleanedPost.mergedMedia.filter((m: any) => {
-          if (m.type === 'youtube') return true;
-          if (m.type === 'bunny') return true;
-          // uploadId-Elemente MÜSSEN finale URLs haben (keine Phantom-Uploads)
-          if (m.uploadId) {
-            return !!(m.image || m.image_thumb || m.image_1k || m.image_2k || m.image_large || m.image_3k || m.image_original || m.image_preview);
-          }
-          // Normale Elemente
-          return !!(m.image || m.image_thumb || m.image_1k || m.image_2k || m.image_large || m.image_3k || m.image_original || m.image_preview || m.youtubeId || m.youtubeUrl || m.link || m.url);
-        });
+        cleanedPost.mergedMedia = cleanedPost.mergedMedia.filter(hasRenderableMedia);
         
         // If mergedMedia became empty, remove the field
         if (cleanedPost.mergedMedia.length === 0) {
@@ -3036,9 +3172,7 @@ export default function App() {
       if (cleanedPost.mergedMedia && cleanedPost.mergedMedia.length > 0) {
         const seenUrls = new Set<string>();
         cleanedPost.mergedMedia = cleanedPost.mergedMedia.filter((m: any) => {
-          // YouTube and Bunny entries are valid even without an image
-          if ((m.type === 'youtube' && m.youtubeId) || (m.type === 'bunny' && m.videoId)) return true;
-          const key = m.image || m.image_large || m.image_3k || m.url || '';
+          const key = getMediaDedupeKey(m);
           if (!key) return false; // drop items without any usable URL
           if (seenUrls.has(key)) return false; // duplicate
           seenUrls.add(key);
@@ -3191,8 +3325,6 @@ export default function App() {
 
     setRestoringLatestPublish(true);
     setError('');
-
-    setHasUnsyncedMedia(false);
     try {
       const response = await fetch('/api/backups/restore-latest-publish', {
         method: 'POST'
@@ -3207,7 +3339,33 @@ export default function App() {
         setUploadSuccess({ url: data.url });
       }
 
-      await handleSyncFromCloudflare();
+      if (data.state) {
+        const restoredState = data.state;
+        const items = restoredState.items || [];
+        setIsR2Fallback(true);
+        setIsFlickrFallback(false);
+        setPortfolioTitle(restoredState.title || portfolioTitle);
+        setPortfolioSubtitle(restoredState.subtitle || portfolioSubtitle);
+        if (restoredState.scrapeConfig) {
+          if (restoredState.scrapeConfig.igAccount) setIgAccount(restoredState.scrapeConfig.igAccount);
+          if (restoredState.scrapeConfig.flickrUrl) setFlickrUrl(restoredState.scrapeConfig.flickrUrl);
+        }
+        if (restoredState.bio) setPortfolioBio(restoredState.bio);
+
+        setFlickrPosts(current => {
+          setPast((p): typeof p => [...p, { posts: current, action: `Backup wiederhergestellt (${data.restoredBackup || 'Latest Publish'})` }].slice(-50));
+          setFuture([]);
+          return items;
+        });
+
+        flickrPostsRef.current = items;
+        if (restoredState.lastUpdated) setLocalLastUpdated(restoredState.lastUpdated);
+        setCloudSyncState(null);
+        setCloudSyncChanges(null);
+        setHasCloudChanges(false);
+        setHasUnpublishedChanges(false);
+        setHasUnsyncedMedia(false);
+      }
     } catch (err: any) {
       setError(err.message || 'Restore fehlgeschlagen');
     } finally {
@@ -4068,6 +4226,7 @@ export default function App() {
         isR2Fallback={isR2Fallback}
         isEmbeddedData={isEmbeddedData}
         getImageSrc={getImageSrc}
+        getVideoSrc={getVideoSrc}
         getDisplayImage={getDisplayImage}
         setSelectedImage={setSelectedImage}
       />
