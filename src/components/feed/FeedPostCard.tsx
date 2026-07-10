@@ -200,8 +200,24 @@ export function FeedPostCard({
     }
   }, [isEditing]);
 
-  const hasFileDrag = (e: React.DragEvent<HTMLElement>) =>
-    Array.from(e.dataTransfer?.types || []).includes('Files');
+  const hasFileDrag = (e: React.DragEvent) =>
+    e.dataTransfer.files.length > 0 || Array.from(e.dataTransfer.types || []).includes('Files');
+
+  const isSupportedImageFile = (file: File) =>
+    file.type.startsWith('image/') || /\.(jpe?g|png|tiff?|webp|gif|avif|bmp)$/i.test(file.name);
+
+  const showCardFileDropTarget = () => {
+    setIsFileDragOverCard(true);
+    setCardUploadStatus(prev => {
+      if (prev?.phase === 'preparing' || prev?.phase === 'uploading' || prev?.phase === 'hover') {
+        return prev;
+      }
+      return {
+        phase: 'hover',
+        message: 'Dateien hier ablegen, um in dieses Projekt hochzuladen.'
+      };
+    });
+  };
 
   const clearCardDragState = useCallback(() => {
     cardDragDepthRef.current = 0;
@@ -244,7 +260,7 @@ export function FeedPostCard({
     if (!isEditing) return;
 
     const filteredFiles = files.filter(file =>
-      file.type.startsWith('image/') || file.type.startsWith('video/')
+      isSupportedImageFile(file) || file.type.startsWith('video/')
     );
     if (filteredFiles.length === 0) return;
 
@@ -275,14 +291,7 @@ export function FeedPostCard({
     e.preventDefault();
     e.stopPropagation();
     cardDragDepthRef.current += 1;
-    setIsFileDragOverCard(true);
-    setCardUploadStatus(prev => {
-      if (prev?.phase === 'preparing' || prev?.phase === 'uploading') return prev;
-      return {
-        phase: 'hover',
-        message: 'Dateien hier ablegen, um in dieses Projekt hochzuladen.'
-      };
-    });
+    showCardFileDropTarget();
   };
 
   const handleCardDragOver = (e: React.DragEvent<HTMLDivElement>) => {
@@ -290,7 +299,7 @@ export function FeedPostCard({
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = 'copy';
-    if (!isFileDragOverCard) setIsFileDragOverCard(true);
+    showCardFileDropTarget();
   };
 
   const handleCardDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
@@ -353,7 +362,7 @@ export function FeedPostCard({
       queueDroppedFiles(files, sourceLabel);
     } else {
       if (!isEditing) return;
-      const filteredFiles = files.filter(file => file.type.startsWith('image/'));
+      const filteredFiles = files.filter(isSupportedImageFile);
       if (filteredFiles.length === 0) return;
       if (uploadStatusTimerRef.current) {
         window.clearTimeout(uploadStatusTimerRef.current);
@@ -395,11 +404,17 @@ export function FeedPostCard({
   };
 
   const handleMediaDragOver = (e: React.DragEvent) => {
+    // External files belong to the card upload target. Let the event bubble to
+    // handleCardDragOver instead of treating it as an internal media reorder.
+    if (hasFileDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();
   };
 
   const handleMediaDrop = (e: React.DragEvent, index: number) => {
+    // The card owns file uploads. Previously this handler swallowed the first
+    // external drop because no internal media item was being dragged.
+    if (hasFileDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();
     if (draggedMediaIdx === null || draggedMediaIdx === index) return;
@@ -521,7 +536,7 @@ export function FeedPostCard({
                 <ImageIcon className="w-3 h-3" /> + Bild
                 <input 
                   type="file" 
-                  accept="image/*" 
+                  accept="image/*,.png,.tif,.tiff"
                   multiple
                   className="hidden" 
                   onChange={(e) => {
@@ -724,7 +739,7 @@ export function FeedPostCard({
                     Bild ändern
                     <input 
                       type="file" 
-                      accept="image/*" 
+                      accept="image/*,.png,.tif,.tiff"
                       className="hidden" 
                       onChange={(e) => {
                         handleImportInputChange(e, 'Bild ersetzen', { kind: 'image', mediaIndex: i });

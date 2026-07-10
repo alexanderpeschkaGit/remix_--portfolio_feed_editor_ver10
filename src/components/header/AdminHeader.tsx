@@ -22,7 +22,7 @@ interface AdminHeaderProps {
   legacyDupCleanupRunning: boolean;
   uploading: boolean;
   uploadProgress: number | null;
-  past: { posts: any[], action: string }[];
+  past: { action: string }[];
   future: { posts: any[], action: string }[];
   uncertainMatches: any[];
   publicDomain: string | null;
@@ -31,6 +31,7 @@ interface AdminHeaderProps {
   handleScrape: (type: string) => void;
   handleHighResSync: () => void;
   handleFullR2Sync: () => void;
+  handleOpenMediaVariants: () => void;
   handleSyncFromCloudflare: () => void;
   handleResetAll: () => void;
   handlePreview: () => void;
@@ -119,6 +120,7 @@ export function AdminHeader({
   handleScrape,
   handleHighResSync,
   handleFullR2Sync,
+  handleOpenMediaVariants,
   handleSyncFromCloudflare,
   handleResetAll,
   handlePreview,
@@ -259,6 +261,15 @@ export function AdminHeader({
         >
           <UploadCloud className={`w-3 h-3 sm:w-4 sm:h-4 ${fullR2SyncStatus.running ? 'animate-spin text-blue-500' : ''}`} />
           <span className="text-center">{fullR2SyncStatus.running ? 'Syncing...' : 'Cloud Sync'}</span>
+        </AdminButton>
+
+        <AdminButton
+          onClick={handleOpenMediaVariants}
+          disabled={fullR2SyncStatus.running}
+          tooltip="Thumbnail- und Video-Poster-Varianten prüfen und fehlende Dateien erzeugen"
+        >
+          <ImageIcon className="w-3 h-3 sm:w-4 sm:h-4" />
+          <span className="text-center">Thumbs</span>
         </AdminButton>
 
         <AdminButton 

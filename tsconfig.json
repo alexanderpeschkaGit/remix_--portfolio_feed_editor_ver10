@@ -30,7 +30,10 @@
   "exclude": [
     "backups",
     "backups_app",
+    "data",
+    "data_v2",
     "node_modules",
+    "originals",
     "dist"
   ]
 }

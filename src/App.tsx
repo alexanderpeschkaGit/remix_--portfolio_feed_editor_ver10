@@ -33,6 +33,7 @@ import { BioEditorModal } from './components/modals/BioEditorModal';
 import { PostCommitModal } from './components/modals/PostCommitModal';
 import { CloudSyncChangesModal } from './components/modals/CloudSyncChangesModal';
 import { TrashModal } from './components/modals/TrashModal';
+import { MediaVariantsModal } from './components/modals/MediaVariantsModal';
 import { FeedPostCard } from './components/feed/FeedPostCard';
 import { ThumbnailGalleryGrid } from './components/gallery/ThumbnailGalleryGrid';
 import { AdminHeader } from './components/header/AdminHeader';
@@ -286,6 +287,10 @@ const EDITOR_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0
 </svg>`;
 const EDITOR_FAVICON_DATA_URI = `data:image/svg+xml,${encodeURIComponent(EDITOR_FAVICON_SVG)}`;
 
+type PostHistoryEntry = { posts: any[]; action: string };
+type TrashHistoryEntry = { trashKeys: string[]; action: string };
+type UndoHistoryEntry = PostHistoryEntry | TrashHistoryEntry;
+
 // SortablePost component moved to src/components/feed/FeedPostCard.tsx
 
 export default function App() {
@@ -294,8 +299,9 @@ export default function App() {
   const portfolioTitleRef = useRef<string>('');
   const portfolioSubtitleRef = useRef<string>('');
   const portfolioBioRef = useRef<string>('');
-  const [past, setPast] = useState<{posts: any[], action: string}[]>([]);
-  const [future, setFuture] = useState<{posts: any[], action: string}[]>([]);
+  const [past, setPast] = useState<UndoHistoryEntry[]>([]);
+  const [future, setFuture] = useState<PostHistoryEntry[]>([]);
+  const undoingR2TrashRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [restoringLatestPublish, setRestoringLatestPublish] = useState(false);
@@ -333,6 +339,7 @@ export default function App() {
   const [cloudSyncChanges, setCloudSyncChanges] = useState<string[] | null>(null);
   const [cloudSyncState, setCloudSyncState] = useState<{ changes: string[]; items: any[]; r2Data: any } | null>(null);
   const [showTrashModal, setShowTrashModal] = useState(false);
+  const [showMediaVariantsModal, setShowMediaVariantsModal] = useState(false);
   const [trashItems, setTrashItems] = useState<any[]>([]);
   const [trashLoading, setTrashLoading] = useState(false);
   const [trashError, setTrashError] = useState<string | null>(null);
@@ -530,6 +537,30 @@ export default function App() {
       setFullR2SyncStatus((prev: typeof fullR2SyncStatus) => ({ ...prev, running: false, error: error.message }));
       setScrapeLogs(prev => [...prev, `Fehler: ${error.message}`]);
     }
+  };
+
+  const refreshStateAfterMediaVariants = async () => {
+    const response = await fetch(`/api/state?t=${Date.now()}`);
+    if (!response.ok) throw new Error('Failed to reload updated state');
+    const stateData = await response.json();
+
+    if (stateData.title) setPortfolioTitle(stateData.title);
+    if (stateData.subtitle) setPortfolioSubtitle(stateData.subtitle);
+    if (stateData.bio) setPortfolioBio(stateData.bio);
+    if (stateData.scrapeConfig) {
+      if (stateData.scrapeConfig.igAccount) setIgAccount(stateData.scrapeConfig.igAccount);
+      if (stateData.scrapeConfig.flickrUrl) setFlickrUrl(stateData.scrapeConfig.flickrUrl);
+    }
+    if (Array.isArray(stateData.items)) {
+      setFlickrPosts(stateData.items);
+      flickrPostsRef.current = stateData.items;
+    }
+    if (stateData.lastUpdated) setLocalLastUpdated(stateData.lastUpdated);
+    setHasUnsyncedMedia(false);
+    setHasCloudChanges(false);
+    setHasUnpublishedChanges(false);
+    await fetchCloudflareUsage();
+    pushStatusNotice('success', 'Media variants updated', 'Generated thumbnails were published and the editor state was refreshed.');
   };
 
   const handleResetAll = async () => {
@@ -1236,10 +1267,81 @@ export default function App() {
     });
   };
 
-  const handleUndo = () => {
+  const recordTrashUndo = (trashItems: any[], label: string) => {
+    const trashKeys = trashItems
+      .map(item => item?.trashKey)
+      .filter((key): key is string => typeof key === 'string' && key.startsWith('trash/'));
+    if (trashKeys.length === 0) return;
+
+    setPast(previous => [
+      ...previous,
+      { trashKeys, action: `${label} (${trashKeys.length} Dateien)` }
+    ].slice(-50));
+    setFuture([]);
+  };
+
+  const handleUndo = async () => {
     if (past.length === 0) return;
     const current = flickrPosts;
     const previousState = past[past.length - 1];
+
+    if ('trashKeys' in previousState) {
+      if (undoingR2TrashRef.current) return;
+      undoingR2TrashRef.current = true;
+
+      try {
+        const response = await fetch('/api/r2-trash/restore', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ trashKeys: previousState.trashKeys })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || 'R2-Trash konnte nicht rückgängig gemacht werden.');
+        }
+
+        const restoredKeys = new Set<string>(
+          (Array.isArray(data.restoredItems) ? data.restoredItems : [])
+            .map((item: any) => item?.trashKey)
+            .filter((key: any): key is string => typeof key === 'string')
+        );
+        const remainingKeys = previousState.trashKeys.filter(key => !restoredKeys.has(key));
+
+        setPast(history => {
+          if (history[history.length - 1] !== previousState) return history;
+          if (remainingKeys.length === 0) return history.slice(0, -1);
+          return [
+            ...history.slice(0, -1),
+            { ...previousState, trashKeys: remainingKeys, action: `R2-Trash wiederherstellen (${remainingKeys.length} offen)` }
+          ];
+        });
+
+        await loadTrashItems(false);
+        await fetchCloudflareUsage();
+
+        if (remainingKeys.length > 0) {
+          pushStatusNotice(
+            'warning',
+            'R2-Undo teilweise ausgeführt',
+            `${restoredKeys.size} Datei(en) wiederhergestellt, ${remainingKeys.length} wegen Konflikten oder Fehlern noch im Trash.`
+          );
+        } else {
+          pushStatusNotice(
+            'success',
+            'R2-Undo abgeschlossen',
+            `${restoredKeys.size} Datei(en) wurden an ihren ursprünglichen Pfad zurückverschoben.`
+          );
+        }
+      } catch (undoError: any) {
+        const message = undoError.message || 'R2-Trash konnte nicht rückgängig gemacht werden.';
+        setError(message);
+        pushStatusNotice('warning', 'R2-Undo fehlgeschlagen', message);
+      } finally {
+        undoingR2TrashRef.current = false;
+      }
+      return;
+    }
+
     setPast(p => p.slice(0, -1));
     setFuture((f): typeof f => [...f, { posts: current, action: previousState.action }].slice(-50));
     setFlickrPosts(previousState.posts);
@@ -3531,6 +3633,7 @@ export default function App() {
             `Bytes affected: ${formatBytes(executeData.movedBytes || 0)}`
           ]);
 
+          recordTrashUndo(executeData.trashItems || [], 'R2-Cleanup rückgängig');
           await loadTrashItems(true);
           await fetchCloudflareUsage();
         } catch (err: any) {
@@ -3613,6 +3716,7 @@ export default function App() {
             `Bytes affected: ${formatBytes(executeData.movedBytes || 0)}`
           ]);
 
+          recordTrashUndo(executeData.trashItems || [], 'Legacy-Cleanup rückgängig');
           await loadTrashItems(true);
           await fetchCloudflareUsage();
         } catch (err: any) {
@@ -4076,6 +4180,7 @@ export default function App() {
         handleScrape={handleScrape}
         handleHighResSync={handleHighResSync}
         handleFullR2Sync={handleFullR2Sync}
+        handleOpenMediaVariants={() => setShowMediaVariantsModal(true)}
         handleSyncFromCloudflare={handleSyncFromCloudflare}
         handleResetAll={handleResetAll}
         handlePreview={handlePreview}
@@ -4280,6 +4385,12 @@ export default function App() {
         onRefresh={() => loadTrashItems()}
         onRestore={handleRestoreTrashItems}
         onDelete={handleDeleteTrashItems}
+      />
+
+      <MediaVariantsModal
+        isOpen={showMediaVariantsModal}
+        onClose={() => setShowMediaVariantsModal(false)}
+        onStateUpdated={refreshStateAfterMediaVariants}
       />
 
       <LightboxModal

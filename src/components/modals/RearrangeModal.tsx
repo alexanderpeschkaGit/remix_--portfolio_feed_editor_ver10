@@ -86,7 +86,7 @@ interface RearrangeModalProps {
   isMoving: boolean;
   setIsMoving: (v: boolean) => void;
   flickrPosts: any[];
-  past: { posts: any[], action: string }[];
+  past: { action: string }[];
   future: { posts: any[], action: string }[];
   activeId: string | null;
   setActiveId: (id: string | null) => void;
