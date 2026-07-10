@@ -730,6 +730,73 @@ async function startServer() {
     return `${cleanBaseUrl}/${filename.replace(/^\/+/, '')}`;
   }
 
+  const hasR2UploadCredentials = () => (
+    !!R2_CONFIG.accountId &&
+    !!R2_CONFIG.accessKeyId &&
+    !!R2_CONFIG.secretAccessKey &&
+    !!R2_CONFIG.bucketName
+  );
+
+  const uploadVariantSetToR2 = async (
+    variantSet: {
+      localPaths: Record<string, string>;
+      localUrls: Record<string, string>;
+    },
+    options: {
+      group: keyof typeof V2_MEDIA_GROUPS;
+      originalBuffer?: Buffer;
+      originalExt?: string;
+    }
+  ) => {
+    const remoteUrls: Record<string, string> = {};
+    const manifestEntries: Array<{ r2Key: string; hash: string; size: number }> = [];
+    const uploadErrors: string[] = [];
+
+    if (options.originalBuffer && variantSet.localPaths.image_original) {
+      try {
+        const originalFilename = path.basename(variantSet.localPaths.image_original);
+        const originalR2Key = getVariantR2Key(options.group, 'originals', originalFilename);
+        remoteUrls.image_original = await uploadToR2(
+          options.originalBuffer,
+          originalR2Key,
+          getContentTypeForPath(originalFilename)
+        );
+        manifestEntries.push({
+          r2Key: originalR2Key,
+          hash: getBufferSha1(options.originalBuffer),
+          size: options.originalBuffer.length,
+        });
+      } catch (error: any) {
+        uploadErrors.push(`image_original: ${error.message || error}`);
+      }
+    }
+
+    for (const variant of MEDIA_VARIANTS) {
+      const localPath = variantSet.localPaths[variant.field];
+      if (!localPath) continue;
+
+      try {
+        const buffer = await fs.readFile(localPath);
+        const filename = path.basename(localPath);
+        const r2Key = getVariantR2Key(options.group, variant.dir, filename);
+        remoteUrls[variant.field] = await uploadToR2(buffer, r2Key, getContentTypeForPath(localPath));
+        manifestEntries.push({
+          r2Key,
+          hash: getBufferSha1(buffer),
+          size: buffer.length,
+        });
+      } catch (error: any) {
+        uploadErrors.push(`${variant.field}: ${error.message || error}`);
+      }
+    }
+
+    if (manifestEntries.length > 0) {
+      await updateSyncManifestEntries(manifestEntries);
+    }
+
+    return { remoteUrls, manifestEntries, uploadErrors };
+  };
+
   const getContentTypeForPath = (filePath: string) => {
     const ext = path.extname(filePath).toLowerCase();
     if (ext === '.json') return 'application/json';
@@ -2731,7 +2798,7 @@ async function startServer() {
     }
   });
 
-  // API route to upload an image, store local variants, and mirror to R2
+  // API route to upload an image, store local variants, and mirror to R2 immediately when possible
   app.post("/api/upload-image", upload.single("image"), async (req, res) => {
     try {
       if (!req.file) {
@@ -2748,32 +2815,56 @@ async function startServer() {
         uploadToCloud: false,
       });
 
+      const canUploadDirectly = hasR2UploadCredentials();
+      const directUploadResult = canUploadDirectly
+        ? await uploadVariantSetToR2(variantSet, {
+            group: 'uploads',
+            originalBuffer: req.file.buffer,
+            originalExt: ext,
+          })
+        : {
+            remoteUrls: {} as Record<string, string>,
+            uploadErrors: [] as string[],
+          };
+      const remoteUrls: Record<string, string> = directUploadResult.remoteUrls;
+      const uploadErrors = directUploadResult.uploadErrors;
+
       const localThumb = variantSet.localUrls.image_thumb || '';
       const local1k = variantSet.localUrls.image_1k || '';
       const local2k = variantSet.localUrls.image_2k || '';
       const local3k = variantSet.localUrls.image_3k || '';
       const localLarge = local2k || local3k || local1k || localThumb;
       const localOriginal = variantSet.localUrls.image_original || '';
+      const remoteThumb = remoteUrls.image_thumb || '';
+      const remote1k = remoteUrls.image_1k || '';
+      const remote2k = remoteUrls.image_2k || '';
+      const remote3k = remoteUrls.image_3k || '';
+      const remoteLarge = remote2k || remote3k || remote1k || remoteThumb || '';
+      const remoteOriginal = remoteUrls.image_original || '';
       const localLargeVariant = local2k ? '2k' : (local3k ? '3k' : (local1k ? '1k' : 'thumb'));
+      const cloudUploaded = canUploadDirectly && uploadErrors.length === 0 && Object.keys(remoteUrls).length > 0;
 
       res.json({
         success: true, 
-        // Manual uploads stay local until Cloud Sync mirrors only the changed files to R2.
-        url: localThumb,
-        url_1k: local1k,
-        url_2k: local2k,
-        url_3k: local3k,
-        url_large: localLarge,
-        url_original: localOriginal,
-        image_thumb: localThumb,
-        image_1k: local1k,
-        image_2k: local2k,
-        image_3k: local3k,
-        image_original: localOriginal,
+        cloudUploaded,
+        cloudUploadErrors: uploadErrors,
+        // Prefer the direct R2 URLs when available, but keep local URLs as a fallback.
+        url: remoteThumb || localThumb,
+        url_1k: remote1k || local1k,
+        url_2k: remote2k || local2k,
+        url_3k: remote3k || local3k,
+        url_large: remoteLarge || localLarge,
+        url_original: remoteOriginal || localOriginal,
+        image_thumb: remoteThumb || localThumb,
+        image_1k: remote1k || local1k,
+        image_2k: remote2k || local2k,
+        image_3k: remote3k || local3k,
+        image_original: remoteOriginal || localOriginal,
         image_width: variantSet.sourceWidth,
         image_height: variantSet.sourceHeight,
         local_large_variant: localLargeVariant,
-        missing_variants: variantSet.missingVariants
+        missing_variants: variantSet.missingVariants,
+        remote_urls: remoteUrls,
       });
     } catch (error: any) {
       console.error("Error processing local image upload:", error);
@@ -3001,6 +3092,7 @@ async function startServer() {
       const local1k = localVariantSet.localUrls?.image_1k || '';
       const local2k = localVariantSet.localUrls?.image_2k || '';
       const local3k = localVariantSet.localUrls?.image_3k || '';
+      const previewCloudUploaded = !!Object.keys(localVariantSet.remoteUrls || {}).length;
 
       // ── Phase 2: Start Bunny upload in background ──
       const taskId = `bunny-${Date.now()}-${Math.random().toString(36).substring(4)}`;
@@ -3126,6 +3218,7 @@ async function startServer() {
           const final1k = bunnyVariantSet.localUrls?.image_1k || local1k;
           const final2k = bunnyVariantSet.localUrls?.image_2k || local2k;
           const final3k = bunnyVariantSet.localUrls?.image_3k || local3k;
+          const bunnyThumbCloudUploaded = !!Object.keys(bunnyVariantSet.remoteUrls || {}).length;
 
           bunnyTasks.set(taskId, {
             step: 'done', progress: 100, startedAt: Date.now(),
@@ -3139,7 +3232,10 @@ async function startServer() {
               image_original: `https://iframe.mediadelivery.net/embed/${BUNNY_CONFIG.libraryId}/${videoId}`,
               image_width: bunnyVariantSet.sourceWidth || localVariantSet.sourceWidth || 0,
               image_height: bunnyVariantSet.sourceHeight || localVariantSet.sourceHeight || 0,
-              duration: bunnyDuration, bunnyThumbUrl,
+              duration: bunnyDuration,
+              bunnyThumbUrl,
+              previewCloudUploaded,
+              bunnyThumbCloudUploaded,
             }
           });
         } catch (bgError: any) {
@@ -3164,6 +3260,7 @@ async function startServer() {
         image_original: originalUrl,
         image_width: localVariantSet.sourceWidth || 0,
         image_height: localVariantSet.sourceHeight || 0,
+        previewCloudUploaded,
         bunnyTaskId: taskId,
         bunnyStatus: 'starting',
       });

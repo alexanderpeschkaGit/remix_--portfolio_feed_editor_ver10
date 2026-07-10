@@ -459,6 +459,7 @@ export default function App() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<{url: string} | null>(null);
+  const [statusNotice, setStatusNotice] = useState<{ kind: 'success' | 'info' | 'warning'; title: string; message: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeUploadId, setActiveUploadId] = useState<string | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -474,6 +475,31 @@ export default function App() {
   const [fullR2SyncStatus, setFullR2SyncStatus] = useState<any>({ running: false, logs: [], done: false, error: null, progress: 0, total: 0 });
   const [uncertainMatches, setUncertainMatches] = useState<any[]>([]);
   const [showUncertain, setShowUncertain] = useState(false);
+  const statusNoticeTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (statusNoticeTimerRef.current) {
+        window.clearTimeout(statusNoticeTimerRef.current);
+      }
+    };
+  }, []);
+
+  const pushStatusNotice = (
+    kind: 'success' | 'info' | 'warning',
+    title: string,
+    message: string,
+    timeoutMs = 3500
+  ) => {
+    if (statusNoticeTimerRef.current) {
+      window.clearTimeout(statusNoticeTimerRef.current);
+    }
+    setStatusNotice({ kind, title, message });
+    statusNoticeTimerRef.current = window.setTimeout(() => {
+      setStatusNotice(null);
+      statusNoticeTimerRef.current = null;
+    }, timeoutMs);
+  };
 
   const handleFullR2Sync = async () => {
     setHasUnsyncedMedia(false);
@@ -1120,20 +1146,42 @@ export default function App() {
   useEffect(() => {
     if (isInitialized && flickrPosts.length > 0 && uploadingCount === 0) {
       // Clean state for server: remove blob URLs and image_preview
+      const stripBlobUrls = (obj: any, fields: string[]) => {
+        for (const field of fields) {
+          if (typeof obj?.[field] === 'string' && obj[field].startsWith('blob:')) {
+            delete obj[field];
+          }
+        }
+      };
       const cleanPosts = flickrPosts.map(post => {
         const cleanPost = { ...post };
         // Remove temporary fields before saving
         if (cleanPost.image_preview) delete cleanPost.image_preview;
-        if (cleanPost.image?.startsWith('blob:')) cleanPost.image = '';
-        if (cleanPost.image_large?.startsWith('blob:')) cleanPost.image_large = '';
+        stripBlobUrls(cleanPost, [
+          'image',
+          'image_thumb',
+          'image_1k',
+          'image_2k',
+          'image_3k',
+          'image_large',
+          'image_original',
+          'url',
+        ]);
         
         if (cleanPost.mergedMedia) {
           cleanPost.mergedMedia = cleanPost.mergedMedia.map((m: any) => {
             const cleanM = { ...m };
             if (cleanM.image_preview) delete cleanM.image_preview;
-            if (cleanM.image?.startsWith('blob:')) cleanM.image = '';
-            if (cleanM.image_large?.startsWith('blob:')) cleanM.image_large = '';
-            if (cleanM.image_3k?.startsWith('blob:')) cleanM.image_3k = '';
+            stripBlobUrls(cleanM, [
+              'image',
+              'image_thumb',
+              'image_1k',
+              'image_2k',
+              'image_3k',
+              'image_large',
+              'image_original',
+              'url',
+            ]);
             if (cleanM.uploadId) delete cleanM.uploadId;
             return cleanM;
           }).filter(hasRenderableMedia);
@@ -1521,8 +1569,22 @@ export default function App() {
       const highResUrl = uploadData.url_large || url2k || url3k || url1k || thumbUrl;
       const imageWidth = uploadData.image_width ?? uploadData.width;
       const imageHeight = uploadData.image_height ?? uploadData.height;
+      const cloudUploaded = !!uploadData.cloudUploaded;
       
       console.log('Upload successful, thumb:', thumbUrl, 'large:', highResUrl, 'variant:', uploadData.local_large_variant, 'dims:', imageWidth, 'x', imageHeight);
+      if (cloudUploaded) {
+        pushStatusNotice(
+          'success',
+          'Direkt nach R2 hochgeladen',
+          'Die neuen Bildvarianten sind sofort in Cloudflare R2 verfügbar.'
+        );
+      } else if (Array.isArray(uploadData.cloudUploadErrors) && uploadData.cloudUploadErrors.length > 0) {
+        pushStatusNotice(
+          'warning',
+          'Lokal gespeichert',
+          'Mindestens eine R2-Variante hat den Direkt-Upload nicht geschafft und wird später synchronisiert.'
+        );
+      }
       
       shouldPushStateToR2Ref.current = true;
       updatePosts(posts => posts.map(post => {
@@ -1726,6 +1788,15 @@ export default function App() {
       const url3k = uploadData.image_3k || '';
       const videoUrl = uploadData.url || uploadData.image_original || '';
       const bunnyTaskId: string | null = uploadData.bunnyTaskId || null;
+      const previewCloudUploaded = !!uploadData.previewCloudUploaded;
+
+      if (previewCloudUploaded) {
+        pushStatusNotice(
+          'success',
+          'Bunny-Preview nach R2',
+          'Das ffmpeg-Vorschaubild der Video-Datei wurde direkt nach R2 gespiegelt.'
+        );
+      }
 
       shouldPushStateToR2Ref.current = true;
       // Update local state immediately
@@ -1795,6 +1866,19 @@ export default function App() {
               shouldPushStateToR2Ref.current = true;
               // Update media entry with Bunny results
               const result = statusData.result;
+              if (result.bunnyThumbCloudUploaded) {
+                pushStatusNotice(
+                  'success',
+                  'Bunny-Thumbnail nach R2',
+                  'Die endgültigen Bunny-Thumbnail-Varianten wurden direkt in R2 gespeichert.'
+                );
+              } else if (result.previewCloudUploaded) {
+                pushStatusNotice(
+                  'info',
+                  'Bunny-Preview bleibt online',
+                  'Die Vorschau ist bereits verfügbar. Der spätere Bunny-Thumb wurde lokal verarbeitet.'
+                );
+              }
               updatePosts(posts => posts.map(post => {
                 if (String(post.id) !== String(id)) return post;
                 const newMedia = post.mergedMedia && post.mergedMedia.length > 0
@@ -4015,7 +4099,41 @@ export default function App() {
         hasUnsyncedMedia={hasUnsyncedMedia}
         hasUnpublishedChanges={hasUnpublishedChanges}
         trashCount={trashItems.length}
-      />
+      /> 
+
+      {statusNotice && (
+        <div
+          className={`fixed top-4 right-4 z-[120] w-[min(92vw,420px)] rounded-2xl border px-4 py-3 shadow-2xl backdrop-blur-md ${
+            statusNotice.kind === 'success'
+              ? 'border-emerald-400/30 bg-emerald-500/15 text-emerald-50'
+              : statusNotice.kind === 'warning'
+                ? 'border-amber-400/30 bg-amber-500/15 text-amber-50'
+                : 'border-sky-400/30 bg-sky-500/15 text-sky-50'
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            <CheckCircle className="mt-0.5 w-5 h-5 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <div className="font-semibold tracking-tight">{statusNotice.title}</div>
+              <div className="text-sm opacity-90 mt-0.5">{statusNotice.message}</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (statusNoticeTimerRef.current) {
+                  window.clearTimeout(statusNoticeTimerRef.current);
+                  statusNoticeTimerRef.current = null;
+                }
+                setStatusNotice(null);
+              }}
+              className="shrink-0 text-current/70 hover:text-current transition-colors"
+              aria-label="Hinweis schließen"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {uploadSuccess && (
         <div className="max-w-2xl mx-auto mb-8 p-4 bg-green-500/10 border border-green-500/20 rounded-lg flex items-start gap-3">
