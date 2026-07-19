@@ -5,7 +5,7 @@
  * Funktionalität von App.tsx extrahiert
  */
 import React from 'react';
-import { X, ArrowLeft, GripVertical, Youtube, ExternalLink, Image as ImageIcon } from 'lucide-react';
+import { X, ArrowLeft, GripVertical, Youtube, ExternalLink, Image as ImageIcon, Play, ChevronLeft, ChevronRight } from 'lucide-react';
 import { PROJECT_STATES } from '../../constants';
 
 interface Media {
@@ -93,6 +93,68 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
     : [currentLightboxPost];
 
   const mediaList = isEditing ? rawMediaList : rawMediaList.filter(isRenderableMedia);
+  const isVideoFileMedia = (media: any) => {
+    if (!media) return false;
+    const candidates = [
+      media.image,
+      media.url,
+      media.link,
+      getVideoSrc(media, true),
+      getVideoSrc(media),
+    ];
+    return media.type === 'video' || candidates.some((value) => typeof value === 'string' && /\.(mp4|webm|mov)(\?.*)?$/i.test(value));
+  };
+
+  const getMediaPosterSrc = (media: any) => {
+    if (!media) return undefined;
+
+    if (media.type === 'youtube' && media.youtubeId) {
+      const youtubePoster = getImageSrc(media, true) || media.image || `https://img.youtube.com/vi/${media.youtubeId}/maxresdefault.jpg`;
+      return getDisplayImage(youtubePoster, isR2Fallback, isEmbeddedData);
+    }
+
+    const imageSrc = getImageSrc(media, true) || media.image || media.image_preview;
+    return getDisplayImage(imageSrc, isR2Fallback, isEmbeddedData);
+  };
+
+  const [activeMediaIndex, setActiveMediaIndex] = React.useState(0);
+  const [shouldPlayActiveMedia, setShouldPlayActiveMedia] = React.useState(false);
+  const activeVideoRef = React.useRef<HTMLVideoElement | null>(null);
+
+  React.useEffect(() => {
+    setActiveMediaIndex(0);
+    setShouldPlayActiveMedia(false);
+  }, [currentLightboxPost.id]);
+
+  React.useEffect(() => {
+    if (activeMediaIndex >= mediaList.length) {
+      setActiveMediaIndex(Math.max(0, mediaList.length - 1));
+    }
+  }, [activeMediaIndex, mediaList.length]);
+
+  React.useEffect(() => {
+    setShouldPlayActiveMedia(false);
+  }, [activeMediaIndex]);
+
+  React.useEffect(() => {
+    const activeVideo = activeVideoRef.current;
+    if (!activeVideo || isEditing) return;
+
+    if (shouldPlayActiveMedia) {
+      const playPromise = activeVideo.play();
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch(() => {});
+      }
+      return;
+    }
+
+    activeVideo.pause();
+  }, [activeMediaIndex, isEditing, shouldPlayActiveMedia]);
+
+  const activeMedia = mediaList[activeMediaIndex] || mediaList[0] || null;
+  const activeMediaPosterSrc = getMediaPosterSrc(activeMedia);
+  const showEmbeddedPreview = !!activeMedia && !isEditing && (activeMedia.type === 'youtube' || activeMedia.type === 'bunny') && !shouldPlayActiveMedia;
+
   const getResolutionVariants = (media: any) => {
     if (!media) return [];
 
@@ -164,11 +226,11 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
         onClick={(e) => e.stopPropagation()}
         onMouseEnter={() => setIsHoveringLightboxBg(false)}
       >
-        <div className="relative flex-1 flex flex-col items-center justify-start min-h-0 w-full max-h-[85vh] overflow-y-auto gap-4 custom-scrollbar pr-2">
-          {mediaList.map((media: Media, i: number) => (
+        <div className={`relative flex-1 flex flex-col items-center justify-start min-h-0 w-full max-h-[85vh] ${isEditing ? 'overflow-y-auto gap-4 custom-scrollbar pr-2' : 'overflow-hidden'}`}>
+          {isEditing ? mediaList.map((media: Media, i: number) => (
             <div 
               key={i} 
-              className={`group w-full flex justify-center relative ${isEditing ? 'cursor-grab active:cursor-grabbing border-2 border-transparent hover:border-white/20 rounded-lg p-2' : ''}`}
+              className="group w-full flex justify-center relative cursor-grab active:cursor-grabbing border-2 border-transparent hover:border-white/20 rounded-lg p-2"
               draggable={isEditing}
               onDragStart={(e) => isEditing && handleLightboxDragStart(e, i)}
               onDragOver={(e) => isEditing && handleLightboxDragOver(e)}
@@ -195,35 +257,34 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
                 </div>
               )}
               {media.type === 'bunny' && media.videoId && media.libraryId ? (
-                <div className={`w-full max-w-5xl aspect-video rounded-lg overflow-hidden shadow-2xl shrink-0 ${isEditing ? 'pointer-events-none' : ''}`}>
+                <div className="w-full max-w-5xl aspect-video rounded-lg overflow-hidden shadow-2xl shrink-0 pointer-events-none">
                   <iframe 
-                    src={`https://video.bunnycdn.com/embed/${media.libraryId}/${media.videoId}?autoplay=${i === 0 && !isEditing ? 'true' : 'false'}&loop=false&muted=true&preload=true&responsive=true`}
+                    src={`https://video.bunnycdn.com/embed/${media.libraryId}/${media.videoId}?autoplay=false&loop=false&muted=true&preload=false&responsive=true`}
                     loading="lazy"
                     className="w-full h-full border-0"
-                    allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
+                    allow="accelerometer; gyroscope; encrypted-media; picture-in-picture;"
                     allowFullScreen
                   ></iframe>
                 </div>
               ) : media.type === 'youtube' && media.youtubeId ? (
-                <div className={`w-full max-w-5xl aspect-video rounded-lg overflow-hidden shadow-2xl shrink-0 ${isEditing ? 'pointer-events-none' : ''}`}>
+                <div className="w-full max-w-5xl aspect-video rounded-lg overflow-hidden shadow-2xl shrink-0 pointer-events-none">
                   <iframe 
-                    src={`https://www.youtube.com/embed/${media.youtubeId}?autoplay=${i === 0 && !isEditing ? 1 : 0}&mute=1`} 
+                    src={`https://www.youtube.com/embed/${media.youtubeId}?autoplay=0&mute=1`} 
                     className="w-full h-full"
                     frameBorder="0" 
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                    allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
                     allowFullScreen
                   ></iframe>
                 </div>
-              ) : media.type === 'video' || (media.image && media.image.endsWith('.mp4')) || (media.url && media.url.endsWith('.mp4')) ? (
+              ) : isVideoFileMedia(media) ? (
                 <div className="relative w-full h-full flex items-center justify-center">
                   <video 
                     src={getDisplayImage(getVideoSrc(media, true), isR2Fallback, isEmbeddedData)} 
                     className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl shrink-0"
                     controls
-                    autoPlay
                     muted
-                    loop
                     playsInline
+                    preload="metadata"
                   />
                 </div>
               ) : (
@@ -246,7 +307,118 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
                 </div>
               )}
             </div>
-          ))}
+          )) : activeMedia ? (
+            <div
+              className="group relative w-full h-full flex items-center justify-center"
+              onMouseEnter={() => setShouldPlayActiveMedia(true)}
+              onMouseLeave={() => setShouldPlayActiveMedia(false)}
+            >
+              {mediaList.length > 1 && (
+                <>
+                  <button
+                    type="button"
+                    className="absolute left-3 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/60 p-2 text-white/70 transition-colors hover:text-white"
+                    onClick={() => setActiveMediaIndex((prev) => (prev - 1 + mediaList.length) % mediaList.length)}
+                    aria-label="Vorheriges Medium"
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </button>
+                  <button
+                    type="button"
+                    className="absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/60 p-2 text-white/70 transition-colors hover:text-white"
+                    onClick={() => setActiveMediaIndex((prev) => (prev + 1) % mediaList.length)}
+                    aria-label="Nächstes Medium"
+                  >
+                    <ChevronRight className="w-5 h-5" />
+                  </button>
+                </>
+              )}
+              {showEmbeddedPreview ? (
+                <button
+                  type="button"
+                  className="relative flex items-center justify-center"
+                  onClick={() => setShouldPlayActiveMedia(true)}
+                  aria-label="Video starten"
+                >
+                  {activeMediaPosterSrc ? (
+                    <img
+                      src={activeMediaPosterSrc}
+                      alt={currentLightboxPost.title}
+                      className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl shrink-0"
+                      referrerPolicy="no-referrer"
+                      onLoad={(e) => handleImageLoad(`${currentLightboxPost.id}-${activeMediaIndex}`, e)}
+                      onError={(e) => {
+                        const target = e.currentTarget as HTMLImageElement;
+                        if (target.src.includes('maxresdefault.jpg')) {
+                          target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+                        }
+                      }}
+                    />
+                  ) : (
+                    <div className="flex aspect-video w-full max-w-5xl items-center justify-center rounded-lg bg-white/5 shadow-2xl">
+                      <Youtube className="w-12 h-12 text-white/50" />
+                    </div>
+                  )}
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-black/60 text-white shadow-lg backdrop-blur-sm">
+                      <Play className="ml-1 h-7 w-7" />
+                    </div>
+                  </div>
+                </button>
+              ) : activeMedia.type === 'bunny' && activeMedia.videoId && activeMedia.libraryId ? (
+                <div className="w-full max-w-5xl aspect-video rounded-lg overflow-hidden shadow-2xl shrink-0">
+                  <iframe 
+                    src={`https://video.bunnycdn.com/embed/${activeMedia.libraryId}/${activeMedia.videoId}?autoplay=${shouldPlayActiveMedia ? 'true' : 'false'}&loop=false&muted=true&preload=false&responsive=true`}
+                    loading="lazy"
+                    className="w-full h-full border-0"
+                    allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
+                    allowFullScreen
+                  ></iframe>
+                </div>
+              ) : activeMedia.type === 'youtube' && activeMedia.youtubeId ? (
+                <div className="w-full max-w-5xl aspect-video rounded-lg overflow-hidden shadow-2xl shrink-0">
+                  <iframe 
+                    src={`https://www.youtube.com/embed/${activeMedia.youtubeId}?autoplay=${shouldPlayActiveMedia ? 1 : 0}&mute=1`} 
+                    className="w-full h-full"
+                    frameBorder="0" 
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                    allowFullScreen
+                  ></iframe>
+                </div>
+              ) : isVideoFileMedia(activeMedia) ? (
+                <div className="relative w-full h-full flex items-center justify-center">
+                  <video 
+                    ref={activeVideoRef}
+                    src={getDisplayImage(getVideoSrc(activeMedia, true), isR2Fallback, isEmbeddedData)} 
+                    className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl shrink-0"
+                    controls
+                    muted
+                    playsInline
+                    preload="metadata"
+                    poster={activeMediaPosterSrc}
+                  />
+                </div>
+              ) : (
+                <div className="relative w-full h-full flex items-center justify-center">
+                  <img 
+                    src={getDisplayImage(getImageSrc(activeMedia, true), isR2Fallback, isEmbeddedData)} 
+                    alt={currentLightboxPost.title} 
+                    className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl shrink-0"
+                    referrerPolicy="no-referrer"
+                    onLoad={(e) => handleImageLoad(`${currentLightboxPost.id}-${activeMediaIndex}`, e)}
+                    onError={(e) => {
+                      const target = e.currentTarget as HTMLImageElement;
+                      if (target.src.includes('maxresdefault.jpg')) {
+                        target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+                      } else if (activeMedia.image && target.src !== getDisplayImage(activeMedia.image, isR2Fallback, isEmbeddedData) && target.src !== activeMedia.image) {
+                        target.src = getDisplayImage(activeMedia.image, isR2Fallback, isEmbeddedData) || '';
+                      }
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          ) : null}
         </div>
         
         <div className="w-full md:w-80 bg-[#111] p-6 rounded-xl border border-white/10 shrink-0 max-h-[80vh] overflow-y-auto custom-scrollbar">
@@ -292,7 +464,9 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
             />
           )}
           <div className="flex flex-col gap-2">
-            <div className="text-xs text-white/40 uppercase tracking-wider mb-2">Medien sortieren (Drag & Drop)</div>
+            <div className="text-xs text-white/40 uppercase tracking-wider mb-2">
+              {isEditing ? 'Medien sortieren (Drag & Drop)' : 'Medien'}
+            </div>
             <div className="grid grid-cols-4 gap-2 mb-6">
               {mediaList.map((media: Media, i: number) => (
                 <div 
@@ -301,7 +475,12 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
                   onDragStart={(e) => isEditing && handleLightboxDragStart(e, i)}
                   onDragOver={(e) => isEditing && handleLightboxDragOver(e)}
                   onDrop={(e) => isEditing && handleLightboxDrop(e, i, currentLightboxPost.id)}
-                  className={`aspect-square rounded bg-white/5 border overflow-hidden cursor-grab active:cursor-grabbing transition-colors ${lightboxDraggedIdx === i ? 'opacity-50 border-blue-500' : 'border-white/10 hover:border-white/30'}`}
+                  onClick={() => {
+                    if (!isEditing) {
+                      setActiveMediaIndex(i);
+                    }
+                  }}
+                  className={`aspect-square rounded bg-white/5 border overflow-hidden transition-colors ${isEditing ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} ${activeMediaIndex === i ? 'border-blue-500 ring-1 ring-blue-400/60' : lightboxDraggedIdx === i ? 'opacity-50 border-blue-500' : 'border-white/10 hover:border-white/30'}`}
                 >
                   {media.type === 'bunny' && media.videoId ? (
                     <div className="w-full h-full relative">
@@ -314,7 +493,7 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
                     <div className="w-full h-full flex items-center justify-center bg-red-900/20">
                       <Youtube className="w-4 h-4 text-red-500" />
                     </div>
-                  ) : media.type === 'video' || (media.image && media.image.endsWith('.mp4')) || (media.url && media.url.endsWith('.mp4')) ? (
+                  ) : isVideoFileMedia(media) ? (
                     <video src={getDisplayImage(getVideoSrc(media), isR2Fallback, isEmbeddedData)} className="w-full h-full object-cover" muted />
                   ) : (
                     <img src={getDisplayImage(getImageSrc(media), isR2Fallback, isEmbeddedData)} className="w-full h-full object-cover" />
