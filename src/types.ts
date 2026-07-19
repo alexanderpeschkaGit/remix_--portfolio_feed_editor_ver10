@@ -7,6 +7,9 @@ export interface MediaItem {
   image_2k?: string;
   image_3k?: string;
   image_original?: string;
+  image_large?: string;
+  image_width?: number;
+  image_height?: number;
   url?: string;
   link?: string;
   youtubeId?: string;
@@ -26,6 +29,8 @@ export interface PortfolioItem {
   type?: string;
   media: string[];
   mergedMedia?: MediaItem[];
+  image_width?: number;
+  image_height?: number;
 }
 
 export interface GeminiMessage {

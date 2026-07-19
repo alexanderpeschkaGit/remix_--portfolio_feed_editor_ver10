@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse, unquote
 from urllib.request import Request, urlopen
+from PIL import Image
 
 from image_variants import build_variant_set_from_image
 
@@ -18,15 +19,16 @@ PUBLIC_BASE_URL = (
 
 
 def infer_group_from_url(url: str) -> str:
-    if "/data_v2/uploads/" in url or "/data/uploads/" in url:
+    normalized = url.replace("\\", "/")
+    if "/data_v2/uploads/" in normalized or "/v2/data/uploads/" in normalized or "/data/uploads/" in normalized:
         return "uploads"
-    if "/data_v2/flickr/" in url or "/data/flickr/" in url:
+    if "/data_v2/flickr/" in normalized or "/v2/data/flickr/" in normalized or "/data/flickr/" in normalized:
         return "flickr"
-    if "/data_v2/instagram/" in url or "/data/instagram/" in url:
+    if "/data_v2/instagram/" in normalized or "/v2/data/instagram/" in normalized or "/data/instagram/" in normalized:
         return "instagram"
-    if "/data_v2/highres/" in url or "/data/highres/" in url or "/originals/" in url:
+    if "/data_v2/highres/" in normalized or "/v2/data/highres/" in normalized or "/data/highres/" in normalized or "/originals/" in normalized:
         return "highres"
-    if "/data_v2/previews/" in url or "/data/previews/" in url:
+    if "/data_v2/previews/" in normalized or "/v2/data/previews/" in normalized or "/data/previews/" in normalized:
         return "previews"
     return "uploads"
 
@@ -34,16 +36,20 @@ def infer_group_from_url(url: str) -> str:
 def url_to_local_path(url: str) -> Optional[str]:
     if not url:
         return None
-    clean = url.split("?")[0]
+    clean = url.split("#")[0].split("?")[0].strip()
+    if os.path.isabs(clean) and not clean.startswith(("http://", "https://")):
+        return os.path.normpath(clean)
     if clean.startswith("http://") or clean.startswith("https://"):
         clean = urlparse(clean).path
     clean = unquote(clean)
-    if clean.startswith("/data_v2/"):
-        return clean.lstrip("/").replace("/", os.sep)
-    if clean.startswith("/data/"):
-        return clean.lstrip("/").replace("/", os.sep)
-    if clean.startswith("/originals/"):
-        return clean.lstrip("/").replace("/", os.sep)
+    clean = clean.replace("\\", "/")
+    normalized = clean.lstrip("/")
+    if normalized.startswith("v2/data/"):
+        return os.path.join("data_v2", *normalized[len("v2/data/"):].split("/"))
+    if normalized.startswith("data_v2/"):
+        return os.path.join(*normalized.split("/"))
+    if normalized.startswith("data/") or normalized.startswith("originals/"):
+        return os.path.join(*normalized.split("/"))
     return None
 
 
@@ -75,7 +81,7 @@ def download_source_file(source_url: str, local_path: str) -> bool:
 
 def choose_source(media: Dict[str, Any], allow_download: bool = False) -> Tuple[Optional[str], List[str], Optional[str]]:
     checked = []
-    for field in ["image_original", "image_3k", "image_2k", "image_large", "image_1k", "image_thumb", "image"]:
+    for field in ["image_original", "image_3k", "image_2k", "image_1k", "image_large", "image"]:
         value = media.get(field)
         if not value:
             continue
@@ -83,11 +89,11 @@ def choose_source(media: Dict[str, Any], allow_download: bool = False) -> Tuple[
         local_path = url_to_local_path(value)
         if not local_path:
             continue
-        if os.path.isfile(local_path):
+        if os.path.isfile(local_path) and _is_safe_generation_source(local_path):
             return local_path, checked, None
         if allow_download and is_supported_image_source(local_path):
             source_url = to_public_source_url(value)
-            if source_url and download_source_file(source_url, local_path):
+            if source_url and download_source_file(source_url, local_path) and _is_safe_generation_source(local_path):
                 return local_path, checked, source_url
     return None, checked, None
 
@@ -101,6 +107,32 @@ def first_non_empty(*values: Any) -> str:
         if isinstance(value, str) and value.strip():
             return value
     return ""
+
+
+def _image_max_side(local_path: str) -> int:
+    try:
+        with Image.open(local_path) as image:
+            return max(image.size)
+    except Exception:
+        return 0
+
+
+def _is_safe_generation_source(local_path: str) -> bool:
+    normalized = local_path.replace("\\", "/").lower()
+    if "/thumbs400/" in normalized or normalized.endswith("_thumb.jpg"):
+        return False
+    return is_supported_image_source(local_path) and _image_max_side(local_path) > 400
+
+
+def _keep_existing_variant(media: Dict[str, Any], field: str, minimum: int) -> str:
+    value = first_non_empty(media.get(field))
+    local_path = url_to_local_path(value)
+    if not local_path or not os.path.isfile(local_path):
+        return ""
+    normalized = local_path.replace("\\", "/").lower()
+    if "/thumbs400/" in normalized or normalized.endswith("_thumb.jpg"):
+        return ""
+    return value if _image_max_side(local_path) >= minimum else ""
 
 
 def sync_variant_urls(media: Dict[str, Any], generated: Dict[str, str]) -> Dict[str, Any]:
@@ -123,64 +155,12 @@ def sync_variant_urls(media: Dict[str, Any], generated: Dict[str, str]) -> Dict[
         media.get("image_large"),
         media.get("image_original"),
     )
-    image_1k = first_non_empty(
-        generated.get("image_1k"),
-        generated.get("image_2k"),
-        generated.get("image_3k"),
-        generated.get("image_large"),
-        generated.get("image_thumb"),
-        generated.get("image"),
-        media.get("image_1k"),
-        media.get("image_2k"),
-        media.get("image_3k"),
-        media.get("image_large"),
-        media.get("image_thumb"),
-        media.get("image"),
-    )
-    image_2k = first_non_empty(
-        generated.get("image_2k"),
-        generated.get("image_3k"),
-        generated.get("image_large"),
-        generated.get("image_1k"),
-        generated.get("image_thumb"),
-        generated.get("image"),
-        media.get("image_2k"),
-        media.get("image_3k"),
-        media.get("image_large"),
-        media.get("image_1k"),
-        media.get("image_thumb"),
-        media.get("image"),
-    )
-    image_3k = first_non_empty(
-        generated.get("image_3k"),
-        generated.get("image_large"),
-        generated.get("image_2k"),
-        generated.get("image_1k"),
-        generated.get("image_thumb"),
-        generated.get("image"),
-        media.get("image_3k"),
-        media.get("image_large"),
-        media.get("image_2k"),
-        media.get("image_1k"),
-        media.get("image_thumb"),
-        media.get("image"),
-    )
-    image_original = first_non_empty(
-        generated.get("image_original"),
-        generated.get("image_3k"),
-        generated.get("image_large"),
-        generated.get("image_2k"),
-        generated.get("image_1k"),
-        generated.get("image_thumb"),
-        generated.get("image"),
-        media.get("image_3k"),
-        media.get("image_large"),
-        media.get("image_2k"),
-        media.get("image_1k"),
-        media.get("image_thumb"),
-        media.get("image"),
-        media.get("image_original"),
-    )
+    # Nominal generated fields are an inventory, not a display fallback chain.
+    # Missing sizes stay empty when no-upscaling skipped their generation.
+    image_1k = first_non_empty(generated.get("image_1k"), _keep_existing_variant(media, "image_1k", 1024))
+    image_2k = first_non_empty(generated.get("image_2k"), _keep_existing_variant(media, "image_2k", 2048))
+    image_3k = first_non_empty(generated.get("image_3k"), _keep_existing_variant(media, "image_3k", 3072))
+    image_original = first_non_empty(generated.get("image_original"), _keep_existing_variant(media, "image_original", 401))
     image_large = first_non_empty(
         generated.get("image_large"),
         generated.get("image_2k"),

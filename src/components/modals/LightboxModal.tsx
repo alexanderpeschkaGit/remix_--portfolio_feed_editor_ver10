@@ -259,7 +259,7 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
               {media.type === 'bunny' && media.videoId && media.libraryId ? (
                 <div className="w-full max-w-5xl aspect-video rounded-lg overflow-hidden shadow-2xl shrink-0 pointer-events-none">
                   <iframe 
-                    src={`https://video.bunnycdn.com/embed/${media.libraryId}/${media.videoId}?autoplay=false&loop=false&muted=true&preload=false&responsive=true`}
+                    src={`https://player.mediadelivery.net/embed/${media.libraryId}/${media.videoId}?autoplay=false&loop=false&muted=true&playsinline=true&preload=true&responsive=true`}
                     loading="lazy"
                     className="w-full h-full border-0"
                     allow="accelerometer; gyroscope; encrypted-media; picture-in-picture;"
@@ -307,7 +307,65 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
                 </div>
               )}
             </div>
-          )) : activeMedia ? (
+          )) : !isEditing && mediaList.length > 1 ? (
+            <div className="w-full max-h-[85vh] overflow-y-auto custom-scrollbar pr-2 space-y-4">
+              {mediaList.map((media: Media, i: number) => (
+                <article
+                  key={`${currentLightboxPost.id}-${i}`}
+                  className="group relative min-h-[min(72vh,720px)] w-full"
+                  onClick={() => setActiveMediaIndex(i)}
+                >
+                  <div className="flex min-h-[calc(min(72vh,720px)-1.5rem)] w-full items-center justify-center">
+                    {media.type === 'bunny' && media.videoId && media.libraryId ? (
+                      <div className="w-full max-w-5xl aspect-video overflow-hidden rounded-lg shadow-2xl shrink-0" onClick={(event) => event.stopPropagation()}>
+                        <iframe
+                          src={`https://player.mediadelivery.net/embed/${media.libraryId}/${media.videoId}?autoplay=false&loop=false&muted=false&playsinline=true&preload=true&responsive=true`}
+                          loading="lazy"
+                          className="w-full h-full border-0"
+                          allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
+                          allowFullScreen
+                          title={`${currentLightboxPost.title} – Bunny video ${i + 1}`}
+                        />
+                      </div>
+                    ) : media.type === 'youtube' && media.youtubeId ? (
+                      <div className="w-full max-w-5xl aspect-video overflow-hidden rounded-lg shadow-2xl shrink-0" onClick={(event) => event.stopPropagation()}>
+                        <iframe
+                          src={`https://www.youtube.com/embed/${media.youtubeId}?autoplay=0&mute=0&playsinline=1`}
+                          className="w-full h-full border-0"
+                          frameBorder="0"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                          title={`${currentLightboxPost.title} – YouTube video ${i + 1}`}
+                        />
+                      </div>
+                    ) : isVideoFileMedia(media) ? (
+                      <video
+                        src={getDisplayImage(getVideoSrc(media, true), isR2Fallback, isEmbeddedData)}
+                        className="max-w-full max-h-[68vh] object-contain rounded-lg shadow-2xl shrink-0"
+                        controls
+                        playsInline
+                        preload="metadata"
+                        poster={getMediaPosterSrc(media)}
+                        onClick={(event) => event.stopPropagation()}
+                      />
+                    ) : (
+                      <img
+                        src={getDisplayImage(getImageSrc(media, true), isR2Fallback, isEmbeddedData)}
+                        alt={currentLightboxPost.title}
+                        className="max-w-full max-h-[68vh] object-contain rounded-lg shadow-2xl shrink-0"
+                        referrerPolicy="no-referrer"
+                        onLoad={(event) => handleImageLoad(`${currentLightboxPost.id}-${i}`, event)}
+                        onError={(event) => {
+                          const target = event.currentTarget;
+                          if (target.src.includes('maxresdefault.jpg')) target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+                        }}
+                      />
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : activeMedia ? (
             <div
               className="group relative w-full h-full flex items-center justify-center"
               onMouseEnter={() => setShouldPlayActiveMedia(true)}
@@ -368,7 +426,7 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
               ) : activeMedia.type === 'bunny' && activeMedia.videoId && activeMedia.libraryId ? (
                 <div className="w-full max-w-5xl aspect-video rounded-lg overflow-hidden shadow-2xl shrink-0">
                   <iframe 
-                    src={`https://video.bunnycdn.com/embed/${activeMedia.libraryId}/${activeMedia.videoId}?autoplay=${shouldPlayActiveMedia ? 'true' : 'false'}&loop=false&muted=true&preload=false&responsive=true`}
+                    src={`https://player.mediadelivery.net/embed/${activeMedia.libraryId}/${activeMedia.videoId}?autoplay=${shouldPlayActiveMedia ? 'true' : 'false'}&loop=false&muted=false&playsinline=true&preload=true&responsive=true`}
                     loading="lazy"
                     className="w-full h-full border-0"
                     allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"

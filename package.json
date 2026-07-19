@@ -8,7 +8,13 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "tsx --test tests/**/*.test.ts",
+    "media:audit": "tsx scripts/audit-media-state.ts",
+    "media:preflight-r2": "tsx scripts/preflight-r2-media.ts",
+    "media:publish-candidate": "tsx scripts/publish-portfolio-candidate.ts",
+    "media:migrate": "tsx scripts/migrate-media-state.ts",
+    "media:migrate-portfolio": "tsx scripts/migrate-portfolio-media.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1012.0",

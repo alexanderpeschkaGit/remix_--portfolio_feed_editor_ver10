@@ -1,0 +1,48 @@
+{
+  "currentProject": {
+    "id": "17746219833230.29183560407802445",
+    "title": "CID-Day at MAK Vienna",
+    "hidden": false,
+    "states": ["Selected", "Business", "Mapping"],
+    "category": "Selected, Business, Mapping",
+    "text": "preserve me",
+    "mergedMedia": [
+      {
+        "type": "image",
+        "image": "https://example.invalid/v2/data/flickr/thumbs400/17746219833230.29183560407802445_01_thumb.jpg",
+        "image_thumb": "https://example.invalid/v2/data/flickr/thumbs400/17746219833230.29183560407802445_01_thumb.jpg",
+        "image_1k": "https://example.invalid/v2/data/flickr/1k/17746219833230.29183560407802445_01_1k.jpg",
+        "image_2k": "https://example.invalid/v2/data/flickr/2k/17746219833230.29183560407802445_01_2k.jpg",
+        "image_3k": "https://example.invalid/v2/data/flickr/3k/17746219833230.29183560407802445_01_3k.jpg",
+        "image_large": "https://example.invalid/v2/data/flickr/3k/17746219833230.29183560407802445_01_3k.jpg",
+        "image_original": "https://example.invalid/v2/data/flickr/3k/17746219833230.29183560407802445_01_3k.jpg",
+        "image_width": 1024,
+        "image_height": 576
+      },
+      {
+        "type": "image",
+        "image": "https://example.invalid/v2/data/instagram/thumbs400/17746219833230.29183560407802445_02_thumb.jpg",
+        "image_thumb": "https://example.invalid/v2/data/instagram/thumbs400/17746219833230.29183560407802445_02_thumb.jpg",
+        "image_large": "https://example.invalid/v2/data/instagram/1k/caption_1k.txt",
+        "image_1k": "https://example.invalid/v2/data/instagram/thumbs400/17746219833230.29183560407802445_02_thumb.jpg",
+        "image_2k": "https://example.invalid/v2/data/instagram/thumbs400/17746219833230.29183560407802445_02_thumb.jpg",
+        "image_3k": "https://example.invalid/v2/data/instagram/thumbs400/17746219833230.29183560407802445_02_thumb.jpg",
+        "image_original": "https://example.invalid/v2/data/instagram/thumbs400/17746219833230.29183560407802445_02_thumb.jpg",
+        "image_width": 1024,
+        "image_height": 576
+      },
+      {}, {}, {}, {}
+    ]
+  },
+  "backupProject": {
+    "id": "17746219833230.29183560407802445",
+    "mergedMedia": [
+      { "image": "https://legacy.invalid/014_CID-Day at MAK Vienna_51535847862.jpg" },
+      { "image": "https://legacy.invalid/2021-11-16_11-01-16_UTC_1.jpg" },
+      { "image": "https://legacy.invalid/2021-11-16_11-01-16_UTC_3.jpg" },
+      { "image": "https://legacy.invalid/2021-11-16_11-01-16_UTC_4.jpg" },
+      { "image": "https://legacy.invalid/2021-11-16_11-01-16_UTC_5.jpg" },
+      { "image": "https://legacy.invalid/2021-11-16_11-01-16_UTC_6.jpg" }
+    ]
+  }
+}

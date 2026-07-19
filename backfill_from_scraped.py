@@ -1,133 +1,95 @@
 #!/usr/bin/env python3
-"""
-Enhanced backfill: Fill in remaining dimensions from scraped data files
-"""
+"""Backfill dimensions from scraped per-media records without post-level copying."""
 import json
+import os
 import sys
+from urllib.parse import unquote, urlparse
 
-if hasattr(sys.stdout, 'reconfigure'):
-    sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
-def backfill_from_scraped():
-    """Load dimensions from scraped data files"""
-    print("\n" + "="*60)
-    print("PHASE 2: BACKFILL FROM SCRAPED DATA")
-    print("="*60 + "\n")
-    
-    # Load scraped data
-    flickr_data = {}
-    insta_data = {}
-    
-    try:
-        with open('data/flickr/flickr_data.json', 'r', encoding='utf-8') as f:
-            flickr_list = json.load(f)
-            for item in flickr_list:
-                item_id = str(item.get('id', ''))
-                if item.get('image_width') and item.get('image_height'):
-                    flickr_data[item_id] = {
-                        'width': item['image_width'],
-                        'height': item['image_height']
-                    }
-        print(f"✓ Loaded {len(flickr_data)} Flickr items with dimensions")
-    except Exception as e:
-        print(f"✗ Error loading Flickr data: {e}")
-    
-    try:
-        with open('data/instagram/insta_data.json', 'r', encoding='utf-8') as f:
-            insta_list = json.load(f)
-            for item in insta_list:
-                item_id = str(item.get('id', ''))
-                if item.get('image_width') and item.get('image_height'):
-                    insta_data[item_id] = {
-                        'width': item['image_width'],
-                        'height': item['image_height']
-                    }
-        print(f"✓ Loaded {len(insta_data)} Instagram items with dimensions")
-    except Exception as e:
-        print(f"✗ Error loading Instagram data: {e}")
-    
-    # Load state and update
-    try:
-        with open('data/state.json', 'r', encoding='utf-8') as f:
-            state = json.load(f)
-    except Exception as e:
-        print(f"✗ Error reading state.json: {e}")
-        return False
-    
-    items = state.get('items', [])
-    updated = 0
-    skipped = 0
-    
-    print(f"\nProcessing {len(items)} items...\n")
-    
-    for idx, item in enumerate(items, 1):
-        item_id = str(item.get('id', ''))
-        
-        # Skip if already has dimensions
-        has_dims = False
-        if item.get('image_width') and item.get('image_height'):
-            has_dims = True
-        
-        if item.get('mergedMedia'):
-            for media in item['mergedMedia']:
-                if media.get('image_width') and media.get('image_height'):
-                    has_dims = True
-                    break
-        
-        if has_dims:
-            skipped += 1
+IMAGE_FIELDS = ["image_original", "image_3k", "image_2k", "image_large", "image_1k", "image_thumb", "image"]
+
+
+def basename_tokens(media):
+    tokens = set()
+    for field in IMAGE_FIELDS:
+        value = media.get(field)
+        if not isinstance(value, str) or not value:
             continue
-        
-        # Try to find in scraped data
-        dims = None
-        source = None
-        
-        if item_id in flickr_data:
-            dims = flickr_data[item_id]
-            source = 'flickr'
-        elif item_id in insta_data:
-            dims = insta_data[item_id]
-            source = 'instagram'
-        
-        if dims:
-            print(f"[{idx}/{len(items)}] {item_id}... ✓ {dims['width']}x{dims['height']} ({source})")
-            
-            # Update item
-            item['image_width'] = dims['width']
-            item['image_height'] = dims['height']
-            
-            # Update merged media
-            if item.get('mergedMedia'):
-                for media in item['mergedMedia']:
-                    if not media.get('image_width'):
-                        media['image_width'] = dims['width']
-                        media['image_height'] = dims['height']
-            
-            updated += 1
-        else:
-            # This is likely a custom-created item with missing images
-            pass
-    
-    print(f"\n{'='*60}")
-    print(f"Results:")
-    print(f"  ✓ Updated:  {updated} items from scraped data")
-    print(f"  ⊘ Skipped:  {skipped} items (already had dims)")
-    print(f"{'='*60}\n")
-    
-    if updated > 0:
-        print(f"Saving updated state.json...")
+        pathname = urlparse(value).path if value.startswith(("http://", "https://")) else value
+        name = os.path.basename(unquote(pathname)).lower()
+        if name:
+            tokens.add(name)
+    return tokens
+
+
+def load_scraped_records():
+    records = {}
+    for filename in ("data/flickr/flickr_data.json", "data/instagram/insta_data.json"):
         try:
-            with open('data/state.json', 'w', encoding='utf-8') as f:
-                json.dump(state, f, indent=2, ensure_ascii=False)
-            print("✓ Saved successfully!")
-            return True
-        except Exception as e:
-            print(f"✗ Error saving: {e}")
-            return False
-    else:
-        print("No updates made.")
-        return True
+            with open(filename, "r", encoding="utf-8") as handle:
+                for item in json.load(handle):
+                    records.setdefault(str(item.get("id", "")), []).append(item)
+        except Exception as error:
+            print(f"Skipped {filename}: {error}")
+    return records
+
+
+def dimensions(media):
+    width = media.get("image_width")
+    height = media.get("image_height")
+    return (width, height) if width and height else None
+
+
+def match_source_media(target, candidates):
+    target_tokens = basename_tokens(target)
+    matches = [candidate for candidate in candidates if target_tokens & basename_tokens(candidate)]
+    return matches[0] if len(matches) == 1 else None
+
+
+def backfill_from_scraped(state_path="data/state.json"):
+    records = load_scraped_records()
+    try:
+        with open(state_path, "r", encoding="utf-8") as handle:
+            state = json.load(handle)
+    except Exception as error:
+        print(f"Could not read {state_path}: {error}")
+        return False
+
+    updated = 0
+    ambiguous = 0
+    for item in state.get("items", []):
+        sources = records.get(str(item.get("id", "")), [])
+        if not sources:
+            continue
+        target_media = item.get("mergedMedia") or [item]
+        source_media = []
+        for source in sources:
+            source_media.extend(source.get("media_list") or [source])
+
+        for index, target in enumerate(target_media):
+            if dimensions(target):
+                continue
+            source = match_source_media(target, source_media)
+            if source is None and len(target_media) == len(source_media):
+                source = source_media[index]
+            source_dimensions = dimensions(source or {})
+            if not source_dimensions:
+                ambiguous += 1
+                continue
+            target["image_width"], target["image_height"] = source_dimensions
+            updated += 1
+
+        if item.get("mergedMedia") and dimensions(target_media[0]):
+            item["image_width"], item["image_height"] = dimensions(target_media[0])
+
+    print(f"Updated {updated} media; unresolved or ambiguous {ambiguous}.")
+    if updated:
+        with open(state_path, "w", encoding="utf-8") as handle:
+            json.dump(state, handle, indent=2, ensure_ascii=False)
+    return True
+
 
 if __name__ == "__main__":
-    success = backfill_from_scraped()
-    sys.exit(0 if success else 1)
+    sys.exit(0 if backfill_from_scraped() else 1)

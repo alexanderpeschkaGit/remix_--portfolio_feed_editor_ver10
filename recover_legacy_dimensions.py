@@ -1,168 +1,79 @@
 #!/usr/bin/env python3
-"""
-Recover dimensions for legacy items from remote sources (Cloudflare R2, Instagram, Flickr)
-Downloads images temporarily, extracts dimensions, then deletes temp files
-"""
+"""Recover missing legacy dimensions by decoding each media URL independently."""
 import json
 import sys
-import os
-import tempfile
 import time
-from PIL import Image
 from io import BytesIO
 
-if hasattr(sys.stdout, 'reconfigure'):
-    sys.stdout.reconfigure(encoding='utf-8')
+import requests
+from PIL import Image, ImageOps
 
-try:
-    import requests
-except ImportError:
-    print("❌ Error: 'requests' library required")
-    print("Install with: pip install requests")
-    sys.exit(1)
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
-def download_and_get_dimensions(url, timeout=10):
-    """Download image from URL and extract dimensions"""
+IMAGE_FIELDS = ["image_original", "image_3k", "image_2k", "image_large", "image_1k", "image_thumb", "image"]
+IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".bmp", ".tif", ".tiff")
+
+
+def download_and_get_dimensions(url, timeout=15):
     try:
-        response = requests.get(url, timeout=timeout, verify=False)
+        if not url.lower().split("?", 1)[0].endswith(IMAGE_EXTENSIONS):
+            return None
+        response = requests.get(url, timeout=timeout)
         response.raise_for_status()
-        
-        img = Image.open(BytesIO(response.content))
-        return img.width, img.height
-    except Exception as e:
+        content_type = response.headers.get("content-type", "").lower()
+        if content_type and not content_type.startswith("image/"):
+            return None
+        with Image.open(BytesIO(response.content)) as image:
+            image = ImageOps.exif_transpose(image)
+            image.load()
+            return image.width, image.height
+    except Exception:
         return None
 
-def find_working_url(item):
-    """Find a working image URL from item"""
-    # Check mergedMedia first
-    if item.get('mergedMedia'):
-        for media in item['mergedMedia']:
-            for field in ['image_1k', 'image_2k', 'image_3k', 'image_thumb']:
-                url = media.get(field, '')
-                if url and url.startswith('http'):
-                    return url
-    
-    # Check top-level fields
-    for field in ['image_1k', 'image_2k', 'image_3k', 'image_thumb', 'image_large']:
-        url = item.get(field, '')
-        if url and url.startswith('http'):
-            return url
-    
+
+def dimensions_for_media(media):
+    for field in IMAGE_FIELDS:
+        value = media.get(field)
+        if isinstance(value, str) and value.startswith(("http://", "https://")):
+            result = download_and_get_dimensions(value)
+            if result:
+                return result
     return None
 
-def recover_legacy_dimensions():
-    """Main recovery function"""
-    print("\n" + "="*70)
-    print("PHASE 3: RECOVER LEGACY ITEMS FROM REMOTE SOURCES")
-    print("="*70 + "\n")
-    
-    # Load state
+
+def recover_legacy_dimensions(state_path="data/state.json"):
     try:
-        with open('data/state.json', 'r', encoding='utf-8') as f:
-            state = json.load(f)
-    except Exception as e:
-        print(f"❌ Error reading state.json: {e}")
+        with open(state_path, "r", encoding="utf-8") as handle:
+            state = json.load(handle)
+    except Exception as error:
+        print(f"Could not read {state_path}: {error}")
         return False
-    
-    items = state.get('items', [])
-    
-    # Find items without dimensions
-    missing_items = []
-    for item in items:
-        has_dims = False
-        if item.get('image_width') and item.get('image_height'):
-            has_dims = True
-        
-        if item.get('mergedMedia'):
-            for media in item['mergedMedia']:
-                if media.get('image_width') and media.get('image_height'):
-                    has_dims = True
-                    break
-        
-        if not has_dims:
-            missing_items.append(item)
-    
-    print(f"Found {len(missing_items)} items to recover\n")
-    
+
     updated = 0
     failed = 0
-    skipped = 0
-    
-    for idx, item in enumerate(missing_items, 1):
-        item_id = item.get('id', 'unknown')
-        
-        # Find working URL
-        url = find_working_url(item)
-        
-        if not url:
-            print(f"[{idx}/{len(missing_items)}] {item_id}... ✗ No working URL found")
-            failed += 1
-            continue
-        
-        print(f"[{idx}/{len(missing_items)}] {item_id}... ", end="", flush=True)
-        
-        # Try to download and extract dimensions
-        dims = download_and_get_dimensions(url, timeout=15)
-        
-        if dims:
-            width, height = dims
-            print(f"✓ {width}x{height}")
-            
-            # Update item
-            item['image_width'] = width
-            item['image_height'] = height
-            
-            # Update merged media
-            if item.get('mergedMedia'):
-                for media in item['mergedMedia']:
-                    if not media.get('image_width'):
-                        media['image_width'] = width
-                        media['image_height'] = height
-            
-            updated += 1
-        else:
-            print(f"✗ Could not download/read")
-            failed += 1
-        
-        # Rate limiting - be respectful to remote servers
-        if idx < len(missing_items):
-            time.sleep(0.5)
-    
-    print(f"\n{'='*70}")
-    print(f"Results:")
-    print(f"  ✓ Updated:  {updated} items from remote sources")
-    print(f"  ✗ Failed:   {failed} items (unreachable or corrupted)")
-    print(f"{'='*70}\n")
-    
-    if updated > 0:
-        print(f"Saving updated state.json...")
-        try:
-            with open('data/state.json', 'w', encoding='utf-8') as f:
-                json.dump(state, f, indent=2, ensure_ascii=False)
-            print("✓ Saved successfully!")
-            
-            # Final stats
-            total = len(items)
-            with_dims = 0
-            for item in items:
-                if item.get('image_width') and item.get('image_height'):
-                    with_dims += 1
-                elif item.get('mergedMedia'):
-                    for media in item['mergedMedia']:
-                        if media.get('image_width') and media.get('image_height'):
-                            with_dims += 1
-                            break
-            
-            pct = 100 * with_dims // total if total > 0 else 0
-            print(f"\n📊 Final Coverage: {with_dims}/{total} ({pct}%)")
-            return True
-        except Exception as e:
-            print(f"❌ Error saving: {e}")
-            return False
-    else:
-        print("No updates made.")
-        return True
+    for item in state.get("items", []):
+        media_list = item.get("mergedMedia") or [item]
+        for media in media_list:
+            if media.get("image_width") and media.get("image_height"):
+                continue
+            result = dimensions_for_media(media)
+            if result:
+                media["image_width"], media["image_height"] = result
+                updated += 1
+            else:
+                failed += 1
+            time.sleep(0.1)
+        if item.get("mergedMedia") and media_list[0].get("image_width") and media_list[0].get("image_height"):
+            item["image_width"] = media_list[0]["image_width"]
+            item["image_height"] = media_list[0]["image_height"]
+
+    print(f"Updated {updated} media; unresolved {failed}.")
+    if updated:
+        with open(state_path, "w", encoding="utf-8") as handle:
+            json.dump(state, handle, indent=2, ensure_ascii=False)
+    return True
+
 
 if __name__ == "__main__":
-    success = recover_legacy_dimensions()
-    sys.exit(0 if success else 1)
+    sys.exit(0 if recover_legacy_dimensions() else 1)

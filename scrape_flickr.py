@@ -137,6 +137,8 @@ def scrape_flickr():
                     'media_list': [{
                         'type': 'image',
                         'link': f"https://www.flickr.com/photos/{user_id}/{photo['id']}/",
+                        'image_width': image_width,
+                        'image_height': image_height,
                         **urls
                     }],
                     'missing_variants': variant_data['missing_variants'],

@@ -1,0 +1,60 @@
+{
+  "items": [
+    {
+      "id": "mixed-carousel",
+      "title": "Landscape then square",
+      "source": "instagram",
+      "mergedMedia": [
+        {
+          "type": "image",
+          "source": "flickr",
+          "image_thumb": "https://fixture.test/landscape.jpg",
+          "image_width": 1600,
+          "image_height": 900
+        },
+        {
+          "type": "image",
+          "source": "instagram",
+          "image_thumb": "https://fixture.test/square.jpg",
+          "image_width": 1600,
+          "image_height": 900
+        }
+      ]
+    },
+    {
+      "id": "invalid-extension",
+      "title": "Caption selected as image",
+      "image_thumb": "https://fixture.test/thumb.txt",
+      "image_width": 400,
+      "image_height": 400
+    },
+    {
+      "id": "thumbnail-alias",
+      "title": "False variants",
+      "image_thumb": "https://fixture.test/alias-thumb.jpg",
+      "image_1k": "https://fixture.test/alias-1k.jpg",
+      "image_2k": "https://fixture.test/alias-thumb.jpg",
+      "image_width": 400,
+      "image_height": 400
+    },
+    {
+      "id": "partial-variants",
+      "title": "Small original",
+      "image_thumb": "https://fixture.test/partial-thumb.jpg",
+      "image_1k": "https://fixture.test/partial-1k.jpg",
+      "image_original": "https://fixture.test/partial-original.jpg",
+      "image_2k": "",
+      "image_3k": "",
+      "image_width": 1200,
+      "image_height": 800
+    },
+    {
+      "id": "legacy-no-v2",
+      "title": "Legacy display fields only",
+      "image": "https://fixture.test/legacy.jpg",
+      "image_large": "https://fixture.test/legacy.jpg",
+      "image_width": 800,
+      "image_height": 600
+    }
+  ]
+}

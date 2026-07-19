@@ -12,6 +12,9 @@ import { imageHash } from "image-hash";
 import sharp from "sharp";
 import { spawn, exec } from "child_process";
 import { promisify } from "util";
+import { validateMediaState } from "./src/server/mediaValidation.ts";
+import { assertStateAcceptable, stateValidationHttpPayload } from "./src/server/statePublishing.ts";
+import { firstExistingLocalMediaPath, resolveMediaAssetLocation } from "./src/server/mediaAssets.ts";
 const execAsync = promisify(exec);
 
 async function startServer() {
@@ -218,6 +221,7 @@ async function startServer() {
       }
     } catch (e) {
       console.error("Backup failed:", e);
+      throw e;
     }
   }
 
@@ -317,6 +321,7 @@ async function startServer() {
       originalBuffer?: Buffer;
       originalExt?: string;
       uploadToCloud?: boolean;
+      writeFiles?: boolean;
     }
   ) => {
     const source = sharp(input as any, { failOn: 'none' });
@@ -333,8 +338,10 @@ async function startServer() {
     if (options.originalBuffer) {
       const originalFilename = `${options.baseName}_original.${normalizeExt(options.originalExt)}`;
       const originalPath = getVariantLocalPath(options.group, 'originals', originalFilename);
-      await fs.writeFile(originalPath, options.originalBuffer);
-      localPaths.image_original = originalPath;
+      if (options.writeFiles !== false) {
+        await fs.writeFile(originalPath, options.originalBuffer);
+        localPaths.image_original = originalPath;
+      }
       localUrls.image_original = getVariantLocalUrl(options.group, 'originals', originalFilename);
 
       if (options.uploadToCloud) {
@@ -357,9 +364,10 @@ async function startServer() {
         .toBuffer();
 
       const localPath = getVariantLocalPath(options.group, variant.dir, filename);
-      await fs.writeFile(localPath, buffer);
-
-      localPaths[variant.field] = localPath;
+      if (options.writeFiles !== false) {
+        await fs.writeFile(localPath, buffer);
+        localPaths[variant.field] = localPath;
+      }
       localUrls[variant.field] = getVariantLocalUrl(options.group, variant.dir, filename);
 
       if (options.uploadToCloud) {
@@ -373,19 +381,56 @@ async function startServer() {
   };
 
   const publishHtmlAndState = async (htmlContent: string, stateData: string) => {
-    await s3Client.send(new PutObjectCommand({
-      Bucket: R2_CONFIG.bucketName,
-      Key: 'index.html',
-      Body: Buffer.from(htmlContent),
-      ContentType: "text/html; charset=utf-8",
-    }));
+    await assertStateAcceptable(stateData, { rootDir: process.cwd(), allowNetwork: true });
+    const indexBuffer = Buffer.from(htmlContent);
+    const stateBuffer = Buffer.from(stateData);
+    const revision = `${new Date().toISOString().replace(/[:.]/g, '-')}-${createHash('sha256').update(stateBuffer).update(indexBuffer).digest('hex').slice(0, 12)}`;
+    const revisionPrefix = `revisions/${revision}`;
+    const objects = [
+      { liveKey: 'state.json', revisionKey: `${revisionPrefix}/state.json`, body: stateBuffer, contentType: 'application/json; charset=utf-8' },
+      { liveKey: 'index.html', revisionKey: `${revisionPrefix}/index.html`, body: indexBuffer, contentType: 'text/html; charset=utf-8' },
+    ];
 
-    await s3Client.send(new PutObjectCommand({
-      Bucket: R2_CONFIG.bucketName,
-      Key: 'state.json',
-      Body: Buffer.from(stateData),
-      ContentType: "application/json; charset=utf-8",
-    }));
+    const previous = new Map<string, { body: Buffer; contentType: string } | null>();
+    for (const object of objects) {
+      try {
+        const current = await s3Client.send(new GetObjectCommand({ Bucket: R2_CONFIG.bucketName, Key: object.liveKey }));
+        previous.set(object.liveKey, {
+          body: Buffer.from(await current.Body!.transformToByteArray()),
+          contentType: current.ContentType || object.contentType,
+        });
+      } catch (error: any) {
+        if (error?.name === 'NoSuchKey' || error?.$metadata?.httpStatusCode === 404) previous.set(object.liveKey, null);
+        else throw error;
+      }
+    }
+
+    // Upload and verify an immutable revision before changing either live key.
+    for (const object of objects) {
+      await s3Client.send(new PutObjectCommand({ Bucket: R2_CONFIG.bucketName, Key: object.revisionKey, Body: object.body, ContentType: object.contentType }));
+      await s3Client.send(new HeadObjectCommand({ Bucket: R2_CONFIG.bucketName, Key: object.revisionKey }));
+    }
+
+    const promoted: string[] = [];
+    try {
+      for (const object of objects) {
+        const copySource = `${R2_CONFIG.bucketName}/${object.revisionKey.split('/').map(encodeURIComponent).join('/')}`;
+        await s3Client.send(new CopyObjectCommand({ Bucket: R2_CONFIG.bucketName, Key: object.liveKey, CopySource: copySource }));
+        await s3Client.send(new HeadObjectCommand({ Bucket: R2_CONFIG.bucketName, Key: object.liveKey }));
+        promoted.push(object.liveKey);
+      }
+    } catch (error) {
+      // Restore the exact previous live pair if promotion is interrupted.
+      for (const liveKey of promoted.reverse()) {
+        const old = previous.get(liveKey);
+        if (old) {
+          await s3Client.send(new PutObjectCommand({ Bucket: R2_CONFIG.bucketName, Key: liveKey, Body: old.body, ContentType: old.contentType }));
+        } else {
+          await s3Client.send(new DeleteObjectCommand({ Bucket: R2_CONFIG.bucketName, Key: liveKey }));
+        }
+      }
+      throw error;
+    }
   };
 
   async function getDeletedIds(): Promise<string[]> {
@@ -445,11 +490,11 @@ async function startServer() {
                     type: media.type || 'image',
                     image: bestImage || media.image || media.image_thumb || '',
                     image_thumb: media.image_thumb || media.image || '',
-                    image_1k: media.image_1k || bestImage || '',
-                    image_2k: media.image_2k || media.image_3k || media.image_large || bestImage || '',
+                    image_1k: media.image_1k || '',
+                    image_2k: media.image_2k || '',
                     image_large: media.image_large || media.image_2k || media.image_3k || media.image_1k || media.image_thumb || bestImage || '',
-                    image_3k: media.image_3k || media.image_2k || media.image_large || bestImage || '',
-                    image_original: media.image_original || media.image_3k || media.image_2k || media.image_large || bestImage || '',
+                    image_3k: media.image_3k || '',
+                    image_original: media.image_original || '',
                     image_width: media.image_width || 0,
                     image_height: media.image_height || 0,
                     link: media.link || item.link
@@ -477,10 +522,10 @@ async function startServer() {
               image: pickBestImage(item.image_original, item.image_3k, item.image_2k, item.image_large, item.image_1k, item.image_thumb, item.image) || item.image || item.image_thumb || '',
               image_thumb: item.image_thumb || item.image || '',
               image_1k: item.image_1k || '',
-              image_2k: item.image_2k || item.image_3k || item.image_large || item.image_1k || item.image_thumb || item.image || '',
+              image_2k: item.image_2k || '',
               image_large: item.image_large || item.image_2k || item.image_3k || item.image_1k || item.image_thumb || item.image || '',
-              image_3k: item.image_3k || item.image_2k || item.image_large || item.image_1k || item.image_thumb || item.image || '',
-              image_original: item.image_original || item.image_3k || item.image_2k || item.image_large || item.image_1k || item.image_thumb || item.image || '',
+              image_3k: item.image_3k || '',
+              image_original: item.image_original || '',
               image_width: item.image_width || 0,
               image_height: item.image_height || 0,
               mergedMedia,
@@ -505,7 +550,7 @@ async function startServer() {
             const mergedMedia = Array.isArray(item.media_list)
               ? item.media_list.map((media: any) => {
                   if (typeof media === 'string') {
-                    return { type: 'image', image: media, image_large: fallback3k || media, image_3k: fallback3k || media, link: item.link || `https://www.flickr.com/photos/23689211@N04/${id}/` };
+                    return { type: 'image', image: media, image_large: fallback3k || media, link: item.link || `https://www.flickr.com/photos/23689211@N04/${id}/` };
                   }
                   return {
                     type: media.type || 'image',
@@ -514,7 +559,7 @@ async function startServer() {
                     image_1k: media.image_1k || '',
                     image_2k: media.image_2k || '',
                     image_large: media.image_large || media.image_2k || media.image_3k || media.image_1k || media.image_thumb || fallback3k || '',
-                    image_3k: media.image_3k || fallback3k || '',
+                    image_3k: media.image_3k || '',
                     image_original: media.image_original || '',
                     image_width: media.image_width || 0,
                     image_height: media.image_height || 0,
@@ -528,7 +573,7 @@ async function startServer() {
                   image_1k: item.image_1k || '',
                   image_2k: item.image_2k || '',
                   image_large: item.image_large || item.image_2k || item.image_3k || fallback3k || '',
-                  image_3k: item.image_3k || fallback3k || '',
+                  image_3k: item.image_3k || '',
                   image_original: item.image_original || '',
                   image_width: item.image_width || 0,
                   image_height: item.image_height || 0,
@@ -545,7 +590,7 @@ async function startServer() {
               image_1k: item.image_1k || '',
               image_2k: item.image_2k || '',
               image_large: item.image_large || item.image_2k || item.image_3k || fallback3k || '',
-              image_3k: item.image_3k || fallback3k || '',
+              image_3k: item.image_3k || '',
               image_original: item.image_original || '',
               image_width: item.image_width || 0,
               image_height: item.image_height || 0,
@@ -603,7 +648,7 @@ async function startServer() {
 
     if (newItems.length > 0) {
       state.items = [...newItems, ...state.items];
-      await fs.writeFile(statePath, JSON.stringify(state, null, 2));
+      await persistAcceptedState(state, statePath);
       return newItems.length;
     }
     return 0;
@@ -749,6 +794,16 @@ async function startServer() {
     return `${cleanBaseUrl}/${filename.replace(/^\/+/, '')}`;
   }
 
+  async function persistAcceptedState(stateData: any, statePath = path.join(DATA_DIR, 'state.json'), createBackup = false) {
+    const state = typeof stateData === 'string' ? JSON.parse(stateData) : stateData;
+    await ensureStateVideoDimensions(state);
+    await assertStateAcceptable(state, { rootDir: process.cwd(), allowNetwork: true });
+    if (createBackup) await backupState();
+    const stateString = JSON.stringify(state, null, 2);
+    await fs.writeFile(statePath, stateString, 'utf-8');
+    return stateString;
+  }
+
   const hasR2UploadCredentials = () => (
     !!R2_CONFIG.accountId &&
     !!R2_CONFIG.accessKeyId &&
@@ -825,7 +880,8 @@ async function startServer() {
     if (ext === '.png') return 'image/png';
     if (ext === '.webp') return 'image/webp';
     if (ext === '.gif') return 'image/gif';
-    return 'image/jpeg';
+    if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+    return 'application/octet-stream';
   };
 
   const getBufferSha1 = (buffer: Buffer) => createHash('sha1').update(buffer).digest('hex');
@@ -1466,7 +1522,7 @@ async function startServer() {
         }
 
         if (stateChanged) {
-          await fs.writeFile(statePath, JSON.stringify(state, null, 2));
+          await persistAcceptedState(state, statePath);
           syncStatus.logs.push("state.json mit Hashes aktualisiert.");
         }
 
@@ -1553,7 +1609,7 @@ async function startServer() {
 
         if (matchesFound > 0) {
           await backupState();
-          await fs.writeFile(statePath, JSON.stringify(state, null, 2));
+          await persistAcceptedState(state, statePath);
           syncStatus.logs.push(`${matchesFound} High-Res Bilder automatisch verknüpft.`);
         } else if (uncertainMatches.length === 0) {
           syncStatus.logs.push(`Keine automatischen Übereinstimmungen für die ${imageFiles.length} Dateien gefunden.`);
@@ -1669,6 +1725,7 @@ async function startServer() {
       // 3) Republish state.json and, if available, index.html
       const statePath = path.join(DATA_DIR, 'state.json');
       const stateData = await fs.readFile(statePath, 'utf-8').catch(() => JSON.stringify({ items: [] }, null, 2));
+      await assertStateAcceptable(stateData, { rootDir: process.cwd(), allowNetwork: true });
 
       let htmlContent: string | null = null;
       const previewPath = path.join(DATA_DIR, 'preview.html');
@@ -1752,7 +1809,7 @@ async function startServer() {
         }
         
         await backupState();
-        await fs.writeFile(statePath, JSON.stringify(state, null, 2));
+        await persistAcceptedState(state, statePath);
         
         // Remove from uncertain matches
         const uncertainPath = path.join(SYNC_DIR, 'uncertain_matches.json');
@@ -1962,6 +2019,10 @@ async function startServer() {
   };
 
   const localPathFromMediaUrl = async (value?: string) => {
+    if (value) {
+      const sharedPath = await firstExistingLocalMediaPath(value, process.cwd());
+      if (sharedPath) return sharedPath;
+    }
     const pathname = getUrlPathname(value);
     if (!pathname) return null;
     const normalized = pathname.replace(/^\/+/, '');
@@ -2286,7 +2347,15 @@ async function startServer() {
       if (!value || !isImageUrlLike(String(value))) continue;
       try {
         const source = await readLocalOrRemoteBuffer(String(value));
-        if (source?.buffer?.length) return source;
+        if (!source?.buffer?.length) continue;
+        const location = resolveMediaAssetLocation(String(value), process.cwd());
+        const pathname = location.pathname.toLowerCase();
+        if (field === 'image_thumb' || /\/thumbs400\//.test(pathname) || /[_-]thumb\.[a-z0-9]+$/.test(pathname)) continue;
+        const metadata = await sharp(source.buffer, { failOn: 'error' }).metadata();
+        const width = metadata.autoOrient?.width || metadata.width || 0;
+        const height = metadata.autoOrient?.height || metadata.height || 0;
+        if (Math.max(width, height) <= 400) continue;
+        return { ...source, sourceField: field, sourceUrl: String(value), width, height };
       } catch (error: any) {
         console.warn(`[media-variants] image source failed (${field}):`, error.message || error);
       }
@@ -2434,11 +2503,11 @@ async function startServer() {
     item.type = primary.type || item.type || 'image';
     item.image = primary.image || primary.image_thumb || item.image || '';
     item.image_thumb = primary.image_thumb || primary.image || item.image_thumb || '';
-    item.image_1k = primary.image_1k || item.image_1k || '';
-    item.image_2k = primary.image_2k || item.image_2k || '';
+    item.image_1k = primary.image_1k || '';
+    item.image_2k = primary.image_2k || '';
     item.image_large = primary.image_large || primary.image_2k || primary.image_3k || primary.image_1k || primary.image || item.image_large || '';
-    item.image_3k = primary.image_3k || primary.image_large || primary.image_2k || primary.image_1k || primary.image || item.image_3k || '';
-    item.image_original = primary.image_original || item.image_original || '';
+    item.image_3k = primary.image_3k || '';
+    item.image_original = primary.image_original || '';
     item.image_preview = primary.image_preview || item.image_preview;
     item.url = primary.url || primary.link || item.url || '';
     item.youtubeId = primary.youtubeId || item.youtubeId || '';
@@ -2449,7 +2518,7 @@ async function startServer() {
     item.image_height = primary.image_height || item.image_height || 0;
   };
 
-  const generateVariantsForEntry = async (entry: { item: any; media: any; mediaIndex: number; label: string }) => {
+  const generateVariantsForEntry = async (entry: { item: any; media: any; mediaIndex: number; label: string }, options: { dryRun?: boolean } = {}) => {
     const media = entry.media;
     const videoLike = isVideoMedia(media);
     const group = inferMediaGroup(media);
@@ -2465,7 +2534,8 @@ async function startServer() {
       baseName,
       originalBuffer: videoLike ? undefined : source.buffer,
       originalExt: source.ext || 'jpg',
-      uploadToCloud: true,
+      uploadToCloud: false,
+      writeFiles: options.dryRun !== true,
     });
     if (variantSet.manifestEntries.length > 0) {
       await updateSyncManifestEntries(variantSet.manifestEntries);
@@ -2488,15 +2558,19 @@ async function startServer() {
       baseName,
       fields: Object.keys(urls),
       missingVariants: variantSet.missingVariants,
+      sourceField: (source as any).sourceField || (videoLike ? 'video-thumbnail' : 'unknown'),
+      sourceUrl: (source as any).sourceUrl || '',
+      dryRun: options.dryRun === true,
     };
   };
 
   const publishStateJsonToR2 = async (state: any) => {
     await ensureStateVideoDimensions(state);
+    await assertStateAcceptable(state, { rootDir: process.cwd(), allowNetwork: true });
     state.lastUpdated = new Date().toISOString();
     const stateString = JSON.stringify(state, null, 2);
     await backupState();
-    await fs.writeFile(path.join(DATA_DIR, 'state.json'), stateString, 'utf-8');
+    await persistAcceptedState(state, path.join(DATA_DIR, 'state.json'));
     await s3Client.send(new PutObjectCommand({
       Bucket: R2_CONFIG.bucketName,
       Key: 'state.json',
@@ -2540,6 +2614,21 @@ async function startServer() {
     }
   });
 
+  app.post("/api/media-validation/audit", async (req, res) => {
+    try {
+      const state = req.body?.state || JSON.parse(await fs.readFile(path.join(DATA_DIR, 'state.json'), 'utf-8'));
+      const report = await validateMediaState(state, {
+        rootDir: process.cwd(),
+        allowNetwork: req.body?.allowNetwork !== false,
+        includeTopLevelReferences: !!req.body?.includeTopLevelReferences,
+        reportMissingOptionalVariants: req.body?.reportMissingOptionalVariants !== false,
+      });
+      res.status(report.ok ? 200 : 422).json(report);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || String(error) });
+    }
+  });
+
   app.post("/api/media-variants/generate", async (req, res) => {
     if (mediaVariantsStatus.running) return res.status(409).json({ error: 'Media variant task already running', status: mediaVariantsStatus });
 
@@ -2548,6 +2637,7 @@ async function startServer() {
     logMediaVariantStatus('Starting generation for missing media variants...');
 
     try {
+      const dryRun = req.body?.dryRun !== false;
       const statePath = path.join(DATA_DIR, 'state.json');
       const state = JSON.parse(await fs.readFile(statePath, 'utf-8'));
       const auditBefore = await auditMediaVariantsInState(state, { includeTopLevelReferences: false });
@@ -2569,7 +2659,7 @@ async function startServer() {
         mediaVariantsStatus.progress = i + 1;
         try {
           logMediaVariantStatus(`Generating ${i + 1}/${entries.length}: ${entry.label}`);
-          const result = await generateVariantsForEntry(entry);
+          const result = await generateVariantsForEntry(entry, { dryRun });
           generated.push(result);
         } catch (error: any) {
           const failure = {
@@ -2590,32 +2680,30 @@ async function startServer() {
         }
       }
 
-      const stateString = await publishStateJsonToR2(state);
-      logMediaVariantStatus('Updated state.json saved locally and published to R2.');
-
-      const auditAfter = await auditMediaVariantsInState(state, { includeTopLevelReferences: true });
-      let publishedAudit: any = null;
-      try {
-        publishedAudit = await verifyPublishedMediaVariants();
-        logMediaVariantStatus(`Published verification complete: ${publishedAudit.issueCount} issues remaining.`);
-      } catch (error: any) {
-        publishedAudit = { ok: false, issueCount: 1, issues: [{ reason: 'published-verification-failed', error: error.message || String(error) }] };
-        logMediaVariantStatus(`Published verification failed: ${error.message || error}`);
+      const candidatePath = path.join(BACKUPS_DIR, 'migrations', 'media-variants-candidate.json');
+      let validationAfter: any = null;
+      if (dryRun) {
+        logMediaVariantStatus('Dry-run complete. No files, local state, or R2 objects were changed.');
+      } else {
+        validationAfter = await validateMediaState(state, { rootDir: process.cwd(), allowNetwork: false, reportMissingOptionalVariants: true });
+        await fs.mkdir(path.dirname(candidatePath), { recursive: true });
+        await fs.writeFile(candidatePath, JSON.stringify(state, null, 2), 'utf-8');
+        logMediaVariantStatus(`Generated local assets and wrote candidate state to ${candidatePath}. Nothing was published.`);
       }
 
       const result = {
-        success: failed.length === 0 && publishedAudit.ok,
+        success: failed.length === 0,
+        dryRun,
+        published: false,
         generated,
         failed,
         auditBefore,
-        auditAfter,
-        publishedAudit,
-        stateLastUpdated: state.lastUpdated,
-        stateBytes: Buffer.byteLength(stateString),
+        validationAfter,
+        candidatePath: dryRun ? null : candidatePath,
       };
 
       mediaVariantsStatus.result = result;
-      mediaVariantsStatus.audit = auditAfter;
+      mediaVariantsStatus.audit = validationAfter || auditBefore;
       mediaVariantsStatus.running = false;
       mediaVariantsStatus.done = true;
       mediaVariantsStatus.phase = 'done';
@@ -2749,10 +2837,11 @@ async function startServer() {
     try {
       const { pushToR2, ...state } = req.body;
       await ensureStateVideoDimensions(state);
+      await assertStateAcceptable(state, { rootDir: process.cwd(), allowNetwork: true });
       await backupState();
 
       const stateString = JSON.stringify(state, null, 2);
-      await fs.writeFile(path.join(DATA_DIR, 'state.json'), stateString);
+      await persistAcceptedState(state, path.join(DATA_DIR, 'state.json'));
 
       if (pushToR2) {
         console.log("[R2 Sync] Pushing state.json to R2...");
@@ -2768,6 +2857,8 @@ async function startServer() {
       res.json({ success: true });
     } catch (e: any) {
       console.error("Failed to save state:", e);
+      const validationError = stateValidationHttpPayload(e);
+      if (validationError) return res.status(validationError.status).json(validationError.body);
       res.status(500).json({ error: 'Failed to save state', details: e.message });
     }
   });
@@ -2802,9 +2893,11 @@ async function startServer() {
       // Update the lastUpdated timestamp so the frontend can detect the change
       state.lastUpdated = new Date().toISOString();
 
+      await assertStateAcceptable(state, { rootDir: process.cwd(), allowNetwork: true });
+
       await backupState();
       const stateString = JSON.stringify(state, null, 2);
-      await fs.writeFile(statePath, stateString);
+      await persistAcceptedState(state, statePath);
       
       // Push the updated state to Cloudflare R2 so the polling detects it
       await s3Client.send(new PutObjectCommand({
@@ -2817,6 +2910,8 @@ async function startServer() {
       res.json({ success: true, item: state.items[itemIndex] });
     } catch (e: any) {
       console.error("Failed to update item:", e);
+      const validationError = stateValidationHttpPayload(e);
+      if (validationError) return res.status(validationError.status).json(validationError.body);
       res.status(500).json({ error: 'Failed to update item', details: e.message });
     }
   });
@@ -2916,7 +3011,7 @@ async function startServer() {
       // 5. Remove items from state.json and save
       state.items = state.items.filter((item: any) => !idsSet.has(String(item.id)));
       await backupState();
-      await fs.writeFile(statePath, JSON.stringify(state, null, 2));
+      await persistAcceptedState(state, statePath);
 
       res.json({ success: true, deletedCount: itemsToDelete.length, filesDeleted: uniqueFiles.length });
     } catch (e) {
@@ -3000,11 +3095,10 @@ async function startServer() {
         lastUpdated: new Date().toISOString()
       }, null, 2);
 
-      await publishHtmlAndState(htmlContent, stateData);
-
       const statePath = path.join(DATA_DIR, 'state.json');
       await backupState();
-      await fs.writeFile(statePath, stateData);
+      await publishHtmlAndState(htmlContent, stateData);
+      await persistAcceptedState(stateData, statePath);
 
       const baseUrl = R2_CONFIG.publicDomain.startsWith('http') ? R2_CONFIG.publicDomain : `https://${R2_CONFIG.publicDomain}`;
       const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
@@ -3541,11 +3635,12 @@ async function startServer() {
 
 
 
-      // 2. Upload index.html and state.json to R2
+      // 2. Back up local state, then upload validated index.html and state.json.
+      await backupState();
       await publishHtmlAndState(htmlContent, finalStateData);
 
       // 3. Also save the published state locally so /api/state stays in sync
-      await fs.writeFile(path.join(DATA_DIR, 'state.json'), finalStateData, 'utf-8');
+      await persistAcceptedState(finalStateData, path.join(DATA_DIR, 'state.json'));
 
     const baseUrl = R2_CONFIG.publicDomain.startsWith('http') ? R2_CONFIG.publicDomain : `https://${R2_CONFIG.publicDomain}`;
     const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
@@ -3554,6 +3649,8 @@ async function startServer() {
     res.json({ success: true, url });
     } catch (error: any) {
       console.error("Error publishing to Cloudflare:", error);
+      const validationError = stateValidationHttpPayload(error);
+      if (validationError) return res.status(validationError.status).json(validationError.body);
       res.status(500).json({ error: error.message || "Failed to publish to Cloudflare" });
     }
   });
@@ -4179,7 +4276,7 @@ async function startServer() {
           };
           const newState = replacer(state);
           if (stateChanged) {
-            await fs.writeFile(statePath, JSON.stringify(newState, null, 2));
+            await persistAcceptedState(newState, statePath, true);
           }
         } catch (e) {
           console.warn('Failed to update state.json after rename:', e);

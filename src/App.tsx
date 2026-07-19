@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useRef, useLayoutEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { Loader2, ExternalLink, Maximize2, X, Edit3, Save, UploadCloud, CheckCircle, Plus, Image as ImageIcon, Youtube, Trash2, GripVertical, Undo2, Redo2, FoldVertical, History, Download, RefreshCw, Instagram, ChevronUp, ChevronDown, FileCode, Layers, ArrowLeft, Eye } from 'lucide-react';
 import {
   DndContext,
@@ -253,11 +252,11 @@ const syncMediaFieldsFromPrimary = (target: any, primary: any) => {
   target.type = primary.type || target.type || 'image';
   target.image = primary.image || primary.image_thumb || target.image || '';
   target.image_thumb = primary.image_thumb || primary.image || target.image_thumb || '';
-  target.image_1k = primary.image_1k || target.image_1k || '';
-  target.image_2k = primary.image_2k || target.image_2k || '';
+  target.image_1k = primary.image_1k || '';
+  target.image_2k = primary.image_2k || '';
   target.image_large = primary.image_large || primary.image_2k || primary.image_3k || primary.image_1k || primary.image || target.image_large || '';
-  target.image_3k = primary.image_3k || primary.image_large || primary.image_2k || primary.image_1k || primary.image || target.image_3k || '';
-  target.image_original = primary.image_original || target.image_original || '';
+  target.image_3k = primary.image_3k || '';
+  target.image_original = primary.image_original || '';
   target.image_preview = primary.image_preview || target.image_preview;
   target.url = primary.url || primary.link || target.url || '';
   target.youtubeId = primary.youtubeId || target.youtubeId || '';
@@ -785,23 +784,10 @@ export default function App() {
     }
   }, [fallbackEnabled]);
 
-  // Cloudflare R2 Configuration for direct browser upload
+  // Public media configuration. Credentials and publishing remain server-side.
   const R2_CONFIG = {
-    accountId: "9b109aa9587252172ccb60f664f603f0",
-    accessKeyId: "0e11678f19a97c193c9a5647f7c4b37b",
-    secretAccessKey: "54bcb9d673d5d53aa6e07b5be67963a01c4b90b7121ca5e1d5ac974e37c8f25d",
-    bucketName: "portfoliodata",
     publicDomain: "https://pub-85bb68a84f3b4ba6b512b3d165c96497.r2.dev"
   };
-
-  const getS3Client = () => new S3Client({
-    region: "auto",
-    endpoint: `https://${R2_CONFIG.accountId}.r2.cloudflarestorage.com`,
-    credentials: {
-      accessKeyId: R2_CONFIG.accessKeyId,
-      secretAccessKey: R2_CONFIG.secretAccessKey,
-    },
-  });
 
   useEffect(() => {
     fetch('/api/config')
@@ -1571,7 +1557,7 @@ export default function App() {
     const uploadId = Math.random().toString(36).substring(7); // Unique ID for this specific upload
     
     const cleanOldUrls = (obj: any) => {
-      const { largeUrl, url, url_o, url_l, url_q, url_sq, url_m, local_highres, image_thumb, image_1k, image_2k, image_3k, image_original, ...rest } = obj;
+      const { largeUrl, url, url_o, url_l, url_q, url_sq, url_m, local_highres, image, image_thumb, image_1k, image_2k, image_large, image_preview, image_3k, image_original, ...rest } = obj;
       return rest;
     };
 
@@ -1600,7 +1586,7 @@ export default function App() {
       if (String(post.id) === String(id)) {
         // If isNew is true or if we don't have a specific mediaIndex, we treat it as adding a new item to the gallery
         if (isNew || mediaIndex === undefined) {
-          const newItem: any = { uploadId, type: 'image', image: localUrl, image_thumb: localUrl, image_1k: localUrl, image_2k: localUrl, image_large: localUrl, image_preview: localUrl, image_3k: localUrl, image_original: localUrl };
+          const newItem: any = { uploadId, type: 'image', image_preview: localUrl };
           
           // FIX #1: Explizites Array-Clearing beim Hinzufügen neuer Bilder
           // Nur bereits fertiggestellte Bilder mit finalen URLs behalten, keine uploadId-Only oder Phantom-Elemente
@@ -1625,7 +1611,7 @@ export default function App() {
         }
         if (mediaIndex !== undefined && post.mergedMedia) {
           const newMedia = [...post.mergedMedia];
-          newMedia[mediaIndex] = { ...cleanOldUrls(newMedia[mediaIndex]), uploadId, image: localUrl, image_thumb: localUrl, image_1k: localUrl, image_2k: localUrl, image_large: localUrl, image_preview: localUrl, image_3k: localUrl, image_original: localUrl, type: 'image' } as any;
+          newMedia[mediaIndex] = { ...cleanOldUrls(newMedia[mediaIndex]), uploadId, image_preview: localUrl, type: 'image' } as any;
           const primaryMedia = getPrimaryMergedMedia(newMedia) || newMedia.find(Boolean);
           const updatedPost = syncMediaFieldsFromPrimary({ ...cleanOldUrls(post) }, primaryMedia);
           return {
@@ -1634,7 +1620,7 @@ export default function App() {
           };
         } else if (mediaIndex !== undefined && !post.mergedMedia) {
           const newMediaRaw = [{ type: post.type || 'image', image: post.image, image_thumb: post.image_thumb, image_1k: post.image_1k, image_2k: post.image_2k, image_large: post.image_large, image_3k: post.image_3k, image_original: post.image_original, youtubeId: post.youtubeId, link: post.url }];
-          newMediaRaw[mediaIndex] = { ...cleanOldUrls(newMediaRaw[mediaIndex]), uploadId, image: localUrl, image_thumb: localUrl, image_1k: localUrl, image_2k: localUrl, image_large: localUrl, image_preview: localUrl, image_3k: localUrl, image_original: localUrl, type: 'image' } as any;
+          newMediaRaw[mediaIndex] = { ...cleanOldUrls(newMediaRaw[mediaIndex]), uploadId, image_preview: localUrl, type: 'image' } as any;
           const newMedia = newMediaRaw.filter(hasRenderableMedia);
           const primaryMedia = getPrimaryMergedMedia(newMedia) || newMedia.find(Boolean);
           const updatedPost = syncMediaFieldsFromPrimary({ ...cleanOldUrls(post) }, primaryMedia);
@@ -1643,7 +1629,7 @@ export default function App() {
             mergedMedia: newMedia
           };
         }
-        return { ...cleanOldUrls(post), image: localUrl, image_thumb: localUrl, image_1k: localUrl, image_2k: localUrl, image_large: localUrl, image_preview: localUrl, image_3k: localUrl, image_original: localUrl, type: 'image' };
+        return { ...cleanOldUrls(post), uploadId, image_preview: localUrl, type: 'image' };
       }
       return post;
     }), `Lokales Bild hinzugefügt (${flickrPosts.find(p => String(p.id) === String(id))?.title || 'Unbenannt'})`);
@@ -1664,7 +1650,7 @@ export default function App() {
 
       const uploadData = await uploadRes.json();
       const thumbUrl = uploadData.image_thumb || uploadData.url;
-      const url1k = uploadData.image_1k || uploadData.url_1k || thumbUrl;
+      const url1k = uploadData.image_1k || uploadData.url_1k || '';
       const url2k = uploadData.image_2k || uploadData.url_2k || '';
       const url3k = uploadData.image_3k || uploadData.url_3k || '';
       const originalUrl = uploadData.image_original || uploadData.url_original || '';
@@ -1706,7 +1692,7 @@ export default function App() {
                 image_1k: url1k,
                 image_2k: url2k,
                 image_large: highResUrl, 
-                image_3k: url3k || highResUrl,
+                image_3k: url3k,
                 image_original: originalUrl,
                 image_preview: localUrl, 
                 image_width: imageWidth,
@@ -1724,7 +1710,7 @@ export default function App() {
                 image_1k: url1k,
                 image_2k: url2k,
                 image_large: highResUrl, 
-                image_3k: url3k || highResUrl,
+                image_3k: url3k,
                 image_original: originalUrl,
                 image_preview: localUrl,
                 image_width: imageWidth,
@@ -1752,7 +1738,7 @@ export default function App() {
                   image_1k: url1k,
                   image_2k: url2k,
                   image_large: highResUrl, 
-                  image_3k: url3k || highResUrl,
+                  image_3k: url3k,
                   image_original: originalUrl,
                   image_preview: localUrl,
                   image_width: imageWidth,
@@ -1773,7 +1759,7 @@ export default function App() {
               image_1k: url1k,
               image_2k: url2k,
               image_large: highResUrl, 
-              image_3k: url3k || highResUrl,
+              image_3k: url3k,
               image_original: originalUrl,
               image_preview: localUrl,
               image_width: imageWidth,
@@ -1785,7 +1771,7 @@ export default function App() {
                 image_1k: url1k,
                 image_2k: url2k,
                 image_large: highResUrl,
-                image_3k: url3k || highResUrl,
+                image_3k: url3k,
                 image_original: originalUrl,
                 image_preview: localUrl,
                 image_width: imageWidth,
@@ -1997,10 +1983,10 @@ export default function App() {
                     url: result.url || newMedia[itemIdx].url,
                     image: result.image || newMedia[itemIdx].image,
                     image_thumb: result.image_thumb || newMedia[itemIdx].image_thumb,
-                    image_1k: result.image_1k || newMedia[itemIdx].image_1k,
-                    image_2k: result.image_2k || newMedia[itemIdx].image_2k,
-                    image_3k: result.image_3k || newMedia[itemIdx].image_3k,
-                    image_original: result.image_original || newMedia[itemIdx].image_original,
+                    image_1k: result.image_1k || '',
+                    image_2k: result.image_2k || '',
+                    image_3k: result.image_3k || '',
+                    image_original: result.image_original || '',
                     bunnyThumbUrl: result.bunnyThumbUrl,
                   };
                 }
@@ -2166,10 +2152,19 @@ export default function App() {
     const getYoutubeId = (url: string) => {
       if (!url) return null;
       if (url.includes('youtu.be/')) return url.split('youtu.be/')[1].substring(0, 11);
+      if (!url.includes('youtube.com/') && !url.includes('youtube-nocookie.com/')) return null;
       if (url.includes('v=')) return url.split('v=')[1].substring(0, 11);
       if (url.includes('embed/')) return url.split('embed/')[1].substring(0, 11);
       return null;
     };
+
+    const getYoutubeFeedEmbedUrl = (videoId: string) => {
+      const safeVideoId = encodeURIComponent(videoId);
+      return `https://www.youtube.com/embed/${safeVideoId}?autoplay=1&mute=1&controls=0&loop=1&playlist=${safeVideoId}&playsinline=1&disablekb=1&fs=0&rel=0`;
+    };
+
+    const getBunnyFeedEmbedUrl = (libraryId: string, videoId: string) =>
+      `https://iframe.mediadelivery.net/embed/${encodeURIComponent(libraryId)}/${encodeURIComponent(videoId)}?autoplay=true&muted=true&loop=true&playsinline=true&preload=true`;
 
     const cards = posts.filter(p => !p.hidden).map(post => {
       let mediaHtml = '';
@@ -2179,15 +2174,15 @@ export default function App() {
         mediaHtml = `<div class="media-stack">` + sortedMedia.map((m: any) => {
           const yid = m.youtubeId || getYoutubeId(m.url || m.link);
           if (yid) {
-            return `<div class="video-container mb-2" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'><iframe src="https://www.youtube.com/embed/${yid}?mute=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>`;
+            return `<div class="video-container mb-2" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'><iframe class="feed-video-preview" src="${getYoutubeFeedEmbedUrl(yid)}" frameborder="0" allow="autoplay; encrypted-media" tabindex="-1" aria-hidden="true"></iframe></div>`;
           } else if (m.type === 'bunny' && m.videoId && m.libraryId) {
-            return `<div class="video-container mb-2" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'><iframe src="https://iframe.mediadelivery.net/embed/${m.libraryId}/${m.videoId}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>`;
+            return `<div class="video-container mb-2" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'><iframe class="feed-video-preview" src="${getBunnyFeedEmbedUrl(String(m.libraryId), String(m.videoId))}" frameborder="0" allow="autoplay; encrypted-media" tabindex="-1" aria-hidden="true"></iframe></div>`;
           } else if (m.type === 'video' || (m.image && m.image.endsWith('.mp4')) || ((m.url || m.link) && (m.url || m.link).endsWith('.mp4'))) {
             const videoUrl = getProxiedUrl(getVideoSrc(m, true) || getVideoSrc(m));
             if (!videoUrl) return '';
             const posterUrl = getProxiedUrl(getImageSrc(m));
             const poster = posterUrl ? ` poster="${posterUrl}"` : '';
-            return `<video src="${videoUrl}"${poster} class="block mb-2" controls muted playsinline onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})' style="width: 100%; max-height: 400px; background: #000; cursor: pointer;"></video>`;
+            return `<video src="${videoUrl}"${poster} class="feed-video-preview block mb-2" autoplay loop muted playsinline preload="metadata" disablepictureinpicture tabindex="-1" aria-hidden="true" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})' style="width: 100%; max-height: 400px; background: #000; cursor: pointer;"></video>`;
           } else {
             const imageUrl = getProxiedUrl(getImageSrc(m, true) || getImageSrc(m));
             if (!imageUrl) return '';
@@ -2199,13 +2194,13 @@ export default function App() {
         if (yid) {
           mediaHtml = `
             <div class="video-container" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'>
-              <iframe src="https://www.youtube.com/embed/${yid}?mute=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+              <iframe class="feed-video-preview" src="${getYoutubeFeedEmbedUrl(yid)}" frameborder="0" allow="autoplay; encrypted-media" tabindex="-1" aria-hidden="true"></iframe>
             </div>
           `;
         } else if (post.type === 'bunny' && post.videoId && post.libraryId) {
           mediaHtml = `
             <div class="video-container" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'>
-              <iframe src="https://iframe.mediadelivery.net/embed/${post.libraryId}/${post.videoId}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+              <iframe class="feed-video-preview" src="${getBunnyFeedEmbedUrl(String(post.libraryId), String(post.videoId))}" frameborder="0" allow="autoplay; encrypted-media" tabindex="-1" aria-hidden="true"></iframe>
             </div>
           `;
         } else if (post.type === 'video' || (post.image && post.image.endsWith('.mp4')) || ((post.url || post.link) && (post.url || post.link).endsWith('.mp4'))) {
@@ -2214,7 +2209,7 @@ export default function App() {
             const posterUrl = getProxiedUrl(getImageSrc(post));
             const poster = posterUrl ? ` poster="${posterUrl}"` : '';
             mediaHtml = `
-              <video src="${videoUrl}"${poster} controls muted playsinline onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})' style="width: 100%; max-height: 400px; background: #000; cursor: pointer;"></video>
+              <video src="${videoUrl}"${poster} class="feed-video-preview" autoplay loop muted playsinline preload="metadata" disablepictureinpicture tabindex="-1" aria-hidden="true" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})' style="width: 100%; max-height: 400px; background: #000; cursor: pointer;"></video>
             `;
           }
         } else {
@@ -2290,11 +2285,13 @@ export default function App() {
         /* Lightbox CSS */
         .lightbox { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 1000; flex-direction: row; }
         .lightbox.active { display: flex; }
-        .lightbox-main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; padding: 20px; min-width: 0; }
+        .lightbox-main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; padding: 20px; min-width: 0; min-height: 0; }
         .lightbox-sidebar { width: 320px; background: #111; border-left: 1px solid #333; display: flex; flex-direction: column; padding: 24px; overflow-y: auto; flex-shrink: 0; }
         .lightbox-close { position: fixed; top: 20px; right: 20px; color: white; font-size: 30px; cursor: pointer; background: rgba(255,255,255,0.3); border: none; width: 40px; height: 40px; border-radius: 50%; z-index: 10; display: flex; align-items: center; justify-content: center; line-height: 1; }
-        .lightbox-content { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
-        .lightbox-content img, .lightbox-content video, .lightbox-content iframe { max-width: 100%; max-height: 85vh; object-fit: contain; box-shadow: 0 20px 50px rgba(0,0,0,0.5); border-radius: 4px; }
+        .lightbox-content { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; gap: 16px; overflow-y: auto; padding: 4px 8px; box-sizing: border-box; }
+        .lightbox-media-item { width: min(100%, 980px); min-height: min(72vh, 720px); display: flex; align-items: center; justify-content: center; position: relative; }
+        .lightbox-content img, .lightbox-content video, .lightbox-content iframe { max-width: 100%; max-height: 68vh; object-fit: contain; box-shadow: 0 20px 50px rgba(0,0,0,0.5); border-radius: 4px; }
+        .lightbox-content iframe { width: 100%; aspect-ratio: 16 / 9; border: 0; }
         .lightbox-nav { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,0.3); color: white; border: none; padding: 15px; cursor: pointer; font-size: 20px; border-radius: 50%; transition: all 0.3s; z-index: 5; }
         .lightbox-nav:hover { background: rgba(255,255,255,0.4); }
         .lightbox-prev { left: 20px; }
@@ -2316,6 +2313,7 @@ export default function App() {
         .save-order-btn { background: rgba(255,255,255,0.3); color: white; border: none; padding: 12px; border-radius: 8px; cursor: pointer; font-weight: 600; width: 100%; margin-top: 20px; transition: background 0.2s; }
         .save-order-btn:hover { background: rgba(255,255,255,0.4); }
         .card img, .card video, .card iframe { pointer-events: none; }
+        .feed-video-preview { user-select: none; }
         .sidebar-description { font-size: 0.85rem; color: #aaa; line-height: 1.5; margin-bottom: 20px; }
         @media (max-width: 768px) {
           .lightbox { flex-direction: column; }
@@ -2471,9 +2469,19 @@ export default function App() {
         function getYoutubeId(url) {
           if (!url) return null;
           if (url.includes('youtu.be/')) return url.split('youtu.be/')[1].substring(0, 11);
+          if (!url.includes('youtube.com/') && !url.includes('youtube-nocookie.com/')) return null;
           if (url.includes('v=')) return url.split('v=')[1].substring(0, 11);
           if (url.includes('embed/')) return url.split('embed/')[1].substring(0, 11);
           return null;
+        }
+
+        function getYoutubeFeedEmbedUrl(videoId) {
+          const safeVideoId = encodeURIComponent(String(videoId));
+          return 'https://www.youtube.com/embed/' + safeVideoId + '?autoplay=1&mute=1&controls=0&loop=1&playlist=' + safeVideoId + '&playsinline=1&disablekb=1&fs=0&rel=0';
+        }
+
+        function getBunnyFeedEmbedUrl(libraryId, videoId) {
+          return 'https://iframe.mediadelivery.net/embed/' + encodeURIComponent(String(libraryId)) + '/' + encodeURIComponent(String(videoId)) + '?autoplay=true&muted=true&loop=true&playsinline=true&preload=true';
         }
 
         function getMediaPriorityScore(media) {
@@ -2563,38 +2571,38 @@ export default function App() {
             mediaHtml = '<div class="media-stack">' + sortedMedia.map((m) => {
               const yid = m.youtubeId || getYoutubeId(m.url || m.link);
               if (yid) {
-                return '<div class="video-container mb-2"><iframe src="https://www.youtube.com/embed/' + yid + '?mute=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>';
+                return '<div class="video-container mb-2"><iframe class="feed-video-preview" src="' + getYoutubeFeedEmbedUrl(yid) + '" frameborder="0" allow="autoplay; encrypted-media" tabindex="-1" aria-hidden="true"></iframe></div>';
               } else if (m.type === 'bunny' && m.videoId && m.libraryId) {
-                return '<div class="video-container mb-2"><iframe src="https://iframe.mediadelivery.net/embed/' + m.libraryId + '/' + m.videoId + '" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>';
+                return '<div class="video-container mb-2"><iframe class="feed-video-preview" src="' + getBunnyFeedEmbedUrl(m.libraryId, m.videoId) + '" frameborder="0" allow="autoplay; encrypted-media" tabindex="-1" aria-hidden="true"></iframe></div>';
               } else if (m.type === 'video' || (m.image && m.image.endsWith('.mp4')) || ((m.url || m.link) && (m.url || m.link).endsWith('.mp4'))) {
                 const videoUrl = getProxiedUrl(getVideoSrc(m, true) || getVideoSrc(m));
                 if (!videoUrl) return '';
                 const posterUrl = getProxiedUrl(getImageSrc(m));
                 const poster = posterUrl ? ' poster="' + posterUrl + '"' : '';
-                return '<video src="' + videoUrl + '"' + poster + ' class="block mb-2" controls muted playsinline style="width: 100%; max-height: 400px; background: #000; cursor: pointer;"></video>';
+                return '<video src="' + videoUrl + '"' + poster + ' class="feed-video-preview block mb-2" autoplay loop muted playsinline preload="metadata" disablepictureinpicture tabindex="-1" aria-hidden="true" style="width: 100%; max-height: 400px; background: #000; cursor: pointer;"></video>';
               } else {
                 const imageUrl = getProxiedUrl(getImageSrc(m, true) || getImageSrc(m));
                 if (!imageUrl) return '';
-                return '<div class="block mb-2"><img src="' + imageUrl + '" alt="" loading="lazy" onerror="if(this.src.includes(\'maxresdefault.jpg\')) this.src=this.src.replace(\'maxresdefault.jpg\', \'hqdefault.jpg\')" /></div>';
+                return '<div class="block mb-2"><img src="' + imageUrl + '" alt="" loading="lazy" onerror="if(this.src.includes(\\\'maxresdefault.jpg\\\')) this.src=this.src.replace(\\\'maxresdefault.jpg\\\', \\\'hqdefault.jpg\\\')" /></div>';
               }
             }).join('') + '</div>';
           } else {
             const yid = post.youtubeId || getYoutubeId(post.url || post.link);
             if (yid) {
-              mediaHtml = '<div class="video-container"><iframe src="https://www.youtube.com/embed/' + yid + '?mute=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>';
+              mediaHtml = '<div class="video-container"><iframe class="feed-video-preview" src="' + getYoutubeFeedEmbedUrl(yid) + '" frameborder="0" allow="autoplay; encrypted-media" tabindex="-1" aria-hidden="true"></iframe></div>';
             } else if (post.type === 'bunny' && post.videoId && post.libraryId) {
-              mediaHtml = '<div class="video-container"><iframe src="https://iframe.mediadelivery.net/embed/' + post.libraryId + '/' + post.videoId + '" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>';
+              mediaHtml = '<div class="video-container"><iframe class="feed-video-preview" src="' + getBunnyFeedEmbedUrl(post.libraryId, post.videoId) + '" frameborder="0" allow="autoplay; encrypted-media" tabindex="-1" aria-hidden="true"></iframe></div>';
             } else if (post.type === 'video' || (post.image && post.image.endsWith('.mp4')) || ((post.url || post.link) && (post.url || post.link).endsWith('.mp4'))) {
               const videoUrl = getProxiedUrl(getVideoSrc(post, true) || getVideoSrc(post));
               if (videoUrl) {
                 const posterUrl = getProxiedUrl(getImageSrc(post));
                 const poster = posterUrl ? ' poster="' + posterUrl + '"' : '';
-                mediaHtml = '<video src="' + videoUrl + '"' + poster + ' controls muted playsinline style="width: 100%; max-height: 400px; background: #000; cursor: pointer;"></video>';
+                mediaHtml = '<video src="' + videoUrl + '"' + poster + ' class="feed-video-preview" autoplay loop muted playsinline preload="metadata" disablepictureinpicture tabindex="-1" aria-hidden="true" style="width: 100%; max-height: 400px; background: #000; cursor: pointer;"></video>';
               }
             } else {
               const imageUrl = getProxiedUrl(getImageSrc(post, true) || getImageSrc(post));
               if (imageUrl) {
-                mediaHtml = '<div><img src="' + imageUrl + '" alt="' + String(post.title || '').replace(/"/g, '&quot;') + '" loading="lazy" onerror="if(this.src.includes(\'maxresdefault.jpg\')) this.src=this.src.replace(\'maxresdefault.jpg\', \'hqdefault.jpg\')" /></div>';
+                mediaHtml = '<div><img src="' + imageUrl + '" alt="' + String(post.title || '').replace(/"/g, '&quot;') + '" loading="lazy" onerror="if(this.src.includes(\\\'maxresdefault.jpg\\\')) this.src=this.src.replace(\\\'maxresdefault.jpg\\\', \\\'hqdefault.jpg\\\')" /></div>';
               }
             }
           }
@@ -2621,6 +2629,17 @@ export default function App() {
           '</div>';
         }
 
+        function startFeedVideoPreviews(root) {
+          if (!root) return;
+          root.querySelectorAll('video.feed-video-preview').forEach(video => {
+            video.defaultMuted = true;
+            video.muted = true;
+            video.playsInline = true;
+            const playback = video.play();
+            if (playback && typeof playback.catch === 'function') playback.catch(() => {});
+          });
+        }
+
         function renderGallery() {
           const galleryRoot = document.getElementById('gallery-root');
           if (!galleryRoot || !window.portfolioData) return;
@@ -2628,6 +2647,7 @@ export default function App() {
             ? window.portfolioData.posts
             : (window.portfolioData.items || []);
           galleryRoot.innerHTML = sourcePosts.filter(p => !p.hidden).map(renderCard).join('');
+          startFeedVideoPreviews(galleryRoot);
         }
 
         // Filter logic
@@ -2667,8 +2687,12 @@ export default function App() {
         document.querySelectorAll('img, a, video, iframe').forEach(el => {
           const attr = (el.tagName === 'IMG' || el.tagName === 'VIDEO' || el.tagName === 'IFRAME') ? 'src' : 'href';
           let url = el.getAttribute(attr);
-          if (url) el.setAttribute(attr, getProxiedUrl(url));
+          if (url) {
+            const normalizedUrl = getProxiedUrl(url);
+            if (normalizedUrl !== url) el.setAttribute(attr, normalizedUrl);
+          }
         });
+        startFeedVideoPreviews(galleryRoot);
 
         // Lightbox logic
         const lightbox = document.getElementById('lightbox');
@@ -2757,38 +2781,42 @@ export default function App() {
           if (currentPostMedia.length === 0 || !lightboxContent) return;
           
           const m = currentPostMedia[currentMediaIndex];
-          if (lightboxCounter) {
-            lightboxCounter.textContent = \`\${currentMediaIndex + 1} / \${currentPostMedia.length}\`;
-          }
-          
-          if (btnPrev) btnPrev.style.display = currentPostMedia.length > 1 ? 'block' : 'none';
-          if (btnNext) btnNext.style.display = currentPostMedia.length > 1 ? 'block' : 'none';
-          
-          let html = '';
-          const yid = m.youtubeId || getYoutubeId(m.url || m.link);
-          if (yid) {
-            html = \`<iframe width="800" height="450" src="https://www.youtube.com/embed/\${yid}?mute=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>\`;
-          } else if (m.type === 'bunny' && m.videoId && m.libraryId) {
-            html = \`<iframe width="800" height="450" src="https://iframe.mediadelivery.net/embed/\${m.libraryId}/\${m.videoId}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>\`;
-          } else if (m.type === 'video' || (m.image && m.image.endsWith('.mp4')) || ((m.url || m.link) && (m.url || m.link).endsWith('.mp4'))) {
-            const videoUrl = getProxiedUrl(getVideoSrc(m, true) || getVideoSrc(m));
-            if (videoUrl) {
-              const posterUrl = getProxiedUrl(getImageSrc(m));
-              const posterAttr = posterUrl ? ' poster="' + posterUrl + '"' : '';
-              html = \`<video src="\${videoUrl}"\` + posterAttr + \` controls muted playsinline style="max-width: 100%; max-height: 85vh;"></video>\`;
+          if (lightboxCounter) lightboxCounter.textContent = currentPostMedia.length + ' Medien';
+          if (btnPrev) btnPrev.style.display = 'none';
+          if (btnNext) btnNext.style.display = 'none';
+
+          const renderLightboxMedia = (media, index) => {
+            const yid = media.youtubeId || getYoutubeId(media.url || media.link);
+            let html = '';
+            if (yid) {
+              html = '<iframe src="https://www.youtube.com/embed/' + yid + '?autoplay=0&mute=0&playsinline=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen title="YouTube video"></iframe>';
+            } else if (media.type === 'bunny' && media.videoId && media.libraryId) {
+              html = '<iframe src="https://player.mediadelivery.net/embed/' + media.libraryId + '/' + media.videoId + '?autoplay=false&loop=false&muted=false&playsinline=true&preload=true&responsive=true" frameborder="0" allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowfullscreen title="Bunny video"></iframe>';
+            } else if (media.type === 'video' || (media.image && media.image.endsWith('.mp4')) || ((media.url || media.link) && (media.url || media.link).endsWith('.mp4'))) {
+              const videoUrl = getProxiedUrl(getVideoSrc(media, true) || getVideoSrc(media));
+              if (videoUrl) {
+                const posterUrl = getProxiedUrl(getImageSrc(media));
+                const posterAttr = posterUrl ? ' poster="' + posterUrl + '"' : '';
+                html = '<video src="' + videoUrl + '"' + posterAttr + ' controls playsinline preload="metadata"></video>';
+              } else {
+                html = '<div style="color: #aaa; padding: 40px; text-align: center;">Video konnte nicht geladen werden</div>';
+              }
             } else {
-              html = '<div style="color: #aaa; padding: 40px; text-align: center;">Video konnte nicht geladen werden</div>';
+              const largeUrl = getProxiedUrl(getImageSrc(media, true) || getImageSrc(media));
+              html = largeUrl
+                ? '<img src="' + largeUrl + '" alt="" loading="lazy" />'
+                : '<div style="color: #aaa; padding: 40px; text-align: center;">Bild konnte nicht geladen werden</div>';
             }
-          } else {
-            const largeUrl = getProxiedUrl(getImageSrc(m, true) || getImageSrc(m));
-            if (largeUrl) {
-              html = \`<img src="\${largeUrl}" alt="" style="max-width: 100%; max-height: 85vh; object-fit: contain;" />\`;
-            } else {
-              html = '<div style="color: #aaa; padding: 40px; text-align: center;">Bild konnte nicht geladen werden</div>';
-            }
-          }
-          
-          lightboxContent.innerHTML = html;
+            return '<article class="lightbox-media-item" data-media-index="' + index + '">' + html + '</article>';
+          };
+
+          lightboxContent.innerHTML = currentPostMedia.map(renderLightboxMedia).join('');
+          lightboxContent.querySelectorAll('.lightbox-media-item').forEach(item => {
+            item.addEventListener('click', () => {
+              currentMediaIndex = parseInt(item.dataset.mediaIndex || '0', 10);
+              document.querySelectorAll('.reorder-item').forEach((element, index) => element.classList.toggle('active', index === currentMediaIndex));
+            });
+          });
           
           // Update active thumbnail in grid
           document.querySelectorAll('.reorder-item').forEach((item, i) => {
@@ -3463,38 +3491,9 @@ export default function App() {
           throw new Error(`Publish failed: ${response.status} ${errorText}`);
         }
       } catch (fetchError: any) {
-        console.log("Server-side publish failed, falling back to direct R2 upload", fetchError);
+        // Publishing must remain server-side so state validation cannot be bypassed.
+        throw fetchError;
       }
-      
-      // Fallback: Direct R2 upload (requires CORS configured on bucket)
-      const s3Client = getS3Client();
-      
-      setUploadProgress(40);
-      
-      // 1. Upload index.html
-      await s3Client.send(new PutObjectCommand({
-        Bucket: R2_CONFIG.bucketName,
-        Key: 'index.html',
-        Body: htmlContent,
-        ContentType: 'text/html',
-      }));
-      
-      setUploadProgress(70);
-
-      // 2. Upload state.json
-      await s3Client.send(new PutObjectCommand({
-        Bucket: R2_CONFIG.bucketName,
-        Key: 'state.json',
-        Body: stateData,
-        ContentType: 'application/json',
-      }));
-      
-      setUploadProgress(100);
-      setUploadSuccess({ url: `${R2_CONFIG.publicDomain}/index.html` });
-      setHasUnpublishedChanges(false);
-      setLocalLastUpdated(parsedData.lastUpdated);
-      setTimeout(() => setUploadProgress(null), 2000);
-      setUploading(false);
     } catch (err: any) {
       console.error("Publish error:", err);
       setError(err.message || 'Upload fehlgeschlagen. Prüfen Sie die Cloudflare CORS-Einstellungen.');
