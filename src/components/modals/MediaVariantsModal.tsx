@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle, Image as ImageIcon, Loader2, RefreshCw, UploadCloud, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Clipboard, Image as ImageIcon, Loader2, RefreshCw, UploadCloud, X } from 'lucide-react';
 
 interface MediaVariantIssue {
   itemId: string;
@@ -66,6 +66,8 @@ export function MediaVariantsModal({ isOpen, onClose, onStateUpdated }: MediaVar
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishResult, setPublishResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
   const visibleAudit = (result?.publishedAudit || result?.auditAfter || audit) as MediaVariantAudit | null;
@@ -100,13 +102,16 @@ export function MediaVariantsModal({ isOpen, onClose, onStateUpdated }: MediaVar
 
   const generate = async () => {
     if (!visibleAudit || visibleAudit.issueCount === 0) return;
-    const confirmed = window.confirm('Generate missing thumbnails, upload them to R2, and publish the updated state.json?');
-    if (!confirmed) return;
 
     setGenerating(true);
     setError(null);
+    setPublishResult(null);
     try {
-      const response = await fetch('/api/media-variants/generate', { method: 'POST' });
+      const response = await fetch('/api/media-variants/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dryRun: false }),
+      });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Media variant generation failed');
       setResult(data);
@@ -116,6 +121,34 @@ export function MediaVariantsModal({ isOpen, onClose, onStateUpdated }: MediaVar
     } finally {
       setGenerating(false);
     }
+  };
+
+  const publishToR2 = async () => {
+    const confirmed = window.confirm(
+      'Upload all generated files to Cloudflare R2 and publish state.json?\n\n' +
+      'This will overwrite the live state.json on R2.'
+    );
+    if (!confirmed) return;
+
+    setPublishing(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/media-variants/publish', { method: 'POST' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Publish failed');
+      setPublishResult(data);
+      await onStateUpdated();
+    } catch (err: any) {
+      setError(err.message || 'Publish failed');
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const copyFileList = () => {
+    const files = result?.generatedFiles || [];
+    if (files.length === 0) return;
+    navigator.clipboard.writeText(files.join('\n')).catch(() => {});
   };
 
   const verifyPublished = async () => {
@@ -143,7 +176,9 @@ export function MediaVariantsModal({ isOpen, onClose, onStateUpdated }: MediaVar
 
   if (!isOpen) return null;
 
-  const busy = loading || generating;
+  const busy = loading || generating || publishing;
+
+  const generatedFiles: string[] = result?.generatedFiles || [];
 
   return (
     <div
@@ -204,9 +239,18 @@ export function MediaVariantsModal({ isOpen, onClose, onStateUpdated }: MediaVar
 
         {result && (
           <div className={`mb-4 rounded-lg border px-3 py-2 text-sm ${result.success ? 'border-green-400/25 bg-green-500/10 text-green-100' : 'border-amber-400/25 bg-amber-500/10 text-amber-100'}`}>
-            Generated {result.generated?.length || 0} media entries.
+            Generated {result.generated?.length || 0} media entries ({generatedFiles.length} files).
             {result.failed?.length ? ` ${result.failed.length} failed.` : ''}
-            {result.publishedAudit?.ok ? ' Published JSON verified.' : ' Published verification still has issues.'}
+            {!result.dryRun && result.candidatePath && (
+              <div className="mt-1 text-[11px] text-white/40 truncate">Candidate: {result.candidatePath}</div>
+            )}
+          </div>
+        )}
+
+        {publishResult && (
+          <div className={`mb-4 rounded-lg border px-3 py-2 text-sm ${publishResult.success ? 'border-green-400/25 bg-green-500/10 text-green-100' : 'border-amber-400/25 bg-amber-500/10 text-amber-100'}`}>
+            Published {publishResult.uploaded?.length || 0}/{publishResult.totalFiles || 0} files to R2.
+            {publishResult.uploadErrors?.length ? ` ${publishResult.uploadErrors.length} errors.` : ' State.json published.'}
           </div>
         )}
 
@@ -214,7 +258,7 @@ export function MediaVariantsModal({ isOpen, onClose, onStateUpdated }: MediaVar
           {busy && (
             <div className="h-64 flex flex-col items-center justify-center text-white/50 gap-3">
               <Loader2 className="w-8 h-8 animate-spin" />
-              <span>{generating ? 'Generating and publishing variants...' : 'Scanning media variants...'}</span>
+              <span>{publishing ? 'Uploading files to R2...' : generating ? 'Generating local variants...' : 'Scanning media variants...'}</span>
             </div>
           )}
 
@@ -262,6 +306,31 @@ export function MediaVariantsModal({ isOpen, onClose, onStateUpdated }: MediaVar
               ))}
             </div>
           )}
+
+          {!busy && generatedFiles.length > 0 && (
+            <div className="p-3">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xs font-medium text-white/60 uppercase tracking-wider">
+                  Generated Files ({generatedFiles.length})
+                </h3>
+                <button
+                  onClick={copyFileList}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] text-white/50 hover:text-white/80 hover:bg-white/10 transition-colors"
+                  title="Copy file list to clipboard"
+                >
+                  <Clipboard className="w-3 h-3" />
+                  Copy
+                </button>
+              </div>
+              <div className="max-h-40 overflow-y-auto custom-scrollbar bg-black/25 rounded-lg border border-white/5">
+                {generatedFiles.map((file: string, i: number) => (
+                  <div key={i} className="px-2 py-1 text-[11px] font-mono text-white/40 border-b border-white/5 last:border-0 truncate hover:text-white/60">
+                    {file}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2 justify-end">
@@ -286,8 +355,16 @@ export function MediaVariantsModal({ isOpen, onClose, onStateUpdated }: MediaVar
             disabled={busy || !visibleAudit || visibleAudit.issueCount === 0 || generatableCount === 0}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-blue-300/30 bg-blue-500/30 hover:bg-blue-500/40 text-white text-sm font-medium transition-colors disabled:opacity-40"
           >
-            {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
-            Generate Missing
+            {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageIcon className="w-4 h-4" />}
+            {generating ? 'Generating...' : 'Generate Local'}
+          </button>
+          <button
+            onClick={publishToR2}
+            disabled={busy || !result || generatedFiles.length === 0 || publishResult?.success}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-green-300/30 bg-green-500/30 hover:bg-green-500/40 text-white text-sm font-medium transition-colors disabled:opacity-40"
+          >
+            {publishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
+            {publishing ? 'Publishing...' : publishResult?.success ? 'Published ✓' : 'Publish to R2'}
           </button>
         </div>
       </div>

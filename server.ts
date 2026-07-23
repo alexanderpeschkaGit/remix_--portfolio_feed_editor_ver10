@@ -2437,6 +2437,31 @@ async function startServer() {
       }
     }
 
+    // Try to find a sibling .jpg with the same base name as the video file
+    // (e.g. data/instagram/vijay_sikanda/2016-11-19_01-49-06_UTC.mp4 → …_UTC.jpg)
+    for (const field of VIDEO_SOURCE_FIELDS) {
+      const value = media?.[field];
+      if (!value || !isVideoUrlLike(String(value))) continue;
+      try {
+        const localPath = await localPathFromMediaUrl(String(value));
+        if (localPath) {
+          const dir = path.dirname(localPath);
+          const baseName = path.basename(localPath, path.extname(localPath));
+          for (const ext of ['.jpg', '.jpeg', '.png', '.webp']) {
+            const thumbPath = path.join(dir, baseName + ext);
+            try {
+              const stats = await fs.stat(thumbPath);
+              if (stats.isFile() && stats.size > 0) {
+                const buffer = await fs.readFile(thumbPath);
+                logMediaVariantStatus(`Found sibling thumbnail: ${thumbPath}`);
+                return { buffer, ext: normalizeExt(ext.slice(1)) || 'jpg' };
+              }
+            } catch {}
+          }
+        }
+      } catch {}
+    }
+
     const bunnyThumb = await resolveBunnyThumbnail(media);
     if (bunnyThumb?.buffer?.length) return bunnyThumb;
 
@@ -2560,6 +2585,8 @@ async function startServer() {
       missingVariants: variantSet.missingVariants,
       sourceField: (source as any).sourceField || (videoLike ? 'video-thumbnail' : 'unknown'),
       sourceUrl: (source as any).sourceUrl || '',
+      localPaths: variantSet.localPaths,
+      localUrls: variantSet.localUrls,
       dryRun: options.dryRun === true,
     };
   };
@@ -2681,6 +2708,14 @@ async function startServer() {
       }
 
       const candidatePath = path.join(BACKUPS_DIR, 'migrations', 'media-variants-candidate.json');
+      const allLocalPaths: string[] = [];
+      for (const g of generated) {
+        if (g.localPaths) {
+          for (const p of Object.values(g.localPaths as Record<string, string>)) {
+            allLocalPaths.push(p);
+          }
+        }
+      }
       let validationAfter: any = null;
       if (dryRun) {
         logMediaVariantStatus('Dry-run complete. No files, local state, or R2 objects were changed.');
@@ -2688,7 +2723,7 @@ async function startServer() {
         validationAfter = await validateMediaState(state, { rootDir: process.cwd(), allowNetwork: false, reportMissingOptionalVariants: true });
         await fs.mkdir(path.dirname(candidatePath), { recursive: true });
         await fs.writeFile(candidatePath, JSON.stringify(state, null, 2), 'utf-8');
-        logMediaVariantStatus(`Generated local assets and wrote candidate state to ${candidatePath}. Nothing was published.`);
+        logMediaVariantStatus(`Generated ${allLocalPaths.length} local files and wrote candidate state to ${candidatePath}. Nothing was published yet.`);
       }
 
       const result = {
@@ -2697,9 +2732,10 @@ async function startServer() {
         published: false,
         generated,
         failed,
+        generatedFiles: allLocalPaths,
+        candidatePath: dryRun ? null : candidatePath,
         auditBefore,
         validationAfter,
-        candidatePath: dryRun ? null : candidatePath,
       };
 
       mediaVariantsStatus.result = result;
@@ -2718,6 +2754,111 @@ async function startServer() {
 
   app.get("/api/media-variants/status", (req, res) => {
     res.json(mediaVariantsStatus);
+  });
+
+  app.post("/api/media-variants/publish", async (req, res) => {
+    if (mediaVariantsStatus.running) return res.status(409).json({ error: 'Media variant task already running', status: mediaVariantsStatus });
+
+    resetMediaVariantsStatus('publish');
+    mediaVariantsStatus.running = true;
+    logMediaVariantStatus('Starting R2 publish for generated media variants...');
+
+    try {
+      const candidatePath = path.join(BACKUPS_DIR, 'migrations', 'media-variants-candidate.json');
+      let state: any;
+      try {
+        state = JSON.parse(await fs.readFile(candidatePath, 'utf-8'));
+      } catch {
+        throw new Error('No candidate state found. Run Generate first.');
+      }
+
+      // Collect all local files referenced in the candidate state
+      const filesToUpload: Array<{ localPath: string; r2Key: string; contentType: string }> = [];
+      const seen = new Set<string>();
+
+      const collectFromMedia = (media: any) => {
+        for (const field of [...IMAGE_VARIANT_FIELDS, 'image_original']) {
+          const url = media?.[field];
+          if (!url || typeof url !== 'string') continue;
+          // Only process local data_v2 URLs (not R2 URLs, not external)
+          if (url.includes('r2.dev') || url.includes('cloudflare') || url.startsWith('http')) continue;
+          const localPath = path.join(process.cwd(), url.replace(/^\//, ''));
+          if (seen.has(localPath)) continue;
+          seen.add(localPath);
+
+          // Determine group and R2 key from the local URL path
+          // URL format: /data_v2/{group}/{variantDir}/{filename}
+          const urlParts = url.replace(/^\/+/, '').split('/');
+          // urlParts: ['data_v2', 'instagram', 'thumbs400', 'file.jpg']
+          if (urlParts.length < 4 || urlParts[0] !== 'data_v2') continue;
+          const group = urlParts[1];
+          if (!(group in V2_MEDIA_GROUPS)) continue;
+          const dirName = urlParts[2];
+          const filename = urlParts.slice(3).join('/');
+          const r2Key = getVariantR2Key(group as keyof typeof V2_MEDIA_GROUPS, dirName, filename);
+          filesToUpload.push({ localPath, r2Key, contentType: getContentTypeForPath(localPath) });
+        }
+      };
+
+      for (const item of state.items || []) {
+        if (Array.isArray(item.mergedMedia)) {
+          for (const media of item.mergedMedia) {
+            collectFromMedia(media);
+          }
+        }
+        collectFromMedia(item);
+      }
+
+      logMediaVariantStatus(`Found ${filesToUpload.length} files to upload to R2`);
+
+      const uploaded: string[] = [];
+      const uploadErrors: string[] = [];
+
+      for (let i = 0; i < filesToUpload.length; i++) {
+        const file = filesToUpload[i];
+        mediaVariantsStatus.progress = i + 1;
+        mediaVariantsStatus.total = filesToUpload.length;
+        try {
+          const buffer = await fs.readFile(file.localPath);
+          const r2Url = await uploadToR2(buffer, file.r2Key, file.contentType);
+          uploaded.push(file.r2Key);
+          logMediaVariantStatus(`Uploaded ${i + 1}/${filesToUpload.length}: ${file.r2Key}`);
+        } catch (err: any) {
+          uploadErrors.push(`${file.r2Key}: ${err.message}`);
+          logMediaVariantStatus(`Upload failed: ${file.r2Key}: ${err.message}`);
+        }
+      }
+
+      // Publish state.json to R2
+      if (uploadErrors.length === 0 || uploaded.length > 0) {
+        logMediaVariantStatus('Publishing state.json to R2...');
+        await publishStateJsonToR2(state);
+
+        // Also update local state.json
+        await backupState();
+        await fs.writeFile(path.join(DATA_DIR, 'state.json'), JSON.stringify(state, null, 2), 'utf-8');
+        logMediaVariantStatus('Local state.json updated.');
+      }
+
+      const publishResult = {
+        success: uploadErrors.length === 0,
+        uploaded,
+        uploadErrors,
+        totalFiles: filesToUpload.length,
+      };
+
+      mediaVariantsStatus.result = { ...mediaVariantsStatus.result, publishResult };
+      mediaVariantsStatus.running = false;
+      mediaVariantsStatus.done = true;
+      mediaVariantsStatus.phase = 'done';
+      logMediaVariantStatus(`Publish complete: ${uploaded.length} uploaded, ${uploadErrors.length} errors.`);
+      res.json(publishResult);
+    } catch (error: any) {
+      mediaVariantsStatus.running = false;
+      mediaVariantsStatus.error = error.message || String(error);
+      logMediaVariantStatus(`Publish failed: ${mediaVariantsStatus.error}`);
+      res.status(500).json({ error: mediaVariantsStatus.error, status: mediaVariantsStatus });
+    }
   });
 
   app.post("/api/media-variants/verify-published", async (req, res) => {
