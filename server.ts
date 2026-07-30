@@ -201,12 +201,24 @@ async function startServer() {
     }
   }
 
+  function localTimestamp(): string {
+    const now = new Date();
+    const y = now.getFullYear();
+    const M = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    const h = String(now.getHours()).padStart(2, '0');
+    const m = String(now.getMinutes()).padStart(2, '0');
+    const s = String(now.getSeconds()).padStart(2, '0');
+    const ms = String(now.getMilliseconds()).padStart(3, '0');
+    return `${y}-${M}-${d}T${h}-${m}-${s}-${ms}`;
+  }
+
   async function backupState() {
     try {
       const statePath = path.join(DATA_DIR, 'state.json');
       const stats = await fs.stat(statePath).catch(() => null);
       if (stats) {
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const timestamp = localTimestamp();
         const backupPath = path.join(DATA_BACKUPS_DIR, `state_${timestamp}.json`);
         await fs.copyFile(statePath, backupPath);
         
@@ -1226,7 +1238,7 @@ async function startServer() {
       .slice(0, 80) || 'file';
 
   const buildTrashKey = (originalKey: string) => {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const timestamp = localTimestamp();
     const hash = createHash('sha1').update(originalKey).digest('hex').slice(0, 12);
     const baseName = normalizeTrashName(path.basename(originalKey) || 'file');
     return `${TRASH_PREFIX}${timestamp}/${hash}-${baseName}`;
@@ -4045,7 +4057,7 @@ async function startServer() {
       });
 
       // 1. Save local backup of HTML with full state injected
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const timestamp = localTimestamp();
       const backupFilename = `portfolio_${timestamp}.html`;
       const htmlWithFullState = htmlContent.includes('</body>') 
         ? htmlContent.replace('</body>', `<script id="editor-state-backup" type="application/json">\n${finalStateData}\n</script>\n</body>`)

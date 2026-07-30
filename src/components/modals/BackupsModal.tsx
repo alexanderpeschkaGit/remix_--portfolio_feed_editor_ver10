@@ -17,8 +17,8 @@ interface BackupsModalProps {
 }
 
 const formatBackupDate = (filename: string): string => {
-  // Handle portfolio_2026-04-27T15-10-19-292Z.html
-  // Or data/state_2026-04-27T15-10-19-292Z.json
+  // Handle portfolio_2026-07-30T18-22-05-735.html  (local time, no Z)
+  // Or data/state_2026-07-30T18-22-05-735.json
   const dateMatch = filename.match(/(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})/);
   let displayDate = filename.split('/').pop() || filename;
   
