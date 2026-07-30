@@ -1,6 +1,2 @@
-node_modules/
-dist/
-build/
+# Trae-spezifische Ergänzungen (alles andere wird via .gitignore gelesen)
 .git/
-*.log
-data/
