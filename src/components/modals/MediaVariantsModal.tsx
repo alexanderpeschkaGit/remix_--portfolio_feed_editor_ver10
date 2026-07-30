@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle, Clipboard, Image as ImageIcon, Loader2, RefreshCw, UploadCloud, X } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, CheckCircle, Clipboard, HelpCircle, Image as ImageIcon, Loader2, RefreshCw, UploadCloud, X, Zap } from 'lucide-react';
 
 interface MediaVariantIssue {
   itemId: string;
@@ -65,10 +65,15 @@ export function MediaVariantsModal({ isOpen, onClose, onStateUpdated }: MediaVar
   const [audit, setAudit] = useState<MediaVariantAudit | null>(null);
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [scanProgress, setScanProgress] = useState<{ progress: number; total: number } | null>(null);
+  const scanPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [generatingAndPublishing, setGeneratingAndPublishing] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
+  const [helpText, setHelpText] = useState<string | null>(null);
 
   const visibleAudit = (result?.publishedAudit || result?.auditAfter || audit) as MediaVariantAudit | null;
   const issues = visibleAudit?.issues || [];
@@ -85,20 +90,65 @@ export function MediaVariantsModal({ isOpen, onClose, onStateUpdated }: MediaVar
   }, [visibleAudit]);
 
   const scan = async () => {
+    // Clear any previous poll
+    if (scanPollRef.current) { clearInterval(scanPollRef.current); scanPollRef.current = null; }
     setLoading(true);
+    setScanProgress({ progress: 0, total: 0 });
     setError(null);
     setResult(null);
+    setAudit(null);
     try {
-      const response = await fetch('/api/media-variants/audit', { method: 'POST' });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'Media variant scan failed');
-      setAudit(data.audit);
+      // Start the audit (server responds immediately, works in background)
+      const startRes = await fetch('/api/media-variants/audit', { method: 'POST' });
+      if (!startRes.ok) throw new Error('Failed to start audit');
+      // Poll for progress every 1000ms
+      scanPollRef.current = setInterval(async () => {
+        try {
+          const statusRes = await fetch('/api/media-variants/status');
+          const status = await statusRes.json();
+          setScanProgress({ progress: status.progress || 0, total: status.total || 0 });
+          if (status.cancelled) {
+            if (scanPollRef.current) { clearInterval(scanPollRef.current); scanPollRef.current = null; }
+            setLoading(false);
+            setScanProgress(null);
+            setError('Scan cancelled.');
+            return;
+          }
+          if (!status.running || status.done) {
+            if (scanPollRef.current) { clearInterval(scanPollRef.current); scanPollRef.current = null; }
+            setLoading(false);
+            setScanProgress(null);
+            if (status.audit) {
+              setAudit(status.audit);
+            } else if (status.error) {
+              setError(status.error);
+            }
+          }
+        } catch {
+          // ignore polling errors
+        }
+      }, 1000);
     } catch (err: any) {
       setError(err.message || 'Media variant scan failed');
-    } finally {
       setLoading(false);
+      setScanProgress(null);
     }
   };
+
+  const cancelScan = async () => {
+    try {
+      await fetch('/api/media-variants/audit/cancel', { method: 'POST' });
+    } catch {
+      // ignore network errors on cancel
+    }
+  };
+
+  // Cleanup poll on unmount
+  useEffect(() => {
+    return () => {
+      if (scanPollRef.current) clearInterval(scanPollRef.current);
+    };
+  }, []);
 
   const generate = async () => {
     if (!visibleAudit || visibleAudit.issueCount === 0) return;
@@ -145,6 +195,42 @@ export function MediaVariantsModal({ isOpen, onClose, onStateUpdated }: MediaVar
     }
   };
 
+  const generateAndPublish = async () => {
+    const confirmed = window.confirm(
+      'Generate missing media variants, upload them to Cloudflare R2, and publish state.json — all in one step?\n\n' +
+      'This will overwrite the live state.json on R2.'
+    );
+    if (!confirmed) return;
+
+    setGeneratingAndPublishing(true);
+    setError(null);
+    setPublishResult(null);
+    try {
+      const response = await fetch('/api/media-variants/generate-and-publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Generate-and-publish failed');
+      setResult(data);
+      // Show one-step result in the publish banner: total generated files count
+      const fileCount = data.generatedFiles?.length || 0;
+      const failCount = data.failed?.length || 0;
+      setPublishResult({
+        success: data.success,
+        uploaded: fileCount,
+        totalFiles: fileCount,
+        uploadErrors: failCount > 0 ? [`${failCount} generation failures`] : [],
+      });
+      await onStateUpdated();
+    } catch (err: any) {
+      setError(err.message || 'Generate-and-publish failed');
+    } finally {
+      setGeneratingAndPublishing(false);
+    }
+  };
+
   const copyFileList = () => {
     const files = result?.generatedFiles || [];
     if (files.length === 0) return;
@@ -167,23 +253,38 @@ export function MediaVariantsModal({ isOpen, onClose, onStateUpdated }: MediaVar
     }
   };
 
-  useEffect(() => {
-    if (!isOpen) return;
-    if (!audit && !loading && !generating) {
-      scan();
+  const openHelp = async () => {
+    if (helpText) {
+      setShowHelp(true);
+      return;
     }
-  }, [isOpen]);
+    try {
+      const res = await fetch('/data/media_variants_help.txt');
+      if (res.ok) {
+        const text = await res.text();
+        setHelpText(text);
+        setShowHelp(true);
+      } else {
+        setError('Help file not found.');
+      }
+    } catch {
+      setError('Could not load help file.');
+    }
+  };
+
+  // Auto-scan removed — user must click "Scan Local" explicitly
 
   if (!isOpen) return null;
 
-  const busy = loading || generating || publishing;
+  const busy = loading || generating || generatingAndPublishing || publishing;
+  const isScanning = loading && scanProgress !== null;
 
   const generatedFiles: string[] = result?.generatedFiles || [];
 
   return (
     <div
       className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm"
-      onClick={() => !busy && onClose()}
+      onClick={() => (!busy || isScanning) ? undefined : onClose()}
     >
       <div
         className="bg-[#111] p-6 rounded-xl border border-white/10 w-full max-w-5xl max-h-[90vh] flex flex-col"
@@ -207,13 +308,23 @@ export function MediaVariantsModal({ isOpen, onClose, onStateUpdated }: MediaVar
                 : 'Scanning media references'}
             </p>
           </div>
-          <button
-            className="text-white hover:text-white/90 transition-colors p-1 disabled:opacity-30"
-            onClick={onClose}
-            disabled={busy}
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              className="text-white/50 hover:text-white/80 transition-colors p-1 disabled:opacity-30"
+              onClick={openHelp}
+              disabled={busy}
+              title="Help / How to use"
+            >
+              <HelpCircle className="w-5 h-5" />
+            </button>
+            <button
+              className="text-white hover:text-white/90 transition-colors p-1 disabled:opacity-30"
+              onClick={onClose}
+              disabled={busy}
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -239,8 +350,9 @@ export function MediaVariantsModal({ isOpen, onClose, onStateUpdated }: MediaVar
 
         {result && (
           <div className={`mb-4 rounded-lg border px-3 py-2 text-sm ${result.success ? 'border-green-400/25 bg-green-500/10 text-green-100' : 'border-amber-400/25 bg-amber-500/10 text-amber-100'}`}>
-            Generated {result.generated?.length || 0} media entries ({generatedFiles.length} files).
+            {result.published ? 'Generated & published' : 'Generated'} {result.generated?.length || 0} media entries ({generatedFiles.length} files).
             {result.failed?.length ? ` ${result.failed.length} failed.` : ''}
+            {result.published && ' State.json published to R2.'}
             {!result.dryRun && result.candidatePath && (
               <div className="mt-1 text-[11px] text-white/40 truncate">Candidate: {result.candidatePath}</div>
             )}
@@ -255,28 +367,48 @@ export function MediaVariantsModal({ isOpen, onClose, onStateUpdated }: MediaVar
         )}
 
         <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar border border-white/5 rounded-lg bg-black/35">
-          {busy && (
+          {busy && !isScanning && (
             <div className="h-64 flex flex-col items-center justify-center text-white/50 gap-3">
               <Loader2 className="w-8 h-8 animate-spin" />
-              <span>{publishing ? 'Uploading files to R2...' : generating ? 'Generating local variants...' : 'Scanning media variants...'}</span>
+              <span>{publishing ? 'Uploading files to R2...' : generatingAndPublishing ? 'Generating & publishing...' : generating ? 'Generating local variants...' : 'Scanning media variants...'}</span>
             </div>
           )}
 
-          {!busy && visibleAudit?.ok && (
+          {isScanning && (
+            <div className="p-6 flex flex-col items-center justify-center gap-4">
+              <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
+              <span className="text-white/60 text-sm">Scanning... {scanProgress.total > 0 ? `${scanProgress.progress}/${scanProgress.total} entries` : ''}</span>
+              <div className="w-full max-w-md h-2 bg-white/10 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-blue-500 transition-all duration-300 rounded-full"
+                  style={{ width: `${scanProgress.total > 0 ? Math.round((scanProgress.progress / scanProgress.total) * 100) : 0}%` }}
+                />
+              </div>
+              <button
+                onClick={cancelScan}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-red-400/30 bg-red-500/20 hover:bg-red-500/30 text-red-200 text-sm transition-colors"
+              >
+                <X className="w-4 h-4" />
+                Cancel Scan
+              </button>
+            </div>
+          )}
+
+          {!busy && !isScanning && visibleAudit?.ok && (
             <div className="h-64 flex flex-col items-center justify-center text-green-300 gap-3">
               <CheckCircle className="w-10 h-10" />
               <span>All media variant references are verified.</span>
             </div>
           )}
 
-          {!busy && !visibleAudit && (
+          {!busy && !isScanning && !visibleAudit && (
             <div className="h-64 flex flex-col items-center justify-center text-white/50 gap-3">
               <ImageIcon className="w-10 h-10" />
-              <span>No scan result yet.</span>
+              <span>Press "Scan Local" to check for missing variants.</span>
             </div>
           )}
 
-          {!busy && issues.length > 0 && (
+          {!busy && !isScanning && issues.length > 0 && (
             <div className="divide-y divide-white/5">
               {issues.map((issue, index) => (
                 <div key={`${issue.itemId}-${issue.mediaIndex}-${issue.field}-${issue.reason}-${index}`} className={`p-3 border-l-2 ${issueClass(issue)}`}>
@@ -290,7 +422,7 @@ export function MediaVariantsModal({ isOpen, onClose, onStateUpdated }: MediaVar
                         {issue.mediaIndex >= 0 ? `Media #${issue.mediaIndex + 1}` : 'Top level'} · {issue.mediaType || 'media'} · {issue.field}
                       </div>
                       {(issue.r2Key || issue.url || issue.error) && (
-                        <div className="mt-1 font-mono text-[11px] text-white/35 break-all">
+                        <div className="mt-1 font-mono text-[11px] text-white/35 break-all truncate max-w-[320px]" title={issue.r2Key || issue.url || issue.error}>
                           {issue.r2Key || issue.url || issue.error}
                         </div>
                       )}
@@ -307,7 +439,7 @@ export function MediaVariantsModal({ isOpen, onClose, onStateUpdated }: MediaVar
             </div>
           )}
 
-          {!busy && generatedFiles.length > 0 && (
+          {!busy && !isScanning && generatedFiles.length > 0 && (
             <div className="p-3">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-xs font-medium text-white/60 uppercase tracking-wider">
@@ -334,40 +466,109 @@ export function MediaVariantsModal({ isOpen, onClose, onStateUpdated }: MediaVar
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2 justify-end">
-          <button
-            onClick={scan}
-            disabled={busy}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-white/20 bg-white/10 hover:bg-white/20 text-white text-sm transition-colors disabled:opacity-40"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Scan
-          </button>
-          <button
-            onClick={verifyPublished}
-            disabled={busy}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-white/20 bg-white/10 hover:bg-white/20 text-white text-sm transition-colors disabled:opacity-40"
-          >
-            <CheckCircle className="w-4 h-4" />
-            Verify Published
-          </button>
-          <button
-            onClick={generate}
-            disabled={busy || !visibleAudit || visibleAudit.issueCount === 0 || generatableCount === 0}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-blue-300/30 bg-blue-500/30 hover:bg-blue-500/40 text-white text-sm font-medium transition-colors disabled:opacity-40"
-          >
-            {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageIcon className="w-4 h-4" />}
-            {generating ? 'Generating...' : 'Generate Local'}
-          </button>
-          <button
-            onClick={publishToR2}
-            disabled={busy || !result || generatedFiles.length === 0 || publishResult?.success}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-green-300/30 bg-green-500/30 hover:bg-green-500/40 text-white text-sm font-medium transition-colors disabled:opacity-40"
-          >
-            {publishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
-            {publishing ? 'Publishing...' : publishResult?.success ? 'Published ✓' : 'Publish to R2'}
-          </button>
+          <div className="relative group">
+            <button
+              onClick={scan}
+              disabled={busy}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-white/20 bg-white/10 hover:bg-white/20 text-white text-sm transition-colors disabled:opacity-40"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              Scan Local
+            </button>
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-white text-black text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-[60] shadow-xl max-w-[440px] text-center leading-relaxed whitespace-normal">
+              Checks your local editor state for missing or broken variant references. Does NOT touch R2 or the live site.
+            </div>
+          </div>
+          <div className="relative group">
+            <button
+              onClick={verifyPublished}
+              disabled={busy}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-white/20 bg-white/10 hover:bg-white/20 text-white text-sm transition-colors disabled:opacity-40"
+            >
+              <CheckCircle className="w-4 h-4" />
+              Verify Live
+            </button>
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-white text-black text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-[60] shadow-xl max-w-[440px] text-center leading-relaxed whitespace-normal">
+              Downloads live state.json from Cloudflare R2 and checks all published variant references.
+            </div>
+          </div>
+          <div className="relative group">
+            <button
+              onClick={generate}
+              disabled={busy || !visibleAudit || visibleAudit.issueCount === 0 || generatableCount === 0}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-blue-300/30 bg-blue-500/30 hover:bg-blue-500/40 text-white text-sm font-medium transition-colors disabled:opacity-40"
+            >
+              {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageIcon className="w-4 h-4" />}
+              {generating ? 'Generating...' : 'Generate'}
+            </button>
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-white text-black text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-[60] shadow-xl max-w-[440px] text-center leading-relaxed whitespace-normal">
+              Creates missing variant files on your local machine only. Nothing is uploaded. Use Publish afterwards.
+            </div>
+          </div>
+          <div className="relative group">
+            <button
+              onClick={generateAndPublish}
+              disabled={busy || !visibleAudit || visibleAudit.issueCount === 0 || generatableCount === 0}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-purple-300/30 bg-purple-500/30 hover:bg-purple-500/40 text-white text-sm font-medium transition-colors disabled:opacity-40"
+            >
+              {generatingAndPublishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+              {generatingAndPublishing ? 'Generating...' : 'Gen + Publish'}
+            </button>
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-white text-black text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-[60] shadow-xl max-w-[440px] text-center leading-relaxed whitespace-normal">
+              Generates missing variants, uploads to R2, and publishes state.json — all in one click.
+            </div>
+          </div>
+          <div className="relative group">
+            <button
+              onClick={publishToR2}
+              disabled={busy || !result || generatedFiles.length === 0 || publishResult?.success}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-green-300/30 bg-green-500/30 hover:bg-green-500/40 text-white text-sm font-medium transition-colors disabled:opacity-40"
+            >
+              {publishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
+              {publishing ? 'Publishing...' : publishResult?.success ? 'Published ✓' : 'Publish'}
+            </button>
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-white text-black text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-[60] shadow-xl max-w-[440px] text-center leading-relaxed whitespace-normal">
+              Uploads previously generated files to R2 and publishes state.json. Only available after Generate.
+            </div>
+          </div>
         </div>
       </div>
+
+      {/* Help Overlay */}
+      {showHelp && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4 backdrop-blur-sm"
+          onClick={() => setShowHelp(false)}
+        >
+          <div
+            className="bg-[#111] p-6 rounded-xl border border-white/10 w-full max-w-2xl max-h-[85vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-medium text-white">Media Variants — Help</h2>
+              <button
+                className="text-white hover:text-white/90 transition-colors p-1"
+                onClick={() => setShowHelp(false)}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
+              <pre className="text-sm text-white/70 whitespace-pre-wrap font-sans leading-relaxed">
+                {helpText || 'Loading...'}
+              </pre>
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                onClick={() => setShowHelp(false)}
+                className="px-4 py-2 rounded-lg border border-white/20 bg-white/10 hover:bg-white/20 text-white text-sm transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

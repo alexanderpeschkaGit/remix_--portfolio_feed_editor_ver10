@@ -82,7 +82,7 @@ const AdminButton = ({ onClick, disabled, id, children, className = "", tooltip,
     >
       {children}
       {tooltip && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none whitespace-nowrap z-[60] shadow-xl">
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-white text-black text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-[60] shadow-xl max-w-[280px] text-center leading-relaxed whitespace-normal">
           {tooltip}
         </div>
       )}
@@ -266,10 +266,10 @@ export function AdminHeader({
         <AdminButton
           onClick={handleOpenMediaVariants}
           disabled={fullR2SyncStatus.running}
-          tooltip="Thumbnail- und Video-Poster-Varianten prüfen und fehlende Dateien erzeugen"
+          tooltip="Generate & verify image thumbnails (400px–3K) and video posters — check local state, verify live R2 integrity, create missing variants, and publish."
         >
           <ImageIcon className="w-3 h-3 sm:w-4 sm:h-4" />
-          <span className="text-center">Thumbs</span>
+          <span className="text-center">Media Variants</span>
         </AdminButton>
 
         <AdminButton 
@@ -287,27 +287,33 @@ export function AdminHeader({
             onClick={handleR2Cleanup}
             disabled={r2CleanupRunning}
             className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[9px] font-medium border border-[#6a6a6a] bg-[#4d4d4d] text-white transition-all hover:bg-[#5e5e5e] active:scale-95 disabled:opacity-30 relative group"
-            title="Move orphaned R2 files to trash"
           >
             <Trash2 className={`w-3 h-3 ${r2CleanupRunning ? 'animate-pulse text-white' : 'text-white'}`} />
             <span>R2</span>
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-white text-black text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-[60] shadow-xl max-w-[280px] text-center leading-relaxed whitespace-normal">
+              Scan R2 bucket for orphaned files and move them to trash.
+            </div>
           </button>
           <button
             onClick={handleLegacyDuplicateCleanup}
             disabled={legacyDupCleanupRunning}
             className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[9px] font-medium border border-[#6a6a6a] bg-[#4d4d4d] text-white transition-all hover:bg-[#5e5e5e] active:scale-95 disabled:opacity-30 relative group"
-            title="Move legacy uploads duplicates to trash"
           >
             <History className={`w-3 h-3 ${legacyDupCleanupRunning ? 'animate-pulse text-white' : 'text-white'}`} />
             <span>Dupes</span>
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-white text-black text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-[60] shadow-xl max-w-[280px] text-center leading-relaxed whitespace-normal">
+              Find legacy duplicate uploads and move redundant copies to trash.
+            </div>
           </button>
           <button
             onClick={handleOpenTrash}
             className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[9px] font-medium border border-[#6a6a6a] bg-[#4d4d4d] text-white transition-all hover:bg-[#5e5e5e] active:scale-95 relative group"
-          title="Open the trashcan"
-        >
+          >
             <Trash2 className="w-3 h-3 text-white" />
             <span>Trash{trashCount > 0 ? ` (${trashCount})` : ''}</span>
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-white text-black text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-[60] shadow-xl max-w-[280px] text-center leading-relaxed whitespace-normal">
+              Browse and restore deleted files from the R2 trash.
+            </div>
           </button>
         </div>
 
@@ -363,20 +369,24 @@ export function AdminHeader({
           <button 
             onClick={handleGetLatestInstagram} 
             disabled={isScraping}
-            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[10px] font-medium border border-[#6a6a6a] bg-[#4d4d4d] text-white transition-all hover:bg-[#5e5e5e] active:scale-95 disabled:opacity-30"
-            title="Letzten Instagram Post hinzufügen"
+            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[10px] font-medium border border-[#6a6a6a] bg-[#4d4d4d] text-white transition-all hover:bg-[#5e5e5e] active:scale-95 disabled:opacity-30 relative group"
           >
             <Instagram className="w-3 h-3 text-white" />
             <span>+ Insta</span>
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-white text-black text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-[60] shadow-xl max-w-[280px] text-center leading-relaxed whitespace-normal">
+              Fetch the latest Instagram post and add it to the portfolio.
+            </div>
           </button>
           <button 
             onClick={handleGetLatestFlickr} 
             disabled={isScraping}
-            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[10px] font-medium border border-[#6a6a6a] bg-[#4d4d4d] text-white transition-all hover:bg-[#5e5e5e] active:scale-95 disabled:opacity-30"
-            title="Letzten Flickr Post hinzufügen"
+            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[10px] font-medium border border-[#6a6a6a] bg-[#4d4d4d] text-white transition-all hover:bg-[#5e5e5e] active:scale-95 disabled:opacity-30 relative group"
           >
             <Camera className="w-3 h-3 text-blue-400" />
             <span>+ Flickr</span>
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-white text-black text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-[60] shadow-xl max-w-[280px] text-center leading-relaxed whitespace-normal">
+              Fetch the latest Flickr post and add it to the portfolio.
+            </div>
           </button>
         </div>
 

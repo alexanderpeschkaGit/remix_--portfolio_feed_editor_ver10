@@ -1,0 +1,59 @@
+MEDIA VARIANTS — Button Reference
+==================================
+
+This modal helps you manage thumbnail and poster variants for every image
+and video in your portfolio. Variants are generated in 4 sizes:
+thumb (400px), 1k (1024px), 2k (2048px), 3k (3072px).
+
+
+
+BUTTONS (left to right):
+
+1. SCAN LOCAL
+   Checks your local editor state for missing or broken variant references.
+   Does NOT touch R2 or the live site. Run this first to see what's broken.
+
+2. VERIFY LIVE
+   Downloads the live state.json from Cloudflare R2 and checks whether all
+   published variant references are intact. Use this after publishing to
+   confirm everything looks good on the live site.
+
+3. GENERATE
+   Creates missing variant files on your local machine only. Nothing is
+   uploaded. The button is disabled when there are no generatable issues.
+   → After this step, use PUBLISH to upload the new files to R2.
+
+4. GEN + PUBLISH
+   Combines steps 3 and 5 into one click: generates all missing variants
+   locally, uploads them to R2, and publishes the updated state.json.
+   This is the quickest way to fix everything at once.
+
+5. PUBLISH
+   Uploads previously generated files (from step 3) to Cloudflare R2 and
+   publishes state.json. Only available after GENERATE has produced files.
+   Once done, it shows "Published ✓".
+
+
+
+TYPICAL WORKFLOWS:
+
+Quick fix (one click):
+    GEN + PUBLISH
+
+Careful fix (step by step):
+    SCAN LOCAL → GENERATE → PUBLISH → VERIFY LIVE
+
+Verify after publishing from the main editor:
+    VERIFY LIVE (just to double-check)
+
+
+
+ISSUE TYPES shown in the scan results:
+
+  JSON       — The variant field exists in state.json but points nowhere
+  R2         — The variant is referenced but the file is missing on R2
+  External   — The media points to an external URL (e.g. Flickr), not R2
+  No source  — No original image/video available to generate variants from
+
+  Generatable — The system can auto-generate this variant (green label)
+  Manual      — Needs human attention (grey label, e.g. dead external links)

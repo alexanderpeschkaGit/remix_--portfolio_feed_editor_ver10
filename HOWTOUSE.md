@@ -57,3 +57,21 @@ Wenn du den "Edit Mode" aktiviert hast, siehst du auf jedem Bild zusätzliche Sy
 *   **YouTube (Play-Icon):** Erlaubt dir, einen YouTube-Link einzufügen. Das Video wird dann anstelle eines Bildes angezeigt.
 *   **Mülleimer:** Löscht den Post unwiderruflich aus deiner Galerie.
 *   **Kategorie-Tags (z.B. Projection, Lightart):** Klicke auf die kleinen Tags unter dem Textfeld, um das Bild einer oder mehreren Kategorien zuzuordnen. Leuchtende Tags sind aktiv.
+
+---
+
+## 🖼️ Media Variants (Thumbnails & Video-Poster)
+
+Der **Thumbs**-Button in der Admin-Leiste öffnet das Media-Variants-Modal. Hier kannst du fehlende Thumbnail- und Video-Poster-Varianten prüfen und erzeugen.
+
+**Wann brauchst du das?** Wenn Bilder nach einem Upload keine Vorschaubilder haben, oder nachdem du neue Videos hinzugefügt hast, deren Poster/Thumbnails fehlen.
+
+*   **Scan Local:** Prüft den lokalen Editor-Zustand auf fehlende oder defekte Varianten-Referenzen.
+*   **Verify Live:** Prüft den veröffentlichten `state.json` auf Cloudflare R2 auf intakte Varianten.
+*   **Generate:** Erzeugt alle fehlenden Varianten lokal auf deinem Rechner (kein Upload).
+*   **Gen + Publish:** Erzeugt fehlende Varianten UND lädt sie direkt zu R2 hoch — alles in einem Schritt.
+*   **Publish:** Lädt zuvor mit "Generate" erstellte Dateien zu R2 hoch und veröffentlicht `state.json`.
+*   **? (Info-Button):** Öffnet eine ausführliche Hilfe direkt im Modal.
+
+**Typischer Ablauf:** Scan Local → Generate → Publish → Verify Live (zum Kontrollieren). Oder einfach Gen + Publish für alles auf einmal.
+

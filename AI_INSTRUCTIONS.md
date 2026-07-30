@@ -63,3 +63,57 @@ CF_ACCESS_KEY = "0e11678f19a97c193c9a5647f7c4b37b"
 CF_SECRET_KEY = "54bcb9d673d5d53aa6e07b5be67963a01c4b90b7121ca5e1d5ac974e37c8f25d"
 CF_BUCKET = "portfoliodata"
 CF_publicdomain:"https://pub-85bb68a84f3b4ba6b512b3d165c96497.r2.dev
+## UTF-8 ENCODING RULES (MANDATORY)
+
+> [!CAUTION]
+> ALL file I/O MUST use explicit, buffer-safe UTF-8 encoding.
+> Violations cause umlaut corruption (Ö→Ã–, ü→Ã¼, ß→ÃŸ) and emoji breakage.
+
+### Node.js / TypeScript
+
+```js
+// ✅ CORRECT — Buffer-based write (immune to Windows encoding issues)
+const json = JSON.stringify(data, null, 2);
+await fs.writeFile(path, Buffer.from(json, 'utf-8'));
+
+// ✅ CORRECT — Buffer-based write, sync variant
+fs.writeFileSync(path, Buffer.from(JSON.stringify(data, null, 2), 'utf-8'));
+
+// ✅ CORRECT — R2 upload with explicit Buffer
+await s3Client.send(new PutObjectCommand({
+  Body: Buffer.from(json, 'utf-8'),
+  ContentType: 'application/json; charset=utf-8',
+}));
+
+// ⚠️ ACCEPTABLE but fragile on Windows — explicit 'utf-8' flag
+await fs.writeFile(path, json, 'utf-8');
+fs.writeFileSync(path, json, 'utf-8');
+
+// ❌ FORBIDDEN — no encoding specified (OS default may be Latin-1)
+await fs.writeFile(path, json);
+fs.writeFileSync(path, json);
+
+// ✅ CORRECT — reading always with explicit UTF-8
+const data = await fs.readFile(path, 'utf-8');
+const parsed = JSON.parse(data);
+```
+
+### Python
+
+```python
+# ✅ CORRECT — explicit encoding
+with open(path, 'r', encoding='utf-8') as f:
+    data = json.load(f)
+
+with open(path, 'w', encoding='utf-8') as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+
+# ❌ FORBIDDEN — no encoding specified
+with open(path, 'w') as f:
+    json.dump(data, f)
+```
+
+### Verification after write
+- Open the written JSON in VS Code — check Status Bar shows `UTF-8` (not `UTF-8 with BOM`)
+- Search for `Ã` in the file — if found, encoding is corrupted
+- Run `fix_utf8_state.js` to repair: `node fix_utf8_state.js`

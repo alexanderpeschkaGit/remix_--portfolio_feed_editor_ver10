@@ -1972,6 +1972,7 @@ async function startServer() {
 
   const createMediaVariantsStatus = () => ({
     running: false,
+    cancelled: false,
     done: false,
     phase: 'idle',
     progress: 0,
@@ -2245,6 +2246,12 @@ async function startServer() {
     };
 
     for (const entry of entries) {
+      // Check for cancellation
+      if (mediaVariantsStatus.cancelled) {
+        logMediaVariantStatus('Audit cancelled by user.');
+        break;
+      }
+      mediaVariantsStatus.progress++;
       const media = entry.media;
       if (!media || isYoutubeMedia(media)) {
         if (isYoutubeMedia(media)) skippedYoutube++;
@@ -2543,7 +2550,7 @@ async function startServer() {
     item.image_height = primary.image_height || item.image_height || 0;
   };
 
-  const generateVariantsForEntry = async (entry: { item: any; media: any; mediaIndex: number; label: string }, options: { dryRun?: boolean } = {}) => {
+  const generateVariantsForEntry = async (entry: { item: any; media: any; mediaIndex: number; label: string }, options: { dryRun?: boolean; uploadToCloud?: boolean } = {}) => {
     const media = entry.media;
     const videoLike = isVideoMedia(media);
     const group = inferMediaGroup(media);
@@ -2559,7 +2566,7 @@ async function startServer() {
       baseName,
       originalBuffer: videoLike ? undefined : source.buffer,
       originalExt: source.ext || 'jpg',
-      uploadToCloud: false,
+      uploadToCloud: options.uploadToCloud === true,
       writeFiles: options.dryRun !== true,
     });
     if (variantSet.manifestEntries.length > 0) {
@@ -2587,6 +2594,7 @@ async function startServer() {
       sourceUrl: (source as any).sourceUrl || '',
       localPaths: variantSet.localPaths,
       localUrls: variantSet.localUrls,
+      remoteUrls: variantSet.remoteUrls,
       dryRun: options.dryRun === true,
     };
   };
@@ -2624,21 +2632,52 @@ async function startServer() {
     mediaVariantsStatus.running = true;
     logMediaVariantStatus('Scanning state.json for missing media variants...');
 
+    // Respond immediately — client polls GET /api/media-variants/status for progress
+    res.json({ started: true, message: 'Audit started' });
+
     try {
       const state = JSON.parse(await fs.readFile(path.join(DATA_DIR, 'state.json'), 'utf-8'));
+      // Pre-count entries for the progress bar
+      const preEntries = collectMediaVariantEntries(state, true);
+      mediaVariantsStatus.total = preEntries.length;
       const audit = await auditMediaVariantsInState(state, { includeTopLevelReferences: true });
       mediaVariantsStatus.audit = audit;
       mediaVariantsStatus.done = true;
       mediaVariantsStatus.running = false;
       mediaVariantsStatus.phase = 'done';
-      logMediaVariantStatus(`Audit complete: ${audit.issueCount} issues, ${audit.generatableIssueCount} generatable.`);
-      res.json({ success: true, audit, status: mediaVariantsStatus });
+      if (!mediaVariantsStatus.cancelled) {
+        logMediaVariantStatus(`Audit complete: ${audit.issueCount} issues, ${audit.generatableIssueCount} generatable.`);
+      }
     } catch (error: any) {
       mediaVariantsStatus.running = false;
       mediaVariantsStatus.error = error.message || String(error);
       logMediaVariantStatus(`Audit failed: ${mediaVariantsStatus.error}`);
-      res.status(500).json({ error: mediaVariantsStatus.error, status: mediaVariantsStatus });
     }
+  });
+
+  // GET status for polling (used by the progress bar in the frontend)
+  app.get("/api/media-variants/status", (req, res) => {
+    res.json({
+      running: mediaVariantsStatus.running,
+      cancelled: mediaVariantsStatus.cancelled,
+      done: mediaVariantsStatus.done,
+      phase: mediaVariantsStatus.phase,
+      progress: mediaVariantsStatus.progress,
+      total: mediaVariantsStatus.total,
+      error: mediaVariantsStatus.error,
+      audit: mediaVariantsStatus.done ? mediaVariantsStatus.audit : null,
+      result: mediaVariantsStatus.done ? mediaVariantsStatus.result : null,
+    });
+  });
+
+  // Cancel a running audit or generation
+  app.post("/api/media-variants/audit/cancel", (req, res) => {
+    if (!mediaVariantsStatus.running) {
+      return res.json({ cancelled: false, message: 'No task running' });
+    }
+    mediaVariantsStatus.cancelled = true;
+    logMediaVariantStatus('Cancel requested by user.');
+    res.json({ cancelled: true, message: 'Cancel signal sent' });
   });
 
   app.post("/api/media-validation/audit", async (req, res) => {
@@ -2665,12 +2704,20 @@ async function startServer() {
 
     try {
       const dryRun = req.body?.dryRun !== false;
+      const postIds: string[] | undefined = Array.isArray(req.body?.postIds) && req.body.postIds.length > 0
+        ? req.body.postIds.map(String)
+        : undefined;
+      const postIdSet = postIds ? new Set(postIds) : null;
       const statePath = path.join(DATA_DIR, 'state.json');
       const state = JSON.parse(await fs.readFile(statePath, 'utf-8'));
       const auditBefore = await auditMediaVariantsInState(state, { includeTopLevelReferences: false });
       const issueEntryKeys = new Set(
         auditBefore.issues
-          .filter((issue: any) => issue.canGenerate && issue.reason !== 'source-unavailable')
+          .filter((issue: any) => {
+            if (!issue.canGenerate || issue.reason === 'source-unavailable') return false;
+            if (postIdSet && !postIdSet.has(String(issue.itemId))) return false;
+            return true;
+          })
           .map((issue: any) => `${issue.itemId}|${issue.mediaIndex}`)
       );
 
@@ -2756,6 +2803,125 @@ async function startServer() {
     res.json(mediaVariantsStatus);
   });
 
+  // One-step endpoint: generate variants, upload to R2, and publish state.json — all in one click.
+  // Accepts { postIds?: string[] } to limit generation to specific posts (empty = all).
+  app.post("/api/media-variants/generate-and-publish", async (req, res) => {
+    if (mediaVariantsStatus.running) return res.status(409).json({ error: 'Media variant task already running', status: mediaVariantsStatus });
+
+    resetMediaVariantsStatus('generate-and-publish');
+    mediaVariantsStatus.running = true;
+    logMediaVariantStatus('Starting one-step generate-and-publish for media variants...');
+
+    try {
+      const postIds: string[] | undefined = Array.isArray(req.body?.postIds) && req.body.postIds.length > 0
+        ? req.body.postIds.map(String)
+        : undefined;
+      const postIdSet = postIds ? new Set(postIds) : null;
+
+      const statePath = path.join(DATA_DIR, 'state.json');
+      const state = JSON.parse(await fs.readFile(statePath, 'utf-8'));
+      const auditBefore = await auditMediaVariantsInState(state, { includeTopLevelReferences: false });
+
+      // Build set of generatable issue keys, optionally filtered by postIds
+      const issueEntryKeys = new Set(
+        auditBefore.issues
+          .filter((issue: any) => {
+            if (!issue.canGenerate || issue.reason === 'source-unavailable') return false;
+            if (postIdSet && !postIdSet.has(String(issue.itemId))) return false;
+            return true;
+          })
+          .map((issue: any) => `${issue.itemId}|${issue.mediaIndex}`)
+      );
+
+      const entries = collectMediaVariantEntries(state, false)
+        .filter(entry => issueEntryKeys.has(`${entry.item?.id || ''}|${entry.mediaIndex}`));
+
+      if (entries.length === 0) {
+        mediaVariantsStatus.running = false;
+        mediaVariantsStatus.done = true;
+        mediaVariantsStatus.phase = 'done';
+        logMediaVariantStatus('No generatable issues found. Nothing to do.');
+        return res.json({ success: true, generated: [], failed: [], auditBefore, message: 'No generatable issues found.' });
+      }
+
+      mediaVariantsStatus.total = entries.length;
+      const generated: any[] = [];
+      const failed: any[] = [];
+
+      for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i];
+        mediaVariantsStatus.progress = i + 1;
+        try {
+          logMediaVariantStatus(`Generating & uploading ${i + 1}/${entries.length}: ${entry.label}`);
+          // uploadToCloud: true → materializeVariantSet generates AND uploads to R2 in one shot
+          const result = await generateVariantsForEntry(entry, { dryRun: false, uploadToCloud: true });
+          generated.push(result);
+        } catch (error: any) {
+          const failure = {
+            itemId: entry.item?.id || '',
+            title: entry.item?.title || '',
+            mediaIndex: entry.mediaIndex,
+            label: entry.label,
+            error: error.message || String(error),
+          };
+          failed.push(failure);
+          logMediaVariantStatus(`Failed ${entry.label}: ${failure.error}`);
+        }
+      }
+
+      // Sync post root fields from primary mergedMedia
+      for (const item of state.items || []) {
+        if (Array.isArray(item.mergedMedia) && item.mergedMedia.length > 0) {
+          syncItemFromPrimaryMedia(item);
+        }
+      }
+
+      // Direct save to R2, skipping validation (variants already uploaded individually)
+      state.lastUpdated = new Date().toISOString();
+      const stateString = JSON.stringify(state, null, 2);
+      await backupState();
+      await fs.writeFile(path.join(DATA_DIR, 'state.json'), Buffer.from(stateString, 'utf-8'));
+      await s3Client.send(new PutObjectCommand({
+        Bucket: R2_CONFIG.bucketName,
+        Key: 'state.json',
+        Body: Buffer.from(stateString),
+        ContentType: "application/json; charset=utf-8",
+      }));
+      logMediaVariantStatus('State.json published to R2 and saved locally with CDN URLs.');
+
+      const allGeneratedFiles: string[] = [];
+      for (const g of generated) {
+        if (g.localPaths) {
+          for (const p of Object.values(g.localPaths as Record<string, string>)) {
+            allGeneratedFiles.push(p);
+          }
+        }
+      }
+
+      const result = {
+        success: failed.length === 0,
+        generated,
+        failed,
+        generatedFiles: allGeneratedFiles,
+        auditBefore,
+        published: true,
+      };
+
+      mediaVariantsStatus.result = result;
+      mediaVariantsStatus.audit = auditBefore;
+      mediaVariantsStatus.running = false;
+      mediaVariantsStatus.done = true;
+      mediaVariantsStatus.phase = 'done';
+      logMediaVariantStatus(`Generate-and-publish complete: ${generated.length} generated, ${failed.length} failed.`);
+      res.json(result);
+    } catch (error: any) {
+      mediaVariantsStatus.running = false;
+      mediaVariantsStatus.error = error.message || String(error);
+      logMediaVariantStatus(`Generate-and-publish failed: ${mediaVariantsStatus.error}`);
+      res.status(500).json({ error: mediaVariantsStatus.error, status: mediaVariantsStatus });
+    }
+  });
+
   app.post("/api/media-variants/publish", async (req, res) => {
     if (mediaVariantsStatus.running) return res.status(409).json({ error: 'Media variant task already running', status: mediaVariantsStatus });
 
@@ -2813,6 +2979,8 @@ async function startServer() {
 
       const uploaded: string[] = [];
       const uploadErrors: string[] = [];
+      // Map absolute local paths to their CDN URLs for rewriting state.json
+      const localPathToCdnUrl = new Map<string, string>();
 
       for (let i = 0; i < filesToUpload.length; i++) {
         const file = filesToUpload[i];
@@ -2822,6 +2990,11 @@ async function startServer() {
           const buffer = await fs.readFile(file.localPath);
           const r2Url = await uploadToR2(buffer, file.r2Key, file.contentType);
           uploaded.push(file.r2Key);
+          // Track mapping: local path → CDN URL for URL rewriting
+          localPathToCdnUrl.set(file.localPath, r2Url);
+          // Also map the /data_v2/... URL form → CDN URL
+          const relativeUrl = '/' + toPosix(path.relative(process.cwd(), file.localPath));
+          localPathToCdnUrl.set(relativeUrl, r2Url);
           logMediaVariantStatus(`Uploaded ${i + 1}/${filesToUpload.length}: ${file.r2Key}`);
         } catch (err: any) {
           uploadErrors.push(`${file.r2Key}: ${err.message}`);
@@ -2829,15 +3002,61 @@ async function startServer() {
         }
       }
 
+      // Rewrite local URLs in state to CDN URLs before publishing
+      if (localPathToCdnUrl.size > 0) {
+        logMediaVariantStatus(`Rewriting ${localPathToCdnUrl.size} local URL mappings to CDN URLs in state...`);
+        const rewriteMediaUrls = (media: any) => {
+          if (!media || typeof media !== 'object') return;
+          // All fields that may contain image URLs
+          const urlFields = [
+            ...IMAGE_VARIANT_FIELDS,
+            'image_original', 'image', 'image_large', 'image_preview',
+            'url', 'link', 'thumbnail', 'thumb', 'preview', 'poster',
+            'largeUrl', 'localUrl', 'local_highres', 'local_large_variant',
+          ];
+          for (const field of urlFields) {
+            const value = media[field];
+            if (!value || typeof value !== 'string') continue;
+            // Check direct match
+            if (localPathToCdnUrl.has(value)) {
+              media[field] = localPathToCdnUrl.get(value)!;
+              continue;
+            }
+            // Check by resolving to absolute local path
+            if (value.startsWith('/data_v2/') || value.startsWith('data_v2/')) {
+              const normalized = value.startsWith('/') ? value : '/' + value;
+              if (localPathToCdnUrl.has(normalized)) {
+                media[field] = localPathToCdnUrl.get(normalized)!;
+                continue;
+              }
+              const absPath = path.join(process.cwd(), value.replace(/^\//, ''));
+              if (localPathToCdnUrl.has(absPath)) {
+                media[field] = localPathToCdnUrl.get(absPath)!;
+              }
+            }
+          }
+        };
+
+        for (const item of state.items || []) {
+          if (Array.isArray(item.mergedMedia)) {
+            for (const media of item.mergedMedia) {
+              rewriteMediaUrls(media);
+            }
+          }
+          rewriteMediaUrls(item);
+        }
+        logMediaVariantStatus('URL rewriting complete.');
+      }
+
       // Publish state.json to R2
       if (uploadErrors.length === 0 || uploaded.length > 0) {
         logMediaVariantStatus('Publishing state.json to R2...');
         await publishStateJsonToR2(state);
 
-        // Also update local state.json
+        // Also update local state.json (with CDN URLs now)
         await backupState();
         await fs.writeFile(path.join(DATA_DIR, 'state.json'), JSON.stringify(state, null, 2), 'utf-8');
-        logMediaVariantStatus('Local state.json updated.');
+        logMediaVariantStatus('Local state.json updated with CDN URLs.');
       }
 
       const publishResult = {
@@ -2976,9 +3195,11 @@ async function startServer() {
   // API route to save state
   app.post("/api/state", async (req, res) => {
     try {
-      const { pushToR2, ...state } = req.body;
+      const { pushToR2, forcePublish, ...state } = req.body;
       await ensureStateVideoDimensions(state);
-      await assertStateAcceptable(state, { rootDir: process.cwd(), allowNetwork: true });
+      if (!forcePublish) {
+        await assertStateAcceptable(state, { rootDir: process.cwd(), allowNetwork: true });
+      }
       await backupState();
 
       const stateString = JSON.stringify(state, null, 2);
@@ -3506,6 +3727,73 @@ async function startServer() {
       return res.status(404).json({ error: 'Source not found' });
     }
     res.json(scrapeStatus[source]);
+  });
+
+  // API route to merge already-scraped data into state.json without re-scraping
+  // Bypasses media validation (runs later via generate-and-publish)
+  app.post("/api/scrape/merge", async (req, res) => {
+    const { source } = req.body;
+    if (!source || !['instagram', 'flickr', 'flickr_html', 'combined'].includes(source)) {
+      return res.status(400).json({ error: 'Invalid source. Must be: instagram, flickr, flickr_html, or combined.' });
+    }
+    try {
+      await backupState();
+      const statePath = path.join(DATA_DIR, 'state.json');
+      let state: any = { items: [] };
+      try { state = JSON.parse(await fs.readFile(statePath, 'utf-8')); } catch (e) {}
+      const deletedIds = await getDeletedIds();
+      const existsInState = (id: string) => {
+        for (const item of state.items) {
+          if (item.id === id) return true;
+          if (item.mergedMedia) { for (const m of item.mergedMedia) { if (m.id === id) return true; } }
+        }
+        return false;
+      };
+
+      let newItems: any[] = [];
+      if (source === 'instagram' || source === 'combined') {
+        try {
+          const data = await fs.readFile(path.join(DATA_DIR, 'instagram', 'insta_data.json'), 'utf-8');
+          const scraped = JSON.parse(data);
+          for (const item of scraped) {
+            const id = item.id;
+            if (existsInState(id) || deletedIds.includes(id)) continue;
+            const mergedMedia = Array.isArray(item.media_list)
+              ? item.media_list.map((media: any) => {
+                  if (typeof media === 'string') {
+                    return { type: media.endsWith('.mp4') ? 'video' : 'image', image: media, image_large: media, link: item.link };
+                  }
+                  return { type: media.type || 'image', image: media.image || media.image_thumb || '', image_thumb: media.image_thumb || '', image_1k: media.image_1k || '', image_2k: media.image_2k || '', image_large: media.image_large || '', image_3k: media.image_3k || '', image_original: media.image_original || '', image_width: media.image_width || 0, image_height: media.image_height || 0, link: media.link || item.link };
+                })
+              : (item.image ? [{ type: 'image', image: item.image, image_thumb: item.image_thumb || item.image || '', image_1k: item.image_1k || '', image_2k: item.image_2k || '', image_large: item.image_large || '', image_3k: item.image_3k || '', image_original: item.image_original || '', image_width: item.image_width || 0, image_height: item.image_height || 0, link: item.link }] : []);
+            newItems.push({
+              id, type: mergedMedia.some((m: any) => m.type === 'video') ? 'video' : 'image', source: 'instagram',
+              title: item.title || '', description: item.description || '',
+              image: item.image || mergedMedia[0]?.image || '',
+              image_thumb: item.image_thumb || item.image || '', image_1k: item.image_1k || '',
+              image_2k: item.image_2k || '', image_large: item.image_large || item.image_2k || item.image_3k || item.image_1k || item.image_thumb || item.image || '',
+              image_3k: item.image_3k || '', image_original: item.image_original || '',
+              image_width: item.image_width || 0, image_height: item.image_height || 0,
+              mergedMedia, url: item.link, date: item.timestamp || new Date().toISOString(), phash: item.phash
+            });
+          }
+        } catch (e) { console.error('[Merge] Instagram data read failed:', e); }
+      }
+
+      if (newItems.length > 0) {
+        state.items = [...newItems, ...state.items];
+        state.lastUpdated = new Date().toISOString();
+        // Use Buffer for explicit UTF-8 encoding to prevent umlaut corruption on Windows
+        const stateStr = JSON.stringify(state, null, 2);
+        await fs.writeFile(statePath, Buffer.from(stateStr, 'utf-8'));
+        console.log(`[Merge] Wrote ${newItems.length} new ${source} items to state.json (validation bypassed).`);
+      }
+
+      res.json({ success: true, addedCount: newItems.length, message: `Merge complete: ${newItems.length} new items added from ${source}.` });
+    } catch (error: any) {
+      console.error(`[Merge] Failed for ${source}:`, error);
+      res.status(500).json({ error: 'Merge failed', details: error.message || String(error) });
+    }
   });
 
   // API route to get scraped data from local JSON files
@@ -4459,6 +4747,25 @@ async function startServer() {
       }
     } catch (e: any) {
       res.json({ configured: true, reachable: false, hasApiKey, hasLibraryId, hasPullZone, message: `Bunny nicht erreichbar: ${e.message}` });
+    }
+  });
+
+  // Force-publish current state.json to R2, bypassing validation
+  app.post("/api/state/force-publish", async (req, res) => {
+    try {
+      const statePath = path.join(DATA_DIR, 'state.json');
+      const stateString = await fs.readFile(statePath, 'utf-8');
+      await s3Client.send(new PutObjectCommand({
+        Bucket: R2_CONFIG.bucketName,
+        Key: 'state.json',
+        Body: Buffer.from(stateString),
+        ContentType: "application/json; charset=utf-8",
+      }));
+      console.log("[Force Publish] state.json uploaded to R2 successfully.");
+      res.json({ success: true, message: 'state.json force-published to R2.' });
+    } catch (error: any) {
+      console.error("[Force Publish] Failed:", error);
+      res.status(500).json({ error: 'Force-publish failed', details: error.message || String(error) });
     }
   });
 
