@@ -123,36 +123,74 @@ export const resolveVideoThumbnailOnDisk = (videoPath: string, rootDir = process
 };
 
 /**
- * Consolidates single Instagram video posts where mergedMedia has separate
- * type: "image" and type: "video" entries into a single self-contained type: "video" object.
+ * Consolidates Instagram carousel posts where mergedMedia has separate
+ * type: "image" and type: "video" entries sharing the same base file stem.
+ *
+ * Each matching pair (image + video with same stem, e.g. 2024-07-03_10-02-15_UTC_1)
+ * is merged into one self-contained type: "video" object with the image as thumbnail.
+ * Handles both single-pair and multi-pair posts (N images + N videos).
  */
 export const consolidateMergedMedia = (mergedMedia: any[], stats?: NormalizationStats): any[] => {
   if (!Array.isArray(mergedMedia) || mergedMedia.length === 0) return [];
 
-  // Filter out any completely empty items
   const items = mergedMedia.filter(Boolean);
   if (items.length <= 1) return items;
 
-  // Check if items share the same stem (e.g. 2025-02-13_18-58-14_UTC.jpg and 2025-02-13_18-58-14_UTC.mp4)
-  const imageItems = items.filter(m => !isVideoMedia(m) && !isBunnyOrYoutube(m));
-  const videoItems = items.filter(m => isVideoMedia(m));
+  const getBestUrl = (m: any): string => {
+    if (isVideoMedia(m)) return m.url || m.video || m.video_url || '';
+    return m.image || m.image_thumb || m.image_1k || m.url || '';
+  };
 
-  if (imageItems.length === 1 && videoItems.length === 1) {
-    const imgStem = extractFileStem(imageItems[0].image || imageItems[0].image_thumb || imageItems[0].url || '').stem;
-    const vidStem = extractFileStem(videoItems[0].url || videoItems[0].video || videoItems[0].video_url || '').stem;
+  // ---- Group items by base file stem (without _N suffix) ----
+  const stemGroups = new Map<string, { images: any[]; videos: any[] }>();
+  const itemBaseMap = new Map<any, string>();
 
-    // Remove suffix like _1, _2 if stems match
-    const baseImgStem = imgStem.replace(/_\d+$/, '');
-    const baseVidStem = vidStem.replace(/_\d+$/, '');
+  for (const item of items) {
+    if (isBunnyOrYoutube(item)) continue;
+    const url = getBestUrl(item);
+    const { stem } = extractFileStem(url);
+    const baseStem = stem.replace(/_\d+$/, '');
+    if (!baseStem) continue;
 
-    if (baseImgStem && baseVidStem && baseImgStem === baseVidStem) {
-      // Consolidate into single self-contained video item
-      const videoStream = videoItems[0].url || videoItems[0].video || videoItems[0].video_url || imageItems[0].url;
-      const thumb = imageItems[0].image_thumb || imageItems[0].image_1k || imageItems[0].image;
+    itemBaseMap.set(item, baseStem);
+    if (!stemGroups.has(baseStem)) {
+      stemGroups.set(baseStem, { images: [], videos: [] });
+    }
+    const group = stemGroups.get(baseStem)!;
+    if (isVideoMedia(item)) group.videos.push(item);
+    else group.images.push(item);
+  }
+
+  // ---- Consolidate matching pairs, preserving original order ----
+  const result: any[] = [];
+  const consumed = new Set<any>();
+
+  for (const item of items) {
+    if (consumed.has(item)) continue;
+
+    // Pass through items we can't pair
+    if (isBunnyOrYoutube(item) || !itemBaseMap.has(item)) {
+      result.push(item);
+      continue;
+    }
+
+    const baseStem = itemBaseMap.get(item)!;
+    const group = stemGroups.get(baseStem)!;
+
+    // Find first unconsumed image+video pair for this stem
+    const img = group.images.find(i => !consumed.has(i));
+    const vid = group.videos.find(v => !consumed.has(v));
+
+    if (img && vid) {
+      consumed.add(img);
+      consumed.add(vid);
+
+      const videoStream = vid.url || vid.video || vid.video_url || img.url;
+      const thumb = img.image_thumb || img.image_1k || img.image;
 
       if (stats) stats.consolidatedSingleVideos++;
 
-      return [{
+      result.push({
         type: 'video',
         url: videoStream,
         video_url: videoStream,
@@ -160,12 +198,21 @@ export const consolidateMergedMedia = (mergedMedia: any[], stats?: Normalization
         image_thumb: thumb,
         image_1k: thumb,
         image: thumb,
-        ...(imageItems[0].image_large ? { image_large: imageItems[0].image_large } : {}),
-      }];
+        ...(img.image_large ? { image_large: img.image_large } : {}),
+      });
+    } else {
+      result.push(item);
     }
   }
 
-  return items;
+  // Append any items that were never iterated (consumed but not primary)
+  for (const item of items) {
+    if (!result.includes(item) && !consumed.has(item)) {
+      result.push(item);
+    }
+  }
+
+  return result;
 };
 
 /**
@@ -236,19 +283,21 @@ export const normalizePostMedia = (post: any, options: NormalizeOptions = {}, st
         newItem.video = videoStream;
       }
 
-      // Check for video thumbnail on disk if image fields empty
-      let existingThumb = newItem.image_thumb || newItem.image_1k || newItem.image;
-      if (!existingThumb && videoStream && checkDisk) {
+      // Always attempt disk resolution for video thumbnails.
+      // This ensures each clip gets its own unique thumbnail and fixes
+      // previously inherited/wrong thumbnails from prior migrations.
+      if (videoStream && checkDisk) {
         const diskThumb = resolveVideoThumbnailOnDisk(videoStream, rootDir);
         if (diskThumb) {
-          existingThumb = diskThumb;
+          const hadExisting = !!(newItem.image_thumb || newItem.image_1k || newItem.image);
           newItem.image_thumb = diskThumb;
           newItem.image_1k = diskThumb;
           newItem.image = diskThumb;
-          if (stats) stats.resolvedVideoThumbnailsOnDisk++;
+          if (stats && !hadExisting) stats.resolvedVideoThumbnailsOnDisk++;
         }
       }
 
+      const existingThumb = newItem.image_thumb || newItem.image_1k || newItem.image;
       if (existingThumb && !primaryResolvedImage) {
         primaryResolvedImage = existingThumb;
       }
@@ -263,12 +312,17 @@ export const normalizePostMedia = (post: any, options: NormalizeOptions = {}, st
     processedItems.push(newItem);
   }
 
-  // 4. Second pass for video items still lacking clip thumbnail: inherit primaryResolvedImage
+  // 4. Second pass: video items still lacking their own thumbnail after disk search
+  // get the post-level thumbnail as last-resort fallback.
+  // IMPORTANT: We do NOT inherit from another clip's thumbnail (primaryResolvedImage).
+  // Each clip must keep its own individually resolved thumbnail so that multi-video
+  // posts show a different thumbnail per clip instead of all sharing the same one.
+  const postLevelThumb = normalized.image_thumb || normalized.image_1k || normalized.image;
   for (const item of processedItems) {
-    if (isVideoMedia(item) && !item.image_thumb && primaryResolvedImage) {
-      item.image_thumb = primaryResolvedImage;
-      item.image_1k = primaryResolvedImage;
-      item.image = primaryResolvedImage;
+    if (isVideoMedia(item) && !item.image_thumb && postLevelThumb) {
+      item.image_thumb = postLevelThumb;
+      item.image_1k = postLevelThumb;
+      item.image = postLevelThumb;
       if (stats) stats.inheritedPostThumbnails++;
     }
   }

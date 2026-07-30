@@ -65,7 +65,9 @@ assert.strictEqual(normalizedPost.mergedMedia[1].type, 'video');
 assert.strictEqual(normalizedPost.mergedMedia[1].url, '/data/instagram/test_vid.mp4');
 assert.strictEqual(normalizedPost.mergedMedia[1].video_url, '/data/instagram/test_vid.mp4');
 assert.strictEqual(normalizedPost.mergedMedia[1].video, '/data/instagram/test_vid.mp4');
-assert.strictEqual(normalizedPost.mergedMedia[1].image_thumb, '/data/instagram/test.jpg', 'Video clip should inherit primary post thumbnail');
+// Video clip must NOT inherit another clip's thumbnail (primaryResolvedImage bug fix)
+// Post-level thumb was sanitized (was .mp4), so clip thumb stays undefined
+assert.strictEqual(normalizedPost.mergedMedia[1].image_thumb, undefined, 'Video clip must NOT steal another clips thumbnail');
 console.log('✓ Test 3 Passed: normalizePostMedia');
 
 // Test 4: Bunny posts must remain untouched
@@ -88,4 +90,30 @@ assert.strictEqual(normalizedBunny.type, 'bunny');
 assert.strictEqual(normalizedBunny.videoId, 'abc-def');
 console.log('✓ Test 4 Passed: Bunny posts untouched');
 
-console.log('\nAll 4 unit tests passed successfully!');
+// Test 5: Multi-pair consolidation (Instagram carousel with N images + N videos)
+const multiPairInput = [
+  { type: 'image', image: '/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_1.jpg', image_thumb: '/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_1.jpg' },
+  { type: 'image', image: '/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_2.jpg', image_thumb: '/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_2.jpg' },
+  { type: 'image', image: '/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_3.jpg', image_thumb: '/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_3.jpg' },
+  { type: 'video', url: '/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_1.mp4' },
+  { type: 'video', url: '/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_2.mp4' },
+  { type: 'video', url: '/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_3.mp4' },
+];
+
+const multiConsolidated = consolidateMergedMedia(multiPairInput);
+assert.strictEqual(multiConsolidated.length, 3, 'Should consolidate 3 image+video pairs into 3 video items');
+assert.strictEqual(multiConsolidated[0].type, 'video');
+assert.strictEqual(multiConsolidated[0].url, '/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_1.mp4');
+assert.strictEqual(multiConsolidated[0].image_thumb, '/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_1.jpg', 'Video 1 should get image 1 thumbnail');
+assert.strictEqual(multiConsolidated[1].type, 'video');
+assert.strictEqual(multiConsolidated[1].url, '/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_2.mp4');
+assert.strictEqual(multiConsolidated[1].image_thumb, '/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_2.jpg', 'Video 2 should get image 2 thumbnail');
+assert.strictEqual(multiConsolidated[2].type, 'video');
+assert.strictEqual(multiConsolidated[2].url, '/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_3.mp4');
+assert.strictEqual(multiConsolidated[2].image_thumb, '/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_3.jpg', 'Video 3 should get image 3 thumbnail');
+// Verify each video has a DIFFERENT thumbnail (the core bug fix)
+const thumbs = multiConsolidated.map((m: any) => m.image_thumb);
+assert.strictEqual(new Set(thumbs).size, 3, 'All 3 videos must have UNIQUE thumbnails');
+console.log('✓ Test 5 Passed: Multi-pair consolidation (unique thumbs per clip)');
+
+console.log('\nAll 5 unit tests passed successfully!');
