@@ -40,6 +40,11 @@ interface ThumbnailGalleryGridProps {
   formatDescription: (description: string, title: string) => string;
   isValidImageCandidate?: (url?: string) => boolean;
   bunnyProgress?: Record<string, { step: string; progress: number; text: string }>;
+  // Cross-post media drag props
+  activeMediaDrag: { sourcePostId: string; mediaIndex: number; mediaItem: any } | null;
+  onMediaDragStart: (sourcePostId: string, mediaIndex: number, mediaItem: any) => void;
+  onMediaDragEnd: () => void;
+  onCrossPostMediaDrop: (sourcePostId: string, mediaIndex: number, targetPostId: string, targetMediaIndex?: number) => void;
 }
 
 export function ThumbnailGalleryGrid({
@@ -69,6 +74,10 @@ export function ThumbnailGalleryGrid({
   formatDescription,
   isValidImageCandidate,
   bunnyProgress,
+  activeMediaDrag,
+  onMediaDragStart,
+  onMediaDragEnd,
+  onCrossPostMediaDrop,
 }: ThumbnailGalleryGridProps) {
   return (
     <div className="relative w-full">
@@ -113,6 +122,10 @@ export function ThumbnailGalleryGrid({
               formatDescription={formatDescription}
               isValidImageCandidate={isValidImageCandidate}
               bunnyProgress={bunnyProgress}
+              activeMediaDrag={activeMediaDrag}
+              onMediaDragStart={onMediaDragStart}
+              onMediaDragEnd={onMediaDragEnd}
+              onCrossPostMediaDrop={onCrossPostMediaDrop}
             />
           ))}
         </div>

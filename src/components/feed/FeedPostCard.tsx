@@ -32,6 +32,11 @@ interface FeedPostCardProps {
   handleStateToggle: (postId: string, stateId: string) => void;
   handleToggleHidden: (postId: string) => void;
   bunnyProgress?: Record<string, { step: string; progress: number; text: string }>;
+  // Cross-post media drag props
+  activeMediaDrag: { sourcePostId: string; mediaIndex: number; mediaItem: any } | null;
+  onMediaDragStart: (sourcePostId: string, mediaIndex: number, mediaItem: any) => void;
+  onMediaDragEnd: () => void;
+  onCrossPostMediaDrop: (sourcePostId: string, mediaIndex: number, targetPostId: string, targetMediaIndex?: number) => void;
 }
 
 export function FeedPostCard({
@@ -40,7 +45,8 @@ export function FeedPostCard({
   isR2Fallback, isEmbeddedData, isValidImageCandidate,
   handleImageUpload, handleVideoFileUpload, handlePostChange, handleVideoLinkChange, handleDeletePost,
   handleMergeDown, handleUpdatePostMedia, setSelectedImage, handleStateToggle, handleToggleHidden,
-  bunnyProgress
+  bunnyProgress,
+  activeMediaDrag, onMediaDragStart, onMediaDragEnd, onCrossPostMediaDrop
 }: FeedPostCardProps) {
   const {
     attributes, listeners, setNodeRef, transform, transition, isDragging
@@ -180,7 +186,7 @@ export function FeedPostCard({
     return src && isVideoMediaUrl(src) ? src : undefined;
   };
 
-  const [draggedMediaIdx, setDraggedMediaIdx] = useState<number | null>(null);
+  const [isMediaDragOvered, setIsMediaDragOvered] = useState(false);
   const [applyLoading, setApplyLoading] = useState<Record<number, boolean>>({});
   const [localUrlInputs, setLocalUrlInputs] = useState<Record<number, string>>({});
   const [isFileDragOverCard, setIsFileDragOverCard] = useState(false);
@@ -295,6 +301,15 @@ export function FeedPostCard({
   };
 
   const handleCardDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    // Cross-post media drag (no files involved)
+    if (activeMediaDrag && activeMediaDrag.sourcePostId !== post.id) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'move';
+      setIsMediaDragOvered(true);
+      return;
+    }
+    // File upload drag
     if (!isEditing || !hasFileDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();
@@ -303,6 +318,7 @@ export function FeedPostCard({
   };
 
   const handleCardDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    setIsMediaDragOvered(false);
     if (!isEditing || !hasFileDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();
@@ -313,6 +329,15 @@ export function FeedPostCard({
   };
 
   const handleCardDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    // Cross-post media drop (append at end)
+    if (activeMediaDrag && activeMediaDrag.sourcePostId !== post.id) {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsMediaDragOvered(false);
+      onCrossPostMediaDrop(activeMediaDrag.sourcePostId, activeMediaDrag.mediaIndex, post.id, undefined);
+      return;
+    }
+    // File upload drop
     if (!isEditing || !hasFileDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();
@@ -400,13 +425,28 @@ export function FeedPostCard({
 
   const handleMediaDragStart = (e: React.DragEvent, index: number) => {
     e.stopPropagation();
-    setDraggedMediaIdx(index);
+    const media = mediaItems[index];
+    if (media) {
+      onMediaDragStart(post.id, index, media);
+      e.dataTransfer.effectAllowed = 'move';
+    }
   };
 
   const handleMediaDragOver = (e: React.DragEvent) => {
     // External files belong to the card upload target. Let the event bubble to
     // handleCardDragOver instead of treating it as an internal media reorder.
     if (hasFileDrag(e)) return;
+
+    // Check for cross-post media drag
+    if (activeMediaDrag && activeMediaDrag.sourcePostId !== post.id) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'move';
+      setIsMediaDragOvered(true);
+      return;
+    }
+
+    // Intra-post media reorder
     e.preventDefault();
     e.stopPropagation();
   };
@@ -417,13 +457,23 @@ export function FeedPostCard({
     if (hasFileDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();
-    if (draggedMediaIdx === null || draggedMediaIdx === index) return;
-    
+    setIsMediaDragOvered(false);
+
+    // Cross-post media drop
+    if (activeMediaDrag && activeMediaDrag.sourcePostId !== post.id) {
+      onCrossPostMediaDrop(activeMediaDrag.sourcePostId, activeMediaDrag.mediaIndex, post.id, index);
+      return;
+    }
+
+    // Intra-post reorder (shared drag state, same post)
+    if (!activeMediaDrag || activeMediaDrag.sourcePostId !== post.id) return;
+    if (activeMediaDrag.mediaIndex === index) return;
+
     const newMedia = [...mediaItems];
-    const [draggedItem] = newMedia.splice(draggedMediaIdx, 1);
+    const [draggedItem] = newMedia.splice(activeMediaDrag.mediaIndex, 1);
     newMedia.splice(index, 0, draggedItem);
     handleUpdatePostMedia(post.id, newMedia);
-    setDraggedMediaIdx(null);
+    onMediaDragEnd();
   };
 
   const openThumb = (thumbUrl?: string) => {
@@ -463,7 +513,7 @@ export function FeedPostCard({
     <div 
       ref={setNodeRef}
       style={style}
-      className={`group bg-[#111] rounded-xl overflow-hidden border ${isDragging ? 'border-blue-500 shadow-xl shadow-black/50' : 'border-white/5 hover:border-white/20'} transition-all duration-300 flex flex-col relative ${isFileDragOverCard ? 'ring-2 ring-blue-400/50 ring-offset-0' : ''}`}
+      className={`group bg-[#111] rounded-xl overflow-hidden border ${isDragging ? 'border-blue-500 shadow-xl shadow-black/50' : 'border-white/5 hover:border-white/20'} transition-all duration-300 flex flex-col relative ${isFileDragOverCard ? 'ring-2 ring-blue-400/50 ring-offset-0' : ''} ${isMediaDragOvered ? 'ring-2 ring-cyan-400/70 border-cyan-400/60 shadow-lg shadow-cyan-400/10 scale-[1.02]' : ''}`}
       onDragEnter={handleCardDragEnter}
       onDragOver={handleCardDragOver}
       onDragLeave={handleCardDragLeave}
@@ -577,6 +627,7 @@ export function FeedPostCard({
                 onDragStart={(e) => handleMediaDragStart(e, i)}
                 onDragOver={handleMediaDragOver}
                 onDrop={(e) => handleMediaDrop(e, i)}
+                onDragEnd={() => onMediaDragEnd()}
                 onClick={(e) => e.stopPropagation()}
               >
                 <button 
