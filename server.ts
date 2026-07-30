@@ -13,6 +13,7 @@ import sharp from "sharp";
 import { spawn, exec } from "child_process";
 import { promisify } from "util";
 import { validateMediaState } from "./src/server/mediaValidation.ts";
+import { normalizeState } from "./src/server/mediaNormalization.ts";
 import { assertStateAcceptable, stateValidationHttpPayload } from "./src/server/statePublishing.ts";
 import { firstExistingLocalMediaPath, resolveMediaAssetLocation } from "./src/server/mediaAssets.ts";
 const execAsync = promisify(exec);
@@ -795,7 +796,9 @@ async function startServer() {
   }
 
   async function persistAcceptedState(stateData: any, statePath = path.join(DATA_DIR, 'state.json'), createBackup = false) {
-    const state = typeof stateData === 'string' ? JSON.parse(stateData) : stateData;
+    let state = typeof stateData === 'string' ? JSON.parse(stateData) : stateData;
+    const { state: normalized } = normalizeState(state, { rootDir: process.cwd(), checkDiskAssets: true });
+    state = normalized;
     await ensureStateVideoDimensions(state);
     await assertStateAcceptable(state, { rootDir: process.cwd(), allowNetwork: true });
     if (createBackup) await backupState();

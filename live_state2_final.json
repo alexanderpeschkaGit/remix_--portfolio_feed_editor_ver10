@@ -60,7 +60,8 @@
         "Mapping",
         "conscious"
       ],
-      "media": []
+      "media": [],
+      "type": "image"
     },
     {
       "id": "17746334362930.956139108340557",
@@ -134,18 +135,16 @@
       "image_1k": "/data/instagram/vijay_sikanda/2025-02-13_18-58-14_UTC.jpg",
       "link": "https://www.instagram.com/p/DGBhe-EOCaz/",
       "network_name": "Instagram",
-      "type": "image",
+      "type": "video",
       "mergedMedia": [
-        {
-          "type": "image",
-          "image": "/data/instagram/vijay_sikanda/2025-02-13_18-58-14_UTC.jpg",
-          "image_thumb": "/data/instagram/vijay_sikanda/2025-02-13_18-58-14_UTC.jpg",
-          "image_1k": "/data/instagram/vijay_sikanda/2025-02-13_18-58-14_UTC.jpg"
-        },
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2025-02-13_18-58-14_UTC.mp4",
-          "video": "/data/instagram/vijay_sikanda/2025-02-13_18-58-14_UTC.mp4"
+          "video_url": "/data/instagram/vijay_sikanda/2025-02-13_18-58-14_UTC.mp4",
+          "video": "/data/instagram/vijay_sikanda/2025-02-13_18-58-14_UTC.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2025-02-13_18-58-14_UTC.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2025-02-13_18-58-14_UTC.jpg",
+          "image": "/data/instagram/vijay_sikanda/2025-02-13_18-58-14_UTC.jpg"
         }
       ]
     },
@@ -163,7 +162,7 @@
       "image_1k": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_1.jpg",
       "link": "https://www.instagram.com/p/DDCI1bho3vz/",
       "network_name": "Instagram",
-      "type": "image",
+      "type": "carousel",
       "mergedMedia": [
         {
           "type": "image",
@@ -192,22 +191,38 @@
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_1.mp4",
-          "video": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_1.mp4"
+          "video": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_1.mp4",
+          "video_url": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_1.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_1.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_1.jpg",
+          "image": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_1.jpg"
         },
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_2.mp4",
-          "video": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_2.mp4"
+          "video": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_2.mp4",
+          "video_url": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_2.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_2.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_2.jpg",
+          "image": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_2.jpg"
         },
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_3.mp4",
-          "video": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_3.mp4"
+          "video": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_3.mp4",
+          "video_url": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_3.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_3.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_3.jpg",
+          "image": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_3.jpg"
         },
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_4.mp4",
-          "video": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_4.mp4"
+          "video": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_4.mp4",
+          "video_url": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_4.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_4.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_4.jpg",
+          "image": "/data/instagram/vijay_sikanda/2024-12-01_11-04-33_UTC_4.jpg"
         }
       ]
     },
@@ -226,18 +241,16 @@
       "image_1k": "/data/instagram/vijay_sikanda/2024-11-15_08-49-34_UTC.jpg",
       "link": "https://www.instagram.com/p/DCYr0l0p1T7/",
       "network_name": "Instagram",
-      "type": "image",
+      "type": "video",
       "mergedMedia": [
-        {
-          "type": "image",
-          "image": "/data/instagram/vijay_sikanda/2024-11-15_08-49-34_UTC.jpg",
-          "image_thumb": "/data/instagram/vijay_sikanda/2024-11-15_08-49-34_UTC.jpg",
-          "image_1k": "/data/instagram/vijay_sikanda/2024-11-15_08-49-34_UTC.jpg"
-        },
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2024-11-15_08-49-34_UTC.mp4",
-          "video": "/data/instagram/vijay_sikanda/2024-11-15_08-49-34_UTC.mp4"
+          "video_url": "/data/instagram/vijay_sikanda/2024-11-15_08-49-34_UTC.mp4",
+          "video": "/data/instagram/vijay_sikanda/2024-11-15_08-49-34_UTC.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2024-11-15_08-49-34_UTC.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2024-11-15_08-49-34_UTC.jpg",
+          "image": "/data/instagram/vijay_sikanda/2024-11-15_08-49-34_UTC.jpg"
         }
       ]
     },
@@ -255,7 +268,7 @@
       "image_1k": "/data/instagram/vijay_sikanda/2024-09-26_08-47-09_UTC_1.jpg",
       "link": "https://www.instagram.com/p/DAX8pO2oxqb/",
       "network_name": "Instagram",
-      "type": "image",
+      "type": "carousel",
       "mergedMedia": [
         {
           "type": "image",
@@ -335,7 +348,7 @@
       "image_1k": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_1.jpg",
       "link": "https://www.instagram.com/p/C_2mrqDoUIC/",
       "network_name": "Instagram",
-      "type": "image",
+      "type": "carousel",
       "mergedMedia": [
         {
           "type": "image",
@@ -400,52 +413,92 @@
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_1.mp4",
-          "video": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_1.mp4"
+          "video": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_1.mp4",
+          "video_url": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_1.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_1.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_1.jpg",
+          "image": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_1.jpg"
         },
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_10.mp4",
-          "video": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_10.mp4"
+          "video": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_10.mp4",
+          "video_url": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_10.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_10.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_10.jpg",
+          "image": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_10.jpg"
         },
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_2.mp4",
-          "video": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_2.mp4"
+          "video": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_2.mp4",
+          "video_url": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_2.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_2.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_2.jpg",
+          "image": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_2.jpg"
         },
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_3.mp4",
-          "video": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_3.mp4"
+          "video": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_3.mp4",
+          "video_url": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_3.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_3.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_3.jpg",
+          "image": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_3.jpg"
         },
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_4.mp4",
-          "video": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_4.mp4"
+          "video": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_4.mp4",
+          "video_url": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_4.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_4.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_4.jpg",
+          "image": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_4.jpg"
         },
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_5.mp4",
-          "video": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_5.mp4"
+          "video": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_5.mp4",
+          "video_url": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_5.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_5.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_5.jpg",
+          "image": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_5.jpg"
         },
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_6.mp4",
-          "video": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_6.mp4"
+          "video": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_6.mp4",
+          "video_url": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_6.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_6.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_6.jpg",
+          "image": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_6.jpg"
         },
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_7.mp4",
-          "video": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_7.mp4"
+          "video": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_7.mp4",
+          "video_url": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_7.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_7.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_7.jpg",
+          "image": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_7.jpg"
         },
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_8.mp4",
-          "video": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_8.mp4"
+          "video": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_8.mp4",
+          "video_url": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_8.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_8.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_8.jpg",
+          "image": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_8.jpg"
         },
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_9.mp4",
-          "video": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_9.mp4"
+          "video": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_9.mp4",
+          "video_url": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_9.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_9.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_9.jpg",
+          "image": "/data/instagram/vijay_sikanda/2024-09-13_10-00-18_UTC_9.jpg"
         }
       ]
     },
@@ -465,7 +518,7 @@
       "image_1k": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_1.jpg",
       "link": "https://www.instagram.com/p/C89Nq88o8Qi/",
       "network_name": "Instagram",
-      "type": "image",
+      "type": "carousel",
       "mergedMedia": [
         {
           "type": "image",
@@ -518,42 +571,74 @@
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_1.mp4",
-          "video": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_1.mp4"
+          "video": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_1.mp4",
+          "video_url": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_1.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_1.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_1.jpg",
+          "image": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_1.jpg"
         },
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_2.mp4",
-          "video": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_2.mp4"
+          "video": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_2.mp4",
+          "video_url": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_2.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_2.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_2.jpg",
+          "image": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_2.jpg"
         },
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_3.mp4",
-          "video": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_3.mp4"
+          "video": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_3.mp4",
+          "video_url": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_3.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_3.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_3.jpg",
+          "image": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_3.jpg"
         },
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_4.mp4",
-          "video": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_4.mp4"
+          "video": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_4.mp4",
+          "video_url": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_4.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_4.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_4.jpg",
+          "image": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_4.jpg"
         },
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_5.mp4",
-          "video": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_5.mp4"
+          "video": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_5.mp4",
+          "video_url": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_5.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_5.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_5.jpg",
+          "image": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_5.jpg"
         },
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_6.mp4",
-          "video": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_6.mp4"
+          "video": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_6.mp4",
+          "video_url": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_6.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_6.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_6.jpg",
+          "image": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_6.jpg"
         },
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_7.mp4",
-          "video": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_7.mp4"
+          "video": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_7.mp4",
+          "video_url": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_7.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_7.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_7.jpg",
+          "image": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_7.jpg"
         },
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_8.mp4",
-          "video": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_8.mp4"
+          "video": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_8.mp4",
+          "video_url": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_8.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_8.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_8.jpg",
+          "image": "/data/instagram/vijay_sikanda/2024-07-03_10-02-15_UTC_8.jpg"
         }
       ]
     },
@@ -678,9 +763,9 @@
       "type": "image",
       "url": "https://www.flickr.com/photos/23689211@N04/47019127982/",
       "link": "https://www.flickr.com/photos/23689211@N04/47019127982/",
-      "image": "https://live.staticflickr.com/7803/47019127982_2be3bcac4d_o.jpg",
+      "image": "https://live.staticflickr.com/7803/47019127982_cd736c7e0b_s.jpg",
       "image_thumb": "https://live.staticflickr.com/7803/47019127982_cd736c7e0b_s.jpg",
-      "image_1k": "https://live.staticflickr.com/7803/47019127982_cd736c7e0b_b.jpg",
+      "image_1k": "https://live.staticflickr.com/7803/47019127982_cd736c7e0b_s.jpg",
       "image_2k": "https://live.staticflickr.com/7803/47019127982_cc6f56c2fc_k.jpg",
       "image_3k": "https://live.staticflickr.com/7803/47019127982_2be3bcac4d_o.jpg",
       "image_large": "https://live.staticflickr.com/7803/47019127982_2be3bcac4d_o.jpg",
@@ -750,7 +835,8 @@
         "Party",
         "Selected"
       ],
-      "media": []
+      "media": [],
+      "type": "image"
     },
     {
       "id": "17746148879570.4438794372731646",
@@ -795,7 +881,7 @@
       "image_1k": "/data/instagram/vijay_sikanda/2019-07-13_11-21-48_UTC_1.jpg",
       "link": "https://www.instagram.com/p/Bz2uZtjAqCS/",
       "network_name": "Instagram",
-      "type": "image",
+      "type": "carousel",
       "mergedMedia": [
         {
           "type": "image",
@@ -820,7 +906,8 @@
         "Selected",
         "Mapping"
       ],
-      "media": []
+      "media": [],
+      "type": "image"
     },
     {
       "id": "17746219858960.34387094550378694",
@@ -1027,7 +1114,8 @@
         "Party",
         "Selected"
       ],
-      "media": []
+      "media": [],
+      "type": "image"
     },
     {
       "id": "BhQiomGAnOL",
@@ -1043,18 +1131,16 @@
       "image_1k": "/data/instagram/vijay_sikanda/2018-04-07_06-05-04_UTC.jpg",
       "link": "https://www.instagram.com/p/BhQiomGAnOL/",
       "network_name": "Instagram",
-      "type": "image",
+      "type": "video",
       "mergedMedia": [
-        {
-          "type": "image",
-          "image": "/data/instagram/vijay_sikanda/2018-04-07_06-05-04_UTC.jpg",
-          "image_thumb": "/data/instagram/vijay_sikanda/2018-04-07_06-05-04_UTC.jpg",
-          "image_1k": "/data/instagram/vijay_sikanda/2018-04-07_06-05-04_UTC.jpg"
-        },
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2018-04-07_06-05-04_UTC.mp4",
-          "video": "/data/instagram/vijay_sikanda/2018-04-07_06-05-04_UTC.mp4"
+          "video_url": "/data/instagram/vijay_sikanda/2018-04-07_06-05-04_UTC.mp4",
+          "video": "/data/instagram/vijay_sikanda/2018-04-07_06-05-04_UTC.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2018-04-07_06-05-04_UTC.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2018-04-07_06-05-04_UTC.jpg",
+          "image": "/data/instagram/vijay_sikanda/2018-04-07_06-05-04_UTC.jpg"
         }
       ]
     },
@@ -1193,18 +1279,16 @@
       "image_1k": "/data/instagram/vijay_sikanda/2016-11-19_01-57-17_UTC.jpg",
       "link": "https://www.instagram.com/p/BM-V527DafV/",
       "network_name": "Instagram",
-      "type": "image",
+      "type": "video",
       "mergedMedia": [
-        {
-          "type": "image",
-          "image": "/data/instagram/vijay_sikanda/2016-11-19_01-57-17_UTC.jpg",
-          "image_thumb": "/data/instagram/vijay_sikanda/2016-11-19_01-57-17_UTC.jpg",
-          "image_1k": "/data/instagram/vijay_sikanda/2016-11-19_01-57-17_UTC.jpg"
-        },
         {
           "type": "video",
           "url": "/data/instagram/vijay_sikanda/2016-11-19_01-57-17_UTC.mp4",
-          "video": "/data/instagram/vijay_sikanda/2016-11-19_01-57-17_UTC.mp4"
+          "video_url": "/data/instagram/vijay_sikanda/2016-11-19_01-57-17_UTC.mp4",
+          "video": "/data/instagram/vijay_sikanda/2016-11-19_01-57-17_UTC.mp4",
+          "image_thumb": "/data/instagram/vijay_sikanda/2016-11-19_01-57-17_UTC.jpg",
+          "image_1k": "/data/instagram/vijay_sikanda/2016-11-19_01-57-17_UTC.jpg",
+          "image": "/data/instagram/vijay_sikanda/2016-11-19_01-57-17_UTC.jpg"
         }
       ]
     },
@@ -1307,7 +1391,7 @@
       "image_1k": "/data/instagram/vijay_sikanda/2021-12-02_11-05-43_UTC_1.jpg",
       "link": "https://www.instagram.com/p/CW-mh1YICTN/",
       "network_name": "Instagram",
-      "type": "image",
+      "type": "carousel",
       "mergedMedia": [
         {
           "type": "image",
@@ -1873,7 +1957,8 @@
       "states": [
         "All"
       ],
-      "media": []
+      "media": [],
+      "type": "image"
     },
     {
       "id": "34781995672",
@@ -3109,7 +3194,8 @@
         "Selected",
         "Party"
       ],
-      "media": []
+      "media": [],
+      "type": "image"
     },
     {
       "id": "6312279716",
