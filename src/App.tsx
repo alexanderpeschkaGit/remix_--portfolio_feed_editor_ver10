@@ -458,7 +458,7 @@ export default function App() {
       let newPosts = prevPosts.filter(p => !groupIds.has(p.id));
       newPosts.splice(firstPostIndex, 0, newPost);
       return newPosts;
-    });
+    }, `Gruppe zusammengeführt (${newTitle})`);
 
     processNextMerge(mergeQueue);
   };
@@ -954,7 +954,8 @@ export default function App() {
               try {
                 const stateRes = await fetch('/api/state');
                 const stateData = await stateRes.json();
-                updatePosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items));
+                const newCount = (stateData.items || []).filter((i: any) => !flickrPostsRef.current.some((p: any) => String(p.id) === String(i.id))).length;
+                updatePosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items), `Scraping beendet (${newCount} neue Posts)`);
                 setIsFlickrFallback(false);
                 
                 
@@ -1007,7 +1008,8 @@ export default function App() {
               // Refresh state
               const stateRes = await fetch('/api/state');
               const stateData = await stateRes.json();
-              updatePosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items));
+              const newCount = (stateData.items || []).filter((i: any) => !flickrPostsRef.current.some((p: any) => String(p.id) === String(i.id))).length;
+              updatePosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items), `High-Res Sync beendet (${newCount} neue Posts)`);
             }
           }
         } catch (e) {
@@ -1036,7 +1038,12 @@ export default function App() {
         // Refresh state
         const stateRes = await fetch('/api/state');
         const stateData = await stateRes.json();
-        setFlickrPosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items));
+        const hasNew = (stateData.items || []).some((i: any) => !flickrPostsRef.current.some((p: any) => String(p.id) === String(i.id)));
+        if (hasNew) {
+          updatePosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items), 'High-Res Match bestätigt');
+        } else {
+          setFlickrPosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items));
+        }
       }
     } catch (e) {
       console.error("Confirm match error:", e);
@@ -1308,6 +1315,14 @@ export default function App() {
     };
   }, [flickrPosts, portfolioTitle, portfolioSubtitle]);
 
+  // Beschreibung für Undo/Redo-Tooltips: Post-Titel + Quelle (network_name), falls nicht "Custom"
+  const describePost = (post: any) => {
+    const title = post?.title || 'Unbenannt';
+    const network = post?.network_name;
+    if (network && network !== 'Custom') return `${title} · ${network}`;
+    return title;
+  };
+
   const updatePosts = (newPosts: any[] | ((p: any[]) => any[]), actionDescription: string = 'Aktion durchgeführt') => {
     setFlickrPosts(current => {
       const next = typeof newPosts === 'function' ? newPosts(current) : newPosts;
@@ -1408,7 +1423,7 @@ export default function App() {
   };
 
   const handleToggleHidden = (postId: string) => {
-    const targetTitle = flickrPosts.find(p => String(p.id) === String(postId))?.title || 'Unbenannt';
+    const targetTitle = describePost(flickrPosts.find(p => String(p.id) === String(postId)));
     updatePosts(posts => posts.map(post => {
       if (String(post.id) === String(postId)) {
         return { ...post, hidden: !post.hidden };
@@ -1418,7 +1433,7 @@ export default function App() {
   };
 
   const handleStateToggle = (postId: string, stateId: string) => {
-    const targetTitle = flickrPosts.find(p => String(p.id) === String(postId))?.title || 'Unbenannt';
+    const targetTitle = describePost(flickrPosts.find(p => String(p.id) === String(postId)));
     updatePosts(posts => posts.map(post => {
       if (String(post.id) === String(postId)) {
         const states = post.states || [];
@@ -1435,7 +1450,7 @@ export default function App() {
   };
 
   const handlePostChange = (id: string, field: string, value: string) => {
-    const targetTitle = flickrPosts.find(p => String(p.id) === String(id))?.title || 'Unbenannt';
+    const targetTitle = describePost(flickrPosts.find(p => String(p.id) === String(id)));
     updatePosts(posts => posts.map(post => 
       String(post.id) === String(id) ? { ...post, [field]: value } : post
     ), `Textfeld bearbeitet (${targetTitle})`);
@@ -1450,12 +1465,12 @@ export default function App() {
       type: 'image',
       states: []
     };
-    updatePosts([newPost, ...flickrPosts], 'Neuen Post hinzugefügt');
+    updatePosts([newPost, ...flickrPosts], 'Neuen Post hinzugefügt (Custom)');
     setIsEditing(true);
   };
 
   const handleDeletePost = (id: string) => {
-    const targetTitle = flickrPosts.find(p => String(p.id) === String(id))?.title || 'Unbenannt';
+    const targetTitle = describePost(flickrPosts.find(p => String(p.id) === String(id)));
     updatePosts(
       posts => posts.filter(post => String(post.id) !== String(id)),
       `Post gelöscht (${targetTitle})`
@@ -1463,7 +1478,7 @@ export default function App() {
   };
 
   const handleMergeDown = (index: number) => {
-    const targetTitle = flickrPosts[index]?.title || 'Unbenannt';
+    const targetTitle = describePost(flickrPosts[index]);
     updatePosts(posts => {
       const newPosts = [...posts];
       const current = newPosts[index];
@@ -1524,7 +1539,7 @@ export default function App() {
     // FIX #3: Strikte Filter-Logik - Phantom-Elemente entfernen
     // uploadId ist NUR während des Uploads erlaubt, danach müssen finale URLs vorhanden sein
     const newMedia = newMediaRaw.filter(hasRenderableMedia);
-    const targetTitle = flickrPosts.find(p => String(p.id) === String(id))?.title || 'Unbenannt';
+    const targetTitle = describePost(flickrPosts.find(p => String(p.id) === String(id)));
     updatePosts(posts => posts.map(post => {
       if (String(post.id) === String(id)) {
         const updatedPost = { ...post, mergedMedia: newMedia };
@@ -1549,10 +1564,11 @@ export default function App() {
     const remainingPosts = flickrPosts.filter(p => !selectedThumbnails.includes(String(p.id)));
     
     const targetIndex = remainingPosts.findIndex(p => String(p.id) === String(targetId));
+    const firstTitle = describePost(selectedPosts[0]);
     
     if (targetIndex === -1) {
       // If target not found, just append to the end
-      updatePosts([...remainingPosts, ...selectedPosts], `Posts verschoben (${selectedPosts.length} Elemente)`);
+      updatePosts([...remainingPosts, ...selectedPosts], `Posts verschoben (${selectedPosts.length}, u.a. ${firstTitle})`);
     } else {
       // Insert selected items AFTER the target item
       const newPosts = [
@@ -1560,7 +1576,7 @@ export default function App() {
         ...selectedPosts,
         ...remainingPosts.slice(targetIndex + 1)
       ];
-      updatePosts(newPosts, `Posts verschoben (${selectedPosts.length} Elemente)`);
+      updatePosts(newPosts, `Posts verschoben (${selectedPosts.length}, u.a. ${firstTitle})`);
     }
     
     setIsMoving(false);
@@ -1697,7 +1713,7 @@ export default function App() {
         return { ...cleanOldUrls(post), uploadId, image_preview: localUrl, type: 'image' };
       }
       return post;
-    }), `Lokales Bild hinzugefügt (${flickrPosts.find(p => String(p.id) === String(id))?.title || 'Unbenannt'})`);
+    }), `Lokales Bild hinzugefügt (${describePost(flickrPosts.find(p => String(p.id) === String(id)))})`);
 
     try {
       const formData = new FormData();
@@ -1847,7 +1863,7 @@ export default function App() {
           }
         }
         return post;
-      }), `Bild hochgeladen (${flickrPosts.find(p => String(p.id) === String(id))?.title || 'Unbenannt'})`);
+      }), `Bild hochgeladen (${describePost(flickrPosts.find(p => String(p.id) === String(id)))})`);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -1899,7 +1915,7 @@ export default function App() {
         ? post.mergedMedia.filter(hasRenderableMedia)
         : [];
       return { ...post, mergedMedia: [...existingMedia, newItem] };
-    }), `Video wird hochgeladen…`);
+    }), `Video-Upload gestartet (${describePost(post)})`);
 
     // Show initial progress
     setBunnyProgress(prev => ({ ...prev, [id]: { step: 'local', progress: 10, text: 'Speichere lokal & extrahiere Vorschau…' } }));
@@ -1985,7 +2001,7 @@ export default function App() {
         }
 
         return { ...post, mergedMedia: newMedia };
-      }), `Video lokal gespeichert ✓`);
+      }), `Video lokal gespeichert (${describePost(flickrPosts.find(p => String(p.id) === String(id)))})`);
 
       // ── Poll Bunny background task if available ──
       if (bunnyTaskId) {
@@ -2056,7 +2072,7 @@ export default function App() {
                   };
                 }
                 return { ...post, mergedMedia: newMedia };
-              }), `Bunny-Upload abgeschlossen ✓`);
+              }), `Bunny-Upload abgeschlossen (${describePost(flickrPosts.find(p => String(p.id) === String(id)))})`);
               // Clear progress after short delay
               setTimeout(() => setBunnyProgress(prev => { const n = { ...prev }; delete n[id]; return n; }), 3000);
               return;
@@ -2156,7 +2172,7 @@ export default function App() {
                image_3k: data.image_3k,
                duration: data.duration
              } : post
-           ), `Bunny Video hinzugefügt`);
+           ), `Bunny Video hinzugefügt (${describePost(flickrPosts.find(p => String(p.id) === String(id)))})`);
         } else {
            console.error("Failed to sync Bunny video", data.error);
            alert("Fehler beim Abrufen der Bunny.net Metadaten: " + data.error);
@@ -2172,7 +2188,7 @@ export default function App() {
           libraryId: bunnyLibraryId,
           url: url
         } : post
-      ));
+      ), 'Bunny Video wird verarbeitet…');
     } else if (youtubeId) {
       const thumbnailUrl = `https://img.youtube.com/vi/${youtubeId}/maxresdefault.jpg`;
       shouldPushStateToR2Ref.current = true;
@@ -2186,7 +2202,7 @@ export default function App() {
           type: 'youtube',
           url: url
         } : post
-      ), `YouTube Link hinzugefügt (${flickrPosts.find(p => String(p.id) === String(id))?.title || 'Unbenannt'})`);
+      ), `YouTube Link hinzugefügt (${describePost(flickrPosts.find(p => String(p.id) === String(id)))})`);
     } else {
       handlePostChange(id, 'url', url); // fallback
     }
@@ -3815,7 +3831,7 @@ export default function App() {
     setActiveId(null);
 
     if (over && active.id !== over.id) {
-      const targetTitle = flickrPosts.find(p => String(p.id) === String(active.id))?.title || 'Unbenannt';
+      const targetTitle = describePost(flickrPosts.find(p => String(p.id) === String(active.id)));
       updatePosts((items) => {
         const oldIndex = items.findIndex((item) => item.id === active.id);
         const newIndex = items.findIndex((item) => item.id === over.id);
@@ -3866,7 +3882,7 @@ export default function App() {
         if (items) {
           // Use the functional update to ensure we have the latest state for history
           setFlickrPosts(current => {
-            setPast(p => [...p, { posts: current, action: 'Backup wiederhergestellt' }].slice(-50));
+            setPast(p => [...p, { posts: current, action: `Backup wiederhergestellt (${filename})` }].slice(-50));
             setFuture([]);
             return items;
           });
@@ -3993,7 +4009,7 @@ export default function App() {
 
         return post;
       });
-    }, `Medienelement(e) verschoben (${typeLabel})`);
+    }, `Medienelement(e) verschoben (${typeLabel} → ${describePost(targetPost)})`);
 
     for (const m of movedMediaItems) {
       if (m.type === 'bunny' && m.videoId) {
@@ -4078,7 +4094,7 @@ export default function App() {
     updatePosts(prev => {
       const filtered = prev.filter(p => !selectedThumbnails.includes(String(p.id)) || String(p.id) === String(mainPost.id));
       return filtered.map(p => String(p.id) === String(mainPost.id) ? mainPost : p);
-    }, `Posts zusammengeführt (${mainPost.title || 'Unbenannt'})`);
+    }, `Posts zusammengeführt (${describePost(mainPost)})`);
 
     // Stay in rearrange mode and select the newly merged post
     setSelectedThumbnails([String(mainPost.id)]);
@@ -4103,7 +4119,7 @@ export default function App() {
         // Remove from local state - filter out deleted posts by id
         updatePosts(
           prev => prev.filter(post => !idsToDelete.includes(String(post.id))),
-          'Mehrere Posts gelöscht'
+          `${idsToDelete.length} Posts gelöscht`
         );
         setSelectedThumbnails([]);
         alert(`${data.deletedCount} Element(e) und ${data.filesDeleted} Datei(en) erfolgreich gelöscht.`);

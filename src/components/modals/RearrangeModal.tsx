@@ -302,7 +302,7 @@ export const RearrangeModal: React.FC<RearrangeModalProps> = (props) => {
               >
                 <Undo2 className="w-4 h-4" />
                 {past.length > 0 && (
-                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-1 bg-white text-black text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none whitespace-nowrap z-[60] shadow-xl">
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-1 bg-white text-black text-[10px] rounded opacity-0 -translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 ease-out pointer-events-none whitespace-normal text-center max-w-[280px] z-[60] shadow-xl after:content-[''] after:absolute after:bottom-full after:left-1/2 after:-translate-x-1/2 after:border-[6px] after:border-transparent after:border-b-white">
                     Undo: {past[past.length - 1].action}
                   </div>
                 )}
@@ -314,7 +314,7 @@ export const RearrangeModal: React.FC<RearrangeModalProps> = (props) => {
               >
                 <Redo2 className="w-4 h-4" />
                 {future.length > 0 && (
-                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-1 bg-white text-black text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none whitespace-nowrap z-[60] shadow-xl">
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-1 bg-white text-black text-[10px] rounded opacity-0 -translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 ease-out pointer-events-none whitespace-normal text-center max-w-[280px] z-[60] shadow-xl after:content-[''] after:absolute after:bottom-full after:left-1/2 after:-translate-x-1/2 after:border-[6px] after:border-transparent after:border-b-white">
                     Redo: {future[future.length - 1].action}
                   </div>
                 )}
