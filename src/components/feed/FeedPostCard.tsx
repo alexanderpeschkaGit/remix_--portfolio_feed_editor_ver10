@@ -837,7 +837,7 @@ export function FeedPostCard({
                         src={getDisplayImage(getPreviewImageSrc(media) ?? undefined, isR2Fallback, isEmbeddedData)}
                         alt=""
                         className="w-full h-24 object-cover rounded cursor-pointer"
-                        onClick={(e) => e.stopPropagation()}
+                        onClick={() => setSelectedImage(post)}
                         onError={(e) => {
                           const img = e.currentTarget as HTMLImageElement;
                           img.style.display = 'none';
@@ -853,7 +853,7 @@ export function FeedPostCard({
                         loop
                         muted
                         playsInline
-                        onClick={(e) => e.stopPropagation()}
+                        onClick={() => setSelectedImage(post)}
                       />
                     ) : (
                       <>
@@ -867,14 +867,14 @@ export function FeedPostCard({
                       src={getDisplayImage(getVideoSrc(media) ?? undefined, isR2Fallback, isEmbeddedData)} 
                       className="w-full h-24 object-cover rounded cursor-pointer"
                       autoPlay loop muted playsInline
-                      onClick={(e) => e.stopPropagation()}
+                      onClick={() => setSelectedImage(post)}
                     />
                   ) : (
                     <img 
                       src={getDisplayImage(getImageSrc(media) ?? undefined, isR2Fallback, isEmbeddedData)} 
                       alt="" 
                       className="w-full h-24 object-cover rounded cursor-pointer"
-                      onClick={(e) => e.stopPropagation()}
+                      onClick={() => setSelectedImage(post)}
                       onError={(e) => {
                         const target = e.currentTarget;
                         if (target.src.includes('maxresdefault.jpg')) {
