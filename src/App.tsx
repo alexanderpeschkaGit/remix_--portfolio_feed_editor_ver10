@@ -345,15 +345,62 @@ export default function App() {
   const [hasUnsyncedMedia, setHasUnsyncedMedia] = useState(false);
   const [hasUnpublishedChanges, setHasUnpublishedChanges] = useState(false);
 
-  // Shared drag state for cross-post media movement
-  const [activeMediaDrag, setActiveMediaDrag] = useState<{ sourcePostId: string; mediaIndex: number; mediaItem: any } | null>(null);
+  // Shared drag state for cross-post media movement — uses mediaIndices array (supports batch)
+  const [activeMediaDrag, setActiveMediaDrag] = useState<{ sourcePostId: string; mediaIndices: number[]; mediaItem: any } | null>(null);
 
-  const handleMediaDragStart = (sourcePostId: string, mediaIndex: number, mediaItem: any) => {
-    setActiveMediaDrag({ sourcePostId, mediaIndex, mediaItem });
+  const handleMediaDragStart = (sourcePostId: string, mediaIndices: number[], mediaItem: any) => {
+    setActiveMediaDrag({ sourcePostId, mediaIndices, mediaItem });
   };
 
   const handleMediaDragEnd = () => {
     setActiveMediaDrag(null);
+  };
+
+  // Multi-selection state for Ctrl+Click / Shift+Click on media items
+  type MediaSelection = { sourcePostId: string; mediaIndices: number[]; lastClickedIndex: number } | null;
+  const [mediaSelection, setMediaSelection] = useState<MediaSelection>(null);
+
+  const clearMediaSelection = () => setMediaSelection(null);
+
+  const handleMediaClick = (postId: string, mediaIndex: number, ctrlKey: boolean, shiftKey: boolean) => {
+    setMediaSelection(prev => {
+      if (prev && prev.sourcePostId !== postId && !ctrlKey) {
+        return { sourcePostId: postId, mediaIndices: [mediaIndex], lastClickedIndex: mediaIndex };
+      }
+      if (prev && prev.sourcePostId !== postId && ctrlKey) {
+        return prev;
+      }
+      if (!prev) {
+        return { sourcePostId: postId, mediaIndices: [mediaIndex], lastClickedIndex: mediaIndex };
+      }
+      if (shiftKey && prev.lastClickedIndex !== null) {
+        const start = Math.min(prev.lastClickedIndex, mediaIndex);
+        const end = Math.max(prev.lastClickedIndex, mediaIndex);
+        const range: number[] = [];
+        for (let i = start; i <= end; i++) range.push(i);
+        const merged = Array.from(new Set([...prev.mediaIndices, ...range])).sort((a, b) => a - b);
+        return { ...prev, mediaIndices: merged, lastClickedIndex: mediaIndex };
+      }
+      if (ctrlKey) {
+        const exists = prev.mediaIndices.includes(mediaIndex);
+        const newIndices = exists
+          ? prev.mediaIndices.filter(i => i !== mediaIndex)
+          : [...prev.mediaIndices, mediaIndex].sort((a, b) => a - b);
+        if (newIndices.length === 0) return null;
+        return { ...prev, mediaIndices: newIndices, lastClickedIndex: mediaIndex };
+      }
+      if (prev.mediaIndices.length === 1 && prev.mediaIndices[0] === mediaIndex) {
+        return null;
+      }
+      return { sourcePostId: postId, mediaIndices: [mediaIndex], lastClickedIndex: mediaIndex };
+    });
+  };
+
+  const handleMediaAltClick = (targetPostId: string, targetMediaIndex?: number) => {
+    if (!mediaSelection) return;
+    if (mediaSelection.sourcePostId === targetPostId) return;
+    handleCrossPostMediaDrop(mediaSelection.sourcePostId, mediaSelection.mediaIndices, targetPostId, targetMediaIndex);
+    clearMediaSelection();
   };
 
   const uploadingCount = Object.values(activeUploads).reduce((sum: number, count: number) => sum + count, 0);
@@ -830,6 +877,10 @@ export default function App() {
         handleRedo();
       }
       if (e.key === 'Escape') {
+        if (mediaSelection) {
+          clearMediaSelection();
+          return;
+        }
         setSelectedImage(null);
         setIsHoveringLightboxBg(false);
       }
@@ -3875,60 +3926,55 @@ export default function App() {
 
   const currentLightboxPost = selectedImage ? (flickrPosts.find(p => String(p.id) === String(selectedImage.id)) || selectedImage) : null;
 
-  const handleCrossPostMediaDrop = (sourcePostId: string, mediaIndex: number, targetPostId: string, targetMediaIndex?: number) => {
+  const handleCrossPostMediaDrop = (sourcePostId: string, mediaIndices: number[], targetPostId: string, targetMediaIndex?: number) => {
     if (sourcePostId === targetPostId) return;
+    if (!mediaIndices || mediaIndices.length === 0) return;
 
     const sourcePost = flickrPosts.find(p => String(p.id) === String(sourcePostId));
     const targetPost = flickrPosts.find(p => String(p.id) === String(targetPostId));
     if (!sourcePost || !targetPost) return;
 
     const sourceMedia = sourcePost.mergedMedia || [];
-    if (mediaIndex < 0 || mediaIndex >= sourceMedia.length) return;
+    for (const idx of mediaIndices) {
+      if (idx < 0 || idx >= sourceMedia.length) return;
+    }
 
-    const movedMedia = { ...sourceMedia[mediaIndex] };
+    const sortedIndices = [...mediaIndices].sort((a, b) => a - b);
+    const movedMediaItems = sortedIndices.map(i => ({ ...sourceMedia[i] }));
+    const typeLabel = movedMediaItems.length === 1
+      ? (movedMediaItems[0].type || 'Bild/Video')
+      : `${movedMediaItems.length} Medien`;
 
     updatePosts((posts: any[]) => {
       return posts.map(post => {
         const postId = String(post.id);
 
         if (postId === String(sourcePostId)) {
-          // Remove media from source
           const newSourceMedia = [...(post.mergedMedia || [])];
-          newSourceMedia.splice(mediaIndex, 1);
+          const descending = [...sortedIndices].sort((a, b) => b - a);
+          for (const idx of descending) {
+            newSourceMedia.splice(idx, 1);
+          }
           const updatedPost = { ...post, mergedMedia: newSourceMedia };
           const newPrimary = newSourceMedia.length > 0 ? getPrimaryMergedMedia(newSourceMedia) : undefined;
           if (newPrimary) {
             return syncMediaFieldsFromPrimary(updatedPost, newPrimary);
           }
-          // Clear top-level fields if no media left (keep post shell)
           return {
             ...updatedPost,
-            type: 'image',
-            image: '',
-            image_thumb: '',
-            image_1k: '',
-            image_2k: '',
-            image_3k: '',
-            image_large: '',
-            image_original: '',
-            image_preview: '',
-            url: '',
-            youtubeId: '',
-            youtubeUrl: '',
-            videoId: '',
-            libraryId: '',
-            image_width: 0,
-            image_height: 0,
+            type: 'image', image: '', image_thumb: '', image_1k: '', image_2k: '',
+            image_3k: '', image_large: '', image_original: '', image_preview: '',
+            url: '', youtubeId: '', youtubeUrl: '', videoId: '', libraryId: '',
+            image_width: 0, image_height: 0,
           };
         }
 
         if (postId === String(targetPostId)) {
-          // Add media to target
           const newTargetMedia = [...(post.mergedMedia || [])];
           if (targetMediaIndex !== undefined && targetMediaIndex >= 0 && targetMediaIndex <= newTargetMedia.length) {
-            newTargetMedia.splice(targetMediaIndex, 0, movedMedia);
+            newTargetMedia.splice(targetMediaIndex, 0, ...movedMediaItems);
           } else {
-            newTargetMedia.push(movedMedia);
+            newTargetMedia.push(...movedMediaItems);
           }
           const updatedPost = { ...post, mergedMedia: newTargetMedia };
           const newPrimary = getPrimaryMergedMedia(newTargetMedia);
@@ -3940,22 +3986,21 @@ export default function App() {
 
         return post;
       });
-    }, `Medienelement verschoben (${movedMedia.type || 'Bild/Video'})`);
+    }, `Medienelement(e) verschoben (${typeLabel})`);
 
-    // Trigger Bunny metadata sync if the moved media is a bunny video
-    if (movedMedia.type === 'bunny' && movedMedia.videoId) {
-      const targetTitle = targetPost.title || '';
-      const targetDesc = targetPost.description || '';
-      fetch('/api/bunny/update-video-metadata', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          videoId: movedMedia.videoId,
-          libraryId: movedMedia.libraryId || '',
-          title: targetTitle,
-          description: targetDesc,
-        }),
-      }).catch(() => {});
+    for (const m of movedMediaItems) {
+      if (m.type === 'bunny' && m.videoId) {
+        fetch('/api/bunny/update-video-metadata', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            videoId: m.videoId,
+            libraryId: m.libraryId || '',
+            title: targetPost.title || '',
+            description: targetPost.description || '',
+          }),
+        }).catch(() => {});
+      }
     }
 
     handleMediaDragEnd();
@@ -4408,6 +4453,11 @@ export default function App() {
           onMediaDragStart={handleMediaDragStart}
           onMediaDragEnd={handleMediaDragEnd}
           onCrossPostMediaDrop={handleCrossPostMediaDrop}
+          // Multi-select click handlers
+          mediaSelection={mediaSelection}
+          onMediaClick={handleMediaClick}
+          onMediaAltClick={handleMediaAltClick}
+          clearMediaSelection={clearMediaSelection}
         />
       )}
 

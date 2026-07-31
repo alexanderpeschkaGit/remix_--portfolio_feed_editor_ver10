@@ -41,10 +41,15 @@ interface ThumbnailGalleryGridProps {
   isValidImageCandidate?: (url?: string) => boolean;
   bunnyProgress?: Record<string, { step: string; progress: number; text: string }>;
   // Cross-post media drag props
-  activeMediaDrag: { sourcePostId: string; mediaIndex: number; mediaItem: any } | null;
-  onMediaDragStart: (sourcePostId: string, mediaIndex: number, mediaItem: any) => void;
+  activeMediaDrag: { sourcePostId: string; mediaIndices: number[]; mediaItem: any } | null;
+  onMediaDragStart: (sourcePostId: string, mediaIndices: number[], mediaItem: any) => void;
   onMediaDragEnd: () => void;
-  onCrossPostMediaDrop: (sourcePostId: string, mediaIndex: number, targetPostId: string, targetMediaIndex?: number) => void;
+  onCrossPostMediaDrop: (sourcePostId: string, mediaIndices: number[], targetPostId: string, targetMediaIndex?: number) => void;
+  // Multi-select click handlers
+  mediaSelection: { sourcePostId: string; mediaIndices: number[]; lastClickedIndex: number } | null;
+  onMediaClick: (postId: string, mediaIndex: number, ctrlKey: boolean, shiftKey: boolean) => void;
+  onMediaAltClick: (targetPostId: string, targetMediaIndex?: number) => void;
+  clearMediaSelection: () => void;
 }
 
 export function ThumbnailGalleryGrid({
@@ -78,6 +83,10 @@ export function ThumbnailGalleryGrid({
   onMediaDragStart,
   onMediaDragEnd,
   onCrossPostMediaDrop,
+  mediaSelection,
+  onMediaClick,
+  onMediaAltClick,
+  clearMediaSelection,
 }: ThumbnailGalleryGridProps) {
   return (
     <div className="relative w-full">
@@ -126,6 +135,10 @@ export function ThumbnailGalleryGrid({
               onMediaDragStart={onMediaDragStart}
               onMediaDragEnd={onMediaDragEnd}
               onCrossPostMediaDrop={onCrossPostMediaDrop}
+              mediaSelection={mediaSelection}
+              onMediaClick={onMediaClick}
+              onMediaAltClick={onMediaAltClick}
+              clearMediaSelection={clearMediaSelection}
             />
           ))}
         </div>

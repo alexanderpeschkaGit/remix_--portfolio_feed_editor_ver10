@@ -33,10 +33,15 @@ interface FeedPostCardProps {
   handleToggleHidden: (postId: string) => void;
   bunnyProgress?: Record<string, { step: string; progress: number; text: string }>;
   // Cross-post media drag props
-  activeMediaDrag: { sourcePostId: string; mediaIndex: number; mediaItem: any } | null;
-  onMediaDragStart: (sourcePostId: string, mediaIndex: number, mediaItem: any) => void;
+  activeMediaDrag: { sourcePostId: string; mediaIndices: number[]; mediaItem: any } | null;
+  onMediaDragStart: (sourcePostId: string, mediaIndices: number[], mediaItem: any) => void;
   onMediaDragEnd: () => void;
-  onCrossPostMediaDrop: (sourcePostId: string, mediaIndex: number, targetPostId: string, targetMediaIndex?: number) => void;
+  onCrossPostMediaDrop: (sourcePostId: string, mediaIndices: number[], targetPostId: string, targetMediaIndex?: number) => void;
+  // Multi-select click handlers
+  mediaSelection: { sourcePostId: string; mediaIndices: number[]; lastClickedIndex: number } | null;
+  onMediaClick: (postId: string, mediaIndex: number, ctrlKey: boolean, shiftKey: boolean) => void;
+  onMediaAltClick: (targetPostId: string, targetMediaIndex?: number) => void;
+  clearMediaSelection: () => void;
 }
 
 export function FeedPostCard({
@@ -46,7 +51,8 @@ export function FeedPostCard({
   handleImageUpload, handleVideoFileUpload, handlePostChange, handleVideoLinkChange, handleDeletePost,
   handleMergeDown, handleUpdatePostMedia, setSelectedImage, handleStateToggle, handleToggleHidden,
   bunnyProgress,
-  activeMediaDrag, onMediaDragStart, onMediaDragEnd, onCrossPostMediaDrop
+  activeMediaDrag, onMediaDragStart, onMediaDragEnd, onCrossPostMediaDrop,
+  mediaSelection, onMediaClick, onMediaAltClick, clearMediaSelection
 }: FeedPostCardProps) {
   const {
     attributes, listeners, setNodeRef, transform, transition, isDragging
@@ -334,7 +340,7 @@ export function FeedPostCard({
       e.preventDefault();
       e.stopPropagation();
       setIsMediaDragOvered(false);
-      onCrossPostMediaDrop(activeMediaDrag.sourcePostId, activeMediaDrag.mediaIndex, post.id, undefined);
+      onCrossPostMediaDrop(activeMediaDrag.sourcePostId, activeMediaDrag.mediaIndices, post.id, undefined);
       return;
     }
     // File upload drop
@@ -426,10 +432,15 @@ export function FeedPostCard({
   const handleMediaDragStart = (e: React.DragEvent, index: number) => {
     e.stopPropagation();
     const media = mediaItems[index];
-    if (media) {
-      onMediaDragStart(post.id, index, media);
-      e.dataTransfer.effectAllowed = 'move';
+    if (!media) return;
+
+    // If this item is part of a multi-selection, drag ALL selected items
+    if (mediaSelection && mediaSelection.sourcePostId === post.id && mediaSelection.mediaIndices.includes(index)) {
+      onMediaDragStart(post.id, mediaSelection.mediaIndices, media);
+    } else {
+      onMediaDragStart(post.id, [index], media);
     }
+    e.dataTransfer.effectAllowed = 'move';
   };
 
   const handleMediaDragOver = (e: React.DragEvent) => {
@@ -461,17 +472,28 @@ export function FeedPostCard({
 
     // Cross-post media drop
     if (activeMediaDrag && activeMediaDrag.sourcePostId !== post.id) {
-      onCrossPostMediaDrop(activeMediaDrag.sourcePostId, activeMediaDrag.mediaIndex, post.id, index);
+      onCrossPostMediaDrop(activeMediaDrag.sourcePostId, activeMediaDrag.mediaIndices, post.id, index);
       return;
     }
 
     // Intra-post reorder (shared drag state, same post)
     if (!activeMediaDrag || activeMediaDrag.sourcePostId !== post.id) return;
-    if (activeMediaDrag.mediaIndex === index) return;
+    const dragIndices = activeMediaDrag.mediaIndices;
+    if (dragIndices.length === 1 && dragIndices[0] === index) return;
 
     const newMedia = [...mediaItems];
-    const [draggedItem] = newMedia.splice(activeMediaDrag.mediaIndex, 1);
-    newMedia.splice(index, 0, draggedItem);
+    // Remove dragged items in descending order so indices stay valid
+    const descending = [...dragIndices].sort((a, b) => b - a);
+    const draggedItems = descending.map(i => {
+      const [item] = newMedia.splice(i, 1);
+      return item;
+    }).reverse(); // restore original order
+    // Insert at drop position
+    let insertIdx = index;
+    for (const di of descending) {
+      if (di < index) insertIdx--;
+    }
+    newMedia.splice(insertIdx, 0, ...draggedItems);
     handleUpdatePostMedia(post.id, newMedia);
     onMediaDragEnd();
   };
@@ -619,16 +641,26 @@ export function FeedPostCard({
                 />
               </label>
             </div>
-            {mediaItems.map((media: any, i: number) => (
+            {mediaItems.map((media: any, i: number) => {
+              const isSelected = !!(mediaSelection && mediaSelection.sourcePostId === post.id && mediaSelection.mediaIndices.includes(i));
+              return (
               <div 
                 key={i} 
-                className="relative w-full bg-black/30 border border-white/10 rounded p-2"
+                className={`relative w-full bg-black/30 rounded p-2 ${isSelected ? 'ring-2 ring-orange-400/70 border-orange-400 shadow-lg shadow-orange-400/10 scale-[1.01]' : 'border border-white/10'}`}
                 draggable
                 onDragStart={(e) => handleMediaDragStart(e, i)}
                 onDragOver={handleMediaDragOver}
                 onDrop={(e) => handleMediaDrop(e, i)}
                 onDragEnd={() => onMediaDragEnd()}
-                onClick={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (e.altKey && mediaSelection) {
+                    // Alt+Click: move selected items to this position in this post
+                    onMediaAltClick(post.id, i);
+                    return;
+                  }
+                  onMediaClick(post.id, i, e.ctrlKey, e.shiftKey);
+                }}
               >
                 <button 
                   onClick={(e) => { e.stopPropagation(); removeMedia(i); }}
@@ -859,7 +891,7 @@ export function FeedPostCard({
                   </div>
                 )}
               </div>
-            ))}
+            )})}
           </div>
         ) : (
           <>
