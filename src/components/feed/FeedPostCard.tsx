@@ -70,6 +70,9 @@ export function FeedPostCard({
   const [hoveredState, setHoveredState] = useState<string | null>(null);
   const [feedImageDimensions, setFeedImageDimensions] = useState<string>('');
   const [thumbAvailability, setThumbAvailability] = useState<Record<number, boolean>>({});
+  const [confirmingMerge, setConfirmingMerge] = useState(false);
+  const [mergeChoice, setMergeChoice] = useState<'y' | 'n'>('y');
+  const mergeYesRef = useRef<HTMLButtonElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const rawMediaItems = useMemo(() => {
@@ -267,6 +270,37 @@ export function FeedPostCard({
       }
     };
   }, []);
+
+  // Merge-Confirm: Tastatur-Steuerung (Enter bestätigt aktuelle Wahl, ←/→ toggelt y/n, Escape bricht ab)
+  useEffect(() => {
+    if (!confirmingMerge) return;
+
+    const handleMergeKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        setMergeChoice(prev => (prev === 'y' ? 'n' : 'y'));
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        setConfirmingMerge(false);
+        if (mergeChoice === 'y') {
+          handleMergeDown(index);
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        setConfirmingMerge(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleMergeKeyDown);
+    return () => window.removeEventListener('keydown', handleMergeKeyDown);
+  }, [confirmingMerge, mergeChoice, index, handleMergeDown]);
+
+  // Beim Öffnen der Bestätigung den "y"-Button fokussieren
+  useEffect(() => {
+    if (confirmingMerge && mergeYesRef.current) {
+      mergeYesRef.current.focus();
+    }
+  }, [confirmingMerge]);
 
   const queueDroppedFiles = (files: File[], sourceLabel: string) => {
     if (!isEditing) return;
@@ -1119,14 +1153,40 @@ export function FeedPostCard({
             >
               <Trash2 className="w-3 h-3" /> Post löschen
             </button>
-            {index < totalPosts - 1 && (
+            {index < totalPosts - 1 && !confirmingMerge && (
               <button
-                onClick={() => handleMergeDown(index)}
+                onClick={() => setConfirmingMerge(true)}
                 className="mt-2 flex items-center justify-center gap-2 w-full bg-white/30 hover:bg-white/40 text-white border border-white/20 rounded py-1.5 text-xs transition-colors"
                 title="Mit dem nächsten Post zusammenlegen"
               >
                 <FoldVertical className="w-3 h-3" /> Mit nächstem zusammenlegen
               </button>
+            )}
+            {index < totalPosts - 1 && confirmingMerge && (
+              <div className="mt-2 flex items-center justify-center gap-2 w-full bg-white/30 text-white border border-white/20 rounded py-1.5 text-xs">
+                <span className="text-white/80 select-none">Sure?</span>
+                <button
+                  ref={mergeYesRef}
+                  onClick={() => { setConfirmingMerge(false); handleMergeDown(index); }}
+                  className={`px-2 py-0.5 rounded border transition-colors ${
+                    mergeChoice === 'y'
+                      ? 'bg-green-600 border-green-400 text-white ring-1 ring-green-300'
+                      : 'bg-transparent border-white/20 text-white/60 hover:bg-white/10'
+                  }`}
+                >
+                  y
+                </button>
+                <button
+                  onClick={() => setConfirmingMerge(false)}
+                  className={`px-2 py-0.5 rounded border transition-colors ${
+                    mergeChoice === 'n'
+                      ? 'bg-red-600 border-red-400 text-white ring-1 ring-red-300'
+                      : 'bg-transparent border-white/20 text-white/60 hover:bg-white/10'
+                  }`}
+                >
+                  n
+                </button>
+              </div>
             )}
           </>
         ) : (
