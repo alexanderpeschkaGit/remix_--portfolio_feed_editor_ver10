@@ -2,8 +2,9 @@
 import React, { useState, useRef, useLayoutEffect, useEffect, useMemo, useCallback } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Loader2, Eye, GripVertical, ImageIcon, Youtube, Film, X, Maximize2, FoldVertical, Trash2, ExternalLink, Check, Upload, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Loader2, Eye, GripVertical, ImageIcon, Youtube, Film, X, Maximize2, FoldVertical, Trash2, ExternalLink, Check, Upload, CheckCircle2, AlertCircle, Camera } from 'lucide-react';
 import { PROJECT_STATES } from '../../constants';
+import { CustomThumbnailModal } from '../modals/CustomThumbnailModal';
 
 interface FeedPostCardProps {
   post: any;
@@ -151,6 +152,7 @@ export function FeedPostCard({
     }
 
     const orderedVariants = [
+      { key: 'custom_thumb', label: 'CT' },
       { key: 'image_thumb', label: 'TH' },
       { key: 'image_preview', label: 'PV' },
       { key: 'image_1k', label: '1K' },
@@ -195,6 +197,10 @@ export function FeedPostCard({
 
   const [isMediaDragOvered, setIsMediaDragOvered] = useState(false);
   const [applyLoading, setApplyLoading] = useState<Record<number, boolean>>({});
+  // Custom thumbnail modal state
+  const [customThumbnailMedia, setCustomThumbnailMedia] = useState<{ media: any; index: number } | null>(null);
+  const [customThumbnailVideoUrl, setCustomThumbnailVideoUrl] = useState<string>('');
+  const [customThumbnailLoading, setCustomThumbnailLoading] = useState(false);
   const [localUrlInputs, setLocalUrlInputs] = useState<Record<number, string>>({});
   const [isFileDragOverCard, setIsFileDragOverCard] = useState(false);
   const cardDragDepthRef = useRef(0);
@@ -714,6 +720,48 @@ export function FeedPostCard({
                       title="Thumbnail öffnen"
                     >
                       <ExternalLink className="w-2.5 h-2.5" />
+                    </button>
+                  )}
+                  {/* Custom Thumbnail button: only for video and bunny types */}
+                  {(media.type === 'video' || media.type === 'bunny') && (
+                    <button
+                      type="button"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        setCustomThumbnailLoading(true);
+                        try {
+                          if (media.type === 'bunny' && media.libraryId && media.videoId) {
+                            // Fetch direct Bunny video URL for canvas capture
+                            const res = await fetch('/api/bunny/video-url', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ libraryId: media.libraryId, videoId: media.videoId })
+                            });
+                            const data = await res.json();
+                            if (!data.success) throw new Error(data.error || 'Failed to get Bunny video URL');
+                            setCustomThumbnailVideoUrl(data.videoUrl);
+                          } else if (media.type === 'video') {
+                            // Use existing video URL directly
+                            const videoSrc = getVideoSrc(media, true) || getVideoSrc(media) || media.url || '';
+                            setCustomThumbnailVideoUrl(videoSrc);
+                          }
+                          setCustomThumbnailMedia({ media, index: i });
+                        } catch (err: any) {
+                          console.error('Failed to open custom thumbnail modal:', err);
+                          alert(err.message || 'Could not open video for custom thumbnail.');
+                        } finally {
+                          setCustomThumbnailLoading(false);
+                        }
+                      }}
+                      disabled={customThumbnailLoading}
+                      className="w-5 h-5 rounded-md bg-white/30 hover:bg-white/40 text-white flex items-center justify-center transition-colors border border-white/20 disabled:opacity-50"
+                      title="Custom Thumbnail"
+                    >
+                      {customThumbnailLoading ? (
+                        <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                      ) : (
+                        <Camera className="w-2.5 h-2.5" />
+                      )}
                     </button>
                   )}
                 </div>
@@ -1259,6 +1307,40 @@ export function FeedPostCard({
           </a>
         </div>
       </div>
+
+      {/* Custom Thumbnail Modal */}
+      {customThumbnailMedia && customThumbnailVideoUrl && (
+        <CustomThumbnailModal
+          videoUrl={customThumbnailVideoUrl}
+          media={customThumbnailMedia.media}
+          postTitle={localTitle || post.title || 'Untitled'}
+          postId={post.id}
+          getDisplayImage={getDisplayImage}
+          isR2Fallback={isR2Fallback}
+          isEmbeddedData={isEmbeddedData}
+          onSave={(variantUrls) => {
+            // Update the media item with the custom thumbnail variant URLs
+            const newMedia = [...mediaItems];
+            const idx = customThumbnailMedia.index;
+            newMedia[idx] = {
+              ...newMedia[idx],
+              custom_thumb: variantUrls.image_thumb,
+              image_thumb: variantUrls.image_thumb,
+              image_1k: variantUrls.image_1k,
+              image_2k: variantUrls.image_2k,
+              image_3k: variantUrls.image_3k,
+              image_original: variantUrls.image_original,
+              image_width: variantUrls.image_width,
+              image_height: variantUrls.image_height,
+            };
+            handleUpdatePostMedia(post.id, newMedia);
+          }}
+          onClose={() => {
+            setCustomThumbnailMedia(null);
+            setCustomThumbnailVideoUrl('');
+          }}
+        />
+      )}
     </div>
   );
 }

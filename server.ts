@@ -4252,6 +4252,82 @@ async function startServer() {
     }
   });
 
+  // API: Upload a custom thumbnail image (captured from video frame via canvas)
+  app.post("/api/upload-custom-thumb", async (req, res) => {
+    try {
+      const { imageData, postId } = req.body;
+      if (!imageData) {
+        return res.status(400).json({ error: "No image data provided" });
+      }
+
+      // Decode base64 data URL (e.g. "data:image/jpeg;base64,...")
+      const matches = imageData.match(/^data:image\/(jpeg|png|webp);base64,(.+)$/);
+      if (!matches) {
+        return res.status(400).json({ error: "Invalid image data format. Expected data:image/...;base64,..." });
+      }
+      const ext = matches[1] === 'png' ? 'png' : 'jpg';
+      const base64Data = matches[2];
+      const imageBuffer = Buffer.from(base64Data, 'base64');
+
+      if (imageBuffer.length < 100) {
+        return res.status(400).json({ error: "Image data too small" });
+      }
+
+      const safePostId = (postId || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 40);
+      const baseName = `custom-${safePostId}-${Date.now()}`;
+
+      const variantSet = await materializeVariantSet(imageBuffer, {
+        group: 'uploads',
+        baseName,
+        originalBuffer: imageBuffer,
+        originalExt: ext,
+        uploadToCloud: false,
+      });
+
+      const canUploadDirectly = hasR2UploadCredentials();
+      const directUploadResult = canUploadDirectly
+        ? await uploadVariantSetToR2(variantSet, {
+            group: 'uploads',
+            originalBuffer: imageBuffer,
+            originalExt: ext,
+          })
+        : {
+            remoteUrls: {} as Record<string, string>,
+            uploadErrors: [] as string[],
+          };
+      const remoteUrls: Record<string, string> = directUploadResult.remoteUrls;
+      const uploadErrors = directUploadResult.uploadErrors;
+
+      const localThumb = variantSet.localUrls.image_thumb || '';
+      const local1k = variantSet.localUrls.image_1k || '';
+      const local2k = variantSet.localUrls.image_2k || '';
+      const local3k = variantSet.localUrls.image_3k || '';
+      const localOriginal = variantSet.localUrls.image_original || '';
+      const remoteThumb = remoteUrls.image_thumb || '';
+      const remote1k = remoteUrls.image_1k || '';
+      const remote2k = remoteUrls.image_2k || '';
+      const remote3k = remoteUrls.image_3k || '';
+      const remoteOriginal = remoteUrls.image_original || '';
+
+      res.json({
+        success: true,
+        cloudUploaded: canUploadDirectly && uploadErrors.length === 0 && Object.keys(remoteUrls).length > 0,
+        cloudUploadErrors: uploadErrors,
+        image_thumb: remoteThumb || localThumb,
+        image_1k: remote1k || local1k,
+        image_2k: remote2k || local2k,
+        image_3k: remote3k || local3k,
+        image_original: remoteOriginal || localOriginal,
+        image_width: variantSet.sourceWidth,
+        image_height: variantSet.sourceHeight,
+        missing_variants: variantSet.missingVariants,
+      });
+    } catch (error: any) {
+      console.error("Error processing custom thumbnail upload:", error);
+      res.status(500).json({ error: error.message || "Failed to process custom thumbnail upload" });
+    }
+  });
+
   // ── Background task tracker for Bunny uploads ──
   const bunnyTasks = new Map<string, { step: string; progress: number; result?: any; error?: string; startedAt: number; videoId?: string; libraryId?: string; projectId?: string }>();
   // Auto-clean old tasks after 10 minutes
@@ -4990,6 +5066,48 @@ async function startServer() {
     } catch (error: any) {
       console.error("Error syncing Bunny video:", error);
       res.status(500).json({ error: error.message || "Failed to sync Bunny video" });
+    }
+  });
+
+  // API: Get a direct playable video URL for a Bunny video (for canvas frame capture)
+  app.post("/api/bunny/video-url", async (req, res) => {
+    try {
+      const { libraryId, videoId } = req.body;
+      if (!libraryId || !videoId) {
+        return res.status(400).json({ error: "Missing libraryId or videoId" });
+      }
+      if (!BUNNY_CONFIG.pullZone) {
+        return res.status(400).json({ error: "Bunny pull zone not configured. Set BUNNY_PULL_ZONE in .env." });
+      }
+
+      // Try 720p first, then fall back to 480p, 360p
+      const qualities = ['720p', '480p', '360p'];
+      let bestUrl = '';
+      for (const q of qualities) {
+        const testUrl = `https://${BUNNY_CONFIG.pullZone}/${videoId}/play_${q}.mp4`;
+        try {
+          const headRes = await fetch(testUrl, { method: 'HEAD' });
+          if (headRes.ok) {
+            bestUrl = testUrl;
+            break;
+          }
+        } catch {}
+      }
+
+      if (!bestUrl) {
+        // Fallback: return the first quality anyway, let the client handle errors
+        bestUrl = `https://${BUNNY_CONFIG.pullZone}/${videoId}/play_720p.mp4`;
+      }
+
+      res.json({
+        success: true,
+        videoUrl: bestUrl,
+        // Also provide HLS as alternative
+        hlsUrl: `https://${BUNNY_CONFIG.pullZone}/${videoId}/playlist.m3u8`,
+      });
+    } catch (error: any) {
+      console.error("Error getting Bunny video URL:", error);
+      res.status(500).json({ error: error.message || "Failed to get Bunny video URL" });
     }
   });
 

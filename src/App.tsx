@@ -152,15 +152,15 @@ const getImageSrc = (media: any, preferLarge = false) => {
     if (id) {
       const stored = preferLarge
         ? (media?.image_3k || media?.image_2k || media?.image_original || media?.image_1k || media?.image_large || media?.imageLarge || media?.image)
-        : (media?.image_thumb || media?.image_preview || media?.image_original || media?.image);
+        : (media?.custom_thumb || media?.image_thumb || media?.image_preview || media?.image_original || media?.image);
       if (isValidImageCandidate(stored)) return stored;
       return `https://img.youtube.com/vi/${id}/maxresdefault.jpg`;
     }
   }
 
   const primary = preferLarge
-    ? [media?.image_3k, media?.image_2k, media?.image_original, media?.image_1k, media?.image_large, media?.imageLarge, media?.largeUrl, media?.image, media?.image_preview, media?.image_thumb, media?.url, media?.link]
-    : [media?.image_thumb, media?.image_preview, media?.image, media?.image_original, media?.image_1k, media?.image_2k, media?.image_3k, media?.image_large, media?.imageLarge, media?.largeUrl, media?.url, media?.link];
+    ? [media?.image_3k, media?.image_2k, media?.image_original, media?.image_1k, media?.image_large, media?.imageLarge, media?.largeUrl, media?.image, media?.image_preview, media?.custom_thumb, media?.image_thumb, media?.url, media?.link]
+    : [media?.custom_thumb, media?.image_thumb, media?.image_preview, media?.image, media?.image_original, media?.image_1k, media?.image_2k, media?.image_3k, media?.image_large, media?.imageLarge, media?.largeUrl, media?.url, media?.link];
     
   for (const candidate of primary) {
     if (isValidImageCandidate(candidate)) return candidate;

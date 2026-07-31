@@ -113,7 +113,7 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
       return getDisplayImage(youtubePoster, isR2Fallback, isEmbeddedData);
     }
 
-    const imageSrc = getImageSrc(media, true) || media.image || media.image_preview;
+    const imageSrc = media.custom_thumb || getImageSrc(media, true) || media.image || media.image_preview;
     return getDisplayImage(imageSrc, isR2Fallback, isEmbeddedData);
   };
 
@@ -163,6 +163,7 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
     }
 
     const orderedVariants = [
+      { key: 'custom_thumb', label: 'CT' },
       { key: 'image_thumb', label: 'TH' },
       { key: 'image_preview', label: 'PV' },
       { key: 'image_1k', label: '1K' },
