@@ -484,7 +484,7 @@ async function startServer() {
     };
 
     let newItems = [];
-    if (source === 'instagram' || source === 'combined') {
+    if (source === 'instagram') {
       try {
         const data = await fs.readFile(path.join(DATA_DIR, 'instagram', 'insta_data.json'), 'utf-8');
         const scraped = JSON.parse(data);
@@ -550,7 +550,7 @@ async function startServer() {
       } catch (e) {}
     }
 
-    if (source === 'flickr' || source === 'combined') {
+    if (source === 'flickr') {
       try {
         const data = await fs.readFile(path.join(DATA_DIR, 'flickr', 'flickr_data.json'), 'utf-8');
         const scraped = JSON.parse(data);
@@ -616,47 +616,7 @@ async function startServer() {
       } catch (e) {}
     }
 
-    if (source === 'flickr_html' || source === 'combined') {
-      try {
-        const dataPath = path.join(DATA_DIR, 'flickr_html', 'flickr_html_data.json');
-        console.log(`[MERGE] Reading flickr_html data from ${dataPath}`);
-        const data = await fs.readFile(dataPath, 'utf-8');
-        const scraped = JSON.parse(data);
-        console.log(`[MERGE] Found ${scraped.length} items in flickr_html_data.json`);
-        
-        let skippedExisting = 0;
-        let skippedDeleted = 0;
-        
-        for (const item of scraped) {
-          const id = item.id;
-          if (existsInState(id)) {
-            skippedExisting++;
-            continue;
-          }
-          if (deletedIds.includes(id)) {
-            skippedDeleted++;
-            continue;
-          }
-          
-          newItems.push({
-            id,
-            type: item.type || 'image',
-            source: 'flickr_html',
-            title: item.title || '',
-            description: item.description || '',
-            image: item.image || '',
-            image_large: item.image_large || item.imageLarge || '',
-            url: item.link || '',
-            youtubeId: item.youtubeId || '',
-            date: new Date().toISOString(),
-            phash: ''
-          });
-        }
-        console.log(`[MERGE] Added ${scraped.length - skippedExisting - skippedDeleted} new items. Skipped: ${skippedExisting} existing, ${skippedDeleted} deleted.`);
-      } catch (e) {
-        console.error(`[MERGE] Error processing flickr_html: ${e}`);
-      }
-    }
+
 
     if (newItems.length > 0) {
       state.items = [...newItems, ...state.items];
@@ -2396,7 +2356,7 @@ async function startServer() {
       }
     }
 
-    if (!BUNNY_CONFIG.apiKey || !BUNNY_CONFIG.pullZone) return null;
+    if (!BUNNY_CONFIG.apiKey) return null;
 
     try {
       const libraryId = media.libraryId || BUNNY_CONFIG.libraryId;
@@ -2407,9 +2367,24 @@ async function startServer() {
       if (!metaRes.ok) return null;
       const metadata: any = await metaRes.json();
       const thumbFilename = metadata.thumbnailFileName || 'thumbnail.jpg';
-      const thumbUrl = `https://${BUNNY_CONFIG.pullZone}/${media.videoId}/${thumbFilename}`;
-      const buffer = await fetchBufferFromUrl(thumbUrl);
-      return { buffer, ext: 'jpg' };
+
+      // Try iframe.mediadelivery.net first (same domain as embeds, no pull zone needed)
+      const thumbCandidates = [
+        `https://iframe.mediadelivery.net/${libraryId}/${media.videoId}/thumbnail.jpg`,
+      ];
+      if (BUNNY_CONFIG.pullZone) {
+        thumbCandidates.push(`https://${BUNNY_CONFIG.pullZone}/${media.videoId}/${thumbFilename}`);
+      }
+
+      for (const thumbUrl of thumbCandidates) {
+        try {
+          const buffer = await fetchBufferFromUrl(thumbUrl);
+          if (buffer.length > 100) return { buffer, ext: 'jpg' };
+        } catch {
+          // try next candidate
+        }
+      }
+      return null;
     } catch (error: any) {
       console.warn(`[media-variants] Bunny thumbnail lookup failed:`, error.message || error);
       return null;
@@ -3636,26 +3611,21 @@ async function startServer() {
 
   const scrapeStatus: Record<string, { running: boolean, logs: string[], done: boolean, error: string | null }> = {
     instagram: { running: false, logs: [], done: false, error: null },
-    flickr: { running: false, logs: [], done: false, error: null },
-    flickr_html: { running: false, logs: [], done: false, error: null },
-    combined: { running: false, logs: [], done: false, error: null }
+    flickr: { running: false, logs: [], done: false, error: null }
   };
 
   // API route to start scraping
   app.post("/api/scrape/start", async (req, res) => {
     const { source } = req.body;
-    if (!source || !['instagram', 'flickr', 'flickr_html', 'combined'].includes(source)) {
-      return res.status(400).json({ error: 'Invalid source' });
+    if (!source || !['instagram', 'flickr'].includes(source)) {
+      return res.status(400).json({ error: 'Invalid source. Must be: instagram or flickr.' });
     }
 
     if (scrapeStatus[source].running) {
       return res.json({ message: 'Scrape already in progress', status: scrapeStatus[source] });
     }
 
-    let scriptPath = path.join(process.cwd(), 'scrape_combined.py');
-    if (source === 'flickr_html') {
-      scriptPath = path.join(process.cwd(), 'scrape_flickr_html.py');
-    }
+    const scriptPath = path.join(process.cwd(), 'scrape_combined.py');
     const pythonCmd = os.platform() === 'win32' ? 'python' : 'python3';
     
     scrapeStatus[source] = { running: true, logs: [`Starte ${source} Scraper...`, `Running: ${pythonCmd} ${path.basename(scriptPath)} ${source}`], done: false, error: null };
@@ -3745,8 +3715,8 @@ async function startServer() {
   // Bypasses media validation (runs later via generate-and-publish)
   app.post("/api/scrape/merge", async (req, res) => {
     const { source } = req.body;
-    if (!source || !['instagram', 'flickr', 'flickr_html', 'combined'].includes(source)) {
-      return res.status(400).json({ error: 'Invalid source. Must be: instagram, flickr, flickr_html, or combined.' });
+    if (!source || !['instagram', 'flickr'].includes(source)) {
+      return res.status(400).json({ error: 'Invalid source. Must be: instagram or flickr.' });
     }
     try {
       await backupState();
@@ -3763,7 +3733,7 @@ async function startServer() {
       };
 
       let newItems: any[] = [];
-      if (source === 'instagram' || source === 'combined') {
+      if (source === 'instagram') {
         try {
           const data = await fs.readFile(path.join(DATA_DIR, 'instagram', 'insta_data.json'), 'utf-8');
           const scraped = JSON.parse(data);
@@ -4283,7 +4253,7 @@ async function startServer() {
   });
 
   // ── Background task tracker for Bunny uploads ──
-  const bunnyTasks = new Map<string, { step: string; progress: number; result?: any; error?: string; startedAt: number }>();
+  const bunnyTasks = new Map<string, { step: string; progress: number; result?: any; error?: string; startedAt: number; videoId?: string; libraryId?: string; projectId?: string }>();
   // Auto-clean old tasks after 10 minutes
   setInterval(() => {
     const now = Date.now();
@@ -4291,6 +4261,64 @@ async function startServer() {
       if (now - task.startedAt > 600_000) bunnyTasks.delete(id);
     }
   }, 120_000);
+
+  // ── Persistent recovery file for Bunny tasks (survives server restart) ──
+  const BUNNY_TASKS_FILE = path.join(DATA_DIR, 'bunny_tasks.json');
+
+  async function loadBunnyTasksFile(): Promise<Record<string, any>> {
+    try { return JSON.parse(await fs.readFile(BUNNY_TASKS_FILE, 'utf-8')); }
+    catch { return {}; }
+  }
+
+  async function saveBunnyTasksFile(data: Record<string, any>) {
+    await fs.writeFile(BUNNY_TASKS_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  }
+
+  // On startup: reconcile any interrupted Bunny uploads from the recovery file
+  (async () => {
+    const persisted = await loadBunnyTasksFile();
+    const entries = Object.entries(persisted);
+    if (entries.length === 0) return;
+    console.log(`[bunny-recovery] Found ${entries.length} persisted Bunny task(s) from previous session.`);
+
+    for (const [taskId, entry] of entries) {
+      const task: any = entry;
+      if (task.status === 'done' || task.status === 'error') continue;
+      if (!task.videoId || !task.libraryId) continue;
+
+      try {
+        const metaUrl = `https://video.bunnycdn.com/library/${task.libraryId}/videos/${task.videoId}`;
+        const metaRes = await fetch(metaUrl, {
+          headers: { "AccessKey": BUNNY_CONFIG.apiKey, "Accept": "application/json" }
+        });
+        if (metaRes.ok) {
+          const meta: any = await metaRes.json();
+          if (meta.status === 4 || meta.status === 0) {
+            const result = {
+              success: true, type: 'bunny',
+              libraryId: task.libraryId, videoId: task.videoId,
+              url: `https://iframe.mediadelivery.net/embed/${task.libraryId}/${task.videoId}`,
+              image_original: `https://iframe.mediadelivery.net/embed/${task.libraryId}/${task.videoId}`,
+              duration: meta.length || 0,
+              image: '', image_thumb: '', image_1k: '', image_2k: '', image_3k: '',
+              image_width: 0, image_height: 0, bunnyThumbUrl: '',
+              previewCloudUploaded: false, bunnyThumbCloudUploaded: false,
+            };
+            bunnyTasks.set(taskId, { step: 'done', progress: 100, startedAt: task.startedAt, result, videoId: task.videoId, libraryId: task.libraryId, projectId: task.projectId });
+            task.status = 'done';
+            task.result = result;
+            console.log(`[bunny-recovery] Reconciled task ${taskId}: video ${task.videoId} (status ${meta.status})`);
+          }
+        } else {
+          task.status = 'error';
+          task.error = `Video not found on Bunny (HTTP ${metaRes.status})`;
+        }
+      } catch (e: any) {
+        console.warn(`[bunny-recovery] Failed to reconcile task ${taskId}:`, e.message);
+      }
+    }
+    await saveBunnyTasksFile(persisted);
+  })();
 
   const sanitizeProjectName = (name: string) =>
     (name || 'uncategorized')
@@ -4396,36 +4424,75 @@ async function startServer() {
       const local3k = localVariantSet.localUrls?.image_3k || '';
       const previewCloudUploaded = !!Object.keys(localVariantSet.remoteUrls || {}).length;
 
-      // ── Phase 2: Start Bunny upload in background ──
-      const taskId = `bunny-${Date.now()}-${Math.random().toString(36).substring(4)}`;
       const videoBuffer = req.file.buffer;
       const originalFilename = req.file.originalname || `Video-${Date.now()}`;
-      // Build rich title: project name + filename for easy searching in Bunny dashboard
       const bunnyTitle = projectName
         ? `${projectName} — ${originalFilename}`
         : originalFilename;
 
-      bunnyTasks.set(taskId, { step: 'starting', progress: 0, startedAt: Date.now() });
+      // ── Phase 1.5: Create Bunny video entry synchronously (fast API call, ~200ms) ──
+      // This ensures videoId is available immediately, eliminating the polling race condition.
+      let bunnyVideoId: string | null = null;
+      try {
+        const createUrl = `https://video.bunnycdn.com/library/${BUNNY_CONFIG.libraryId}/videos`;
+        const createRes = await fetch(createUrl, {
+          method: 'POST',
+          headers: {
+            "AccessKey": BUNNY_CONFIG.apiKey,
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ title: bunnyTitle })
+        });
+        if (createRes.ok) {
+          const videoData: any = await createRes.json();
+          bunnyVideoId = videoData.guid;
+        } else {
+          console.warn('[bunny-hybrid] Bunny create entry failed in Phase 1:', createRes.status, createRes.statusText);
+        }
+      } catch (e: any) {
+        console.warn('[bunny-hybrid] Bunny create entry error in Phase 1:', e.message);
+        // Non-fatal: video will be created in background Phase 2 instead
+      }
+
+      // ── Phase 2: Start Bunny upload in background ──
+      const taskId = `bunny-${Date.now()}-${Math.random().toString(36).substring(4)}`;
+      const bunnyLibId = BUNNY_CONFIG.libraryId;
+
+      const taskEntry: any = { step: 'starting', progress: 0, startedAt: Date.now(), videoId: bunnyVideoId || undefined, libraryId: bunnyLibId, projectId: projectId || undefined };
+      bunnyTasks.set(taskId, taskEntry);
+
+      // Persist task to recovery file
+      (async () => {
+        try {
+          const persisted = await loadBunnyTasksFile();
+          persisted[taskId] = { videoId: bunnyVideoId, libraryId: bunnyLibId, projectId: projectId || '', projectName: projectName || '', baseName, status: 'uploading', startedAt: Date.now() };
+          await saveBunnyTasksFile(persisted);
+        } catch (e: any) { console.warn('[bunny-recovery] Failed to persist task:', e.message); }
+      })();
 
       // Launch background task (do NOT await)
       (async () => {
+        let videoId: string | null = bunnyVideoId;
         try {
-          bunnyTasks.set(taskId, { step: 'creating', progress: 5, startedAt: Date.now() });
+          bunnyTasks.set(taskId, { step: 'uploading', progress: 15, startedAt: Date.now(), videoId: videoId || undefined, libraryId: bunnyLibId });
 
-          // Step A: Create Bunny video entry with descriptive title
-          const createUrl = `https://video.bunnycdn.com/library/${BUNNY_CONFIG.libraryId}/videos`;
-          const createRes = await fetch(createUrl, {
-            method: 'POST',
-            headers: {
-              "AccessKey": BUNNY_CONFIG.apiKey,
-              "Accept": "application/json",
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({ title: bunnyTitle })
-          });
-          if (!createRes.ok) throw new Error(`Bunny create error: ${createRes.statusText}`);
-          const videoData: any = await createRes.json();
-          const videoId = videoData.guid;
+          // Step A: Create Bunny video entry if not already done in Phase 1
+          if (!videoId) {
+            const createUrl = `https://video.bunnycdn.com/library/${BUNNY_CONFIG.libraryId}/videos`;
+            const createRes = await fetch(createUrl, {
+              method: 'POST',
+              headers: {
+                "AccessKey": BUNNY_CONFIG.apiKey,
+                "Accept": "application/json",
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({ title: bunnyTitle })
+            });
+            if (!createRes.ok) throw new Error(`Bunny create error: ${createRes.statusText}`);
+            const videoData: any = await createRes.json();
+            videoId = videoData.guid;
+          }
 
           bunnyTasks.set(taskId, { step: 'uploading', progress: 15, startedAt: Date.now() });
 
@@ -4487,7 +4554,18 @@ async function startServer() {
               bunnyDuration = meta.length || 0;
               const thumbFilename = meta.thumbnailFileName;
               if (meta.status === 'finished' && thumbFilename) {
-                bunnyThumbUrl = `https://${BUNNY_CONFIG.pullZone}/${videoId}/${thumbFilename}`;
+                // Try iframe.mediadelivery.net first (same domain as embeds)
+                bunnyThumbUrl = `https://iframe.mediadelivery.net/${BUNNY_CONFIG.libraryId}/${videoId}/thumbnail.jpg`;
+                if (BUNNY_CONFIG.pullZone) {
+                  // Keep pull zone as fallback in case mediadelivery.net doesn't serve this thumbnail
+                  try {
+                    const testUrl = `https://${BUNNY_CONFIG.pullZone}/${videoId}/${thumbFilename}`;
+                    const testRes = await fetch(testUrl, { method: 'HEAD' });
+                    if (testRes.ok && (testRes.headers.get('content-type') || '').startsWith('image/')) {
+                      bunnyThumbUrl = testUrl;
+                    }
+                  } catch {}
+                }
                 break;
               }
             } catch {}
@@ -4540,12 +4618,34 @@ async function startServer() {
               bunnyThumbCloudUploaded,
             }
           });
+          // Update recovery file
+          (async () => {
+            try {
+              const persisted = await loadBunnyTasksFile();
+              if (persisted[taskId]) {
+                persisted[taskId].status = 'done';
+                persisted[taskId].result = bunnyTasks.get(taskId)?.result;
+                await saveBunnyTasksFile(persisted);
+              }
+            } catch (e: any) { console.warn('[bunny-recovery] Failed to persist done:', e.message); }
+          })();
         } catch (bgError: any) {
           console.error("[bunny-bg] Background upload failed:", bgError.message);
           bunnyTasks.set(taskId, {
             step: 'error', progress: 0, startedAt: Date.now(),
             error: bgError.message || 'Unknown background error'
           });
+          // Update recovery file
+          (async () => {
+            try {
+              const persisted = await loadBunnyTasksFile();
+              if (persisted[taskId]) {
+                persisted[taskId].status = 'error';
+                persisted[taskId].error = bgError.message || 'Unknown';
+                await saveBunnyTasksFile(persisted);
+              }
+            } catch (e: any) { console.warn('[bunny-recovery] Failed to persist error:', e.message); }
+          })();
         }
       })();
 
@@ -4553,7 +4653,9 @@ async function startServer() {
       res.json({
         success: true,
         type: 'video', // local for now; will update to 'bunny' when bg task completes
-        url: originalUrl,
+        url: bunnyVideoId ? `https://iframe.mediadelivery.net/embed/${bunnyLibId}/${bunnyVideoId}` : originalUrl,
+        videoId: bunnyVideoId || undefined,
+        libraryId: bunnyVideoId ? bunnyLibId : undefined,
         image: local2k || local3k || local1k || localThumb || '',
         image_thumb: localThumb,
         image_1k: local1k,
@@ -4838,8 +4940,8 @@ async function startServer() {
       if (!libraryId || !videoId) {
         return res.status(400).json({ error: "Missing libraryId or videoId" });
       }
-      if (!BUNNY_CONFIG.apiKey || !BUNNY_CONFIG.pullZone) {
-        throw new Error("Bunny API key or Pull Zone not configured in .env");
+      if (!BUNNY_CONFIG.apiKey) {
+        throw new Error("Bunny API key not configured in .env");
       }
 
       const metaUrl = `https://video.bunnycdn.com/library/${libraryId}/videos/${videoId}`;
@@ -4853,8 +4955,13 @@ async function startServer() {
       const metadata: any = await metaRes.json();
 
       const thumbFilename = metadata.thumbnailFileName || 'thumbnail.jpg';
-      const thumbUrl = `https://${BUNNY_CONFIG.pullZone}/${videoId}/${thumbFilename}`;
-      const thumbFetchRes = await fetch(thumbUrl);
+      // Try iframe.mediadelivery.net first, then pull zone CDN as fallback
+      let thumbUrl = `https://iframe.mediadelivery.net/${libraryId}/${videoId}/thumbnail.jpg`;
+      let thumbFetchRes = await fetch(thumbUrl);
+      if (!thumbFetchRes.ok && BUNNY_CONFIG.pullZone) {
+        thumbUrl = `https://${BUNNY_CONFIG.pullZone}/${videoId}/${thumbFilename}`;
+        thumbFetchRes = await fetch(thumbUrl);
+      }
       
       let variantSet: any = {};
       if (thumbFetchRes.ok) {

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useLayoutEffect } from 'react';
+import React, { useEffect, useState, useRef, useLayoutEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Loader2, ExternalLink, Maximize2, X, Edit3, Save, UploadCloud, CheckCircle, Plus, Image as ImageIcon, Youtube, Trash2, GripVertical, Undo2, Redo2, FoldVertical, History, Download, RefreshCw, Instagram, ChevronUp, ChevronDown, FileCode, Layers, ArrowLeft, Eye } from 'lucide-react';
 import {
@@ -73,9 +73,9 @@ const MergeConfirmationModal = ({ isOpen, group, onConfirm, onSkip }: any) => {
   return (
     <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4">
       <div className="bg-[#111] border border-white/10 rounded-xl p-6 max-w-lg w-full">
-        <h2 className="text-xl font-bold text-white mb-4">Projekte zusammenführen?</h2>
+        <h2 className="text-xl font-bold text-white mb-4">Projekte zusammenfÃ¼hren?</h2>
         <p className="text-white/70 mb-4">
-          Möchtest du die folgenden {group.length} Projekte mit dem Title "{group[0].title}" zusammenführen?
+          MÃ¶chtest du die folgenden {group.length} Projekte mit dem Title "{group[0].title}" zusammenfÃ¼hren?
         </p>
         <div className="space-y-2 mb-6 max-h-60 overflow-y-auto custom-scrollbar">
           {group.map((post: any) => (
@@ -86,7 +86,7 @@ const MergeConfirmationModal = ({ isOpen, group, onConfirm, onSkip }: any) => {
         </div>
         <div className="flex gap-4">
           <button onClick={onSkip} className="flex-1 bg-white/30 hover:bg-white/40 text-white py-2 rounded">Nein</button>
-          <button onClick={onConfirm} className="flex-1 bg-white/30 hover:bg-white/40 text-white py-2 rounded">Ja, zusammenführen</button>
+          <button onClick={onConfirm} className="flex-1 bg-white/30 hover:bg-white/40 text-white py-2 rounded">Ja, zusammenfÃ¼hren</button>
         </div>
       </div>
     </div>
@@ -345,7 +345,7 @@ export default function App() {
   const [hasUnsyncedMedia, setHasUnsyncedMedia] = useState(false);
   const [hasUnpublishedChanges, setHasUnpublishedChanges] = useState(false);
 
-  // Shared drag state for cross-post media movement — uses mediaIndices array (supports batch)
+  // Shared drag state for cross-post media movement â€” uses mediaIndices array (supports batch)
   const [activeMediaDrag, setActiveMediaDrag] = useState<{ sourcePostId: string; mediaIndices: number[]; mediaItem: any } | null>(null);
 
   const handleMediaDragStart = (sourcePostId: string, mediaIndices: number[], mediaItem: any) => {
@@ -458,7 +458,7 @@ export default function App() {
       let newPosts = prevPosts.filter(p => !groupIds.has(p.id));
       newPosts.splice(firstPostIndex, 0, newPost);
       return newPosts;
-    }, `Gruppe zusammengeführt (${newTitle})`);
+    }, `Gruppe zusammengefÃ¼hrt (${newTitle})`);
 
     processNextMerge(mergeQueue);
   };
@@ -485,7 +485,7 @@ export default function App() {
     }
   };
 
-  // ===== Hook: useRearrangeState für Rearrange/Merge/Delete Funktionalität =====
+  // ===== Hook: useRearrangeState fÃ¼r Rearrange/Merge/Delete FunktionalitÃ¤t =====
   const rearrangeState = useRearrangeState();
   const {
     isReorderView,
@@ -506,7 +506,7 @@ export default function App() {
     exitMoveMode,
   } = rearrangeState;
 
-  // ===== Hook: useLightboxState für Lightbox Modal UI State (Mouse, Hovering, Dragging) =====
+  // ===== Hook: useLightboxState fÃ¼r Lightbox Modal UI State (Mouse, Hovering, Dragging) =====
   const lightboxState = useLightboxState();
   const {
     lightboxMousePos,
@@ -519,7 +519,7 @@ export default function App() {
     endDragMedia,
   } = lightboxState;
 
-  // ===== Übrige States =====
+  // ===== Ãœbrige States =====
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<{url: string} | null>(null);
@@ -911,7 +911,7 @@ export default function App() {
   const handleScrape = async (source: string) => {
     setIsScraping(true);
     setShowLogs(true);
-    setScrapeLogs([`Starte Scraping für ${source}...`]);
+    setScrapeLogs([`Starte Scraping fÃ¼r ${source}...`]);
     
     try {
       // 1. Start the scrape
@@ -921,7 +921,7 @@ export default function App() {
         body: JSON.stringify({ source })
       }).catch(err => {
         console.error("Fetch error:", err);
-        throw new Error(`Netzwerkfehler: ${err.message}. Läuft der Server?`);
+        throw new Error(`Netzwerkfehler: ${err.message}. LÃ¤uft der Server?`);
       });
       
       if (!startRes.ok) {
@@ -959,7 +959,7 @@ export default function App() {
                 setIsFlickrFallback(false);
                 
                 
-                setScrapeLogs(prev => [...prev, "Log-Fenster bleibt offen. Bitte manuell schließen."]);
+                setScrapeLogs(prev => [...prev, "Log-Fenster bleibt offen. Bitte manuell schlieÃŸen."]);
               } catch (e) {
                 console.error("Failed to load new state", e);
                 setScrapeLogs(prev => [...prev, "Fehler beim Laden der neuen Daten. Lade Seite neu..."]);
@@ -1040,7 +1040,7 @@ export default function App() {
         const stateData = await stateRes.json();
         const hasNew = (stateData.items || []).some((i: any) => !flickrPostsRef.current.some((p: any) => String(p.id) === String(i.id)));
         if (hasNew) {
-          updatePosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items), 'High-Res Match bestätigt');
+          updatePosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items), 'High-Res Match bestÃ¤tigt');
         } else {
           setFlickrPosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items));
         }
@@ -1286,6 +1286,16 @@ export default function App() {
         shouldPushStateToR2Ref.current = false;
       }
 
+      // Guard: warn if any Bunny uploads are still in progress (bunnyTaskId without videoId)
+      const stuckBunnyItems = cleanPosts.flatMap((post: any) =>
+        (post.mergedMedia || []).filter((m: any) => m.bunnyTaskId && !m.videoId)
+      );
+      if (stuckBunnyItems.length > 0) {
+        console.warn(`[state-guard] Deferring save: ${stuckBunnyItems.length} Bunny upload(s) still pending videoId.`);
+        // Don't save yet — the items are still in flight; polling will update them soon
+        return;
+      }
+
       fetch('/api/state', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1315,15 +1325,15 @@ export default function App() {
     };
   }, [flickrPosts, portfolioTitle, portfolioSubtitle]);
 
-  // Beschreibung für Undo/Redo-Tooltips: Post-Titel + Quelle (network_name), falls nicht "Custom"
+  // Beschreibung fÃ¼r Undo/Redo-Tooltips: Post-Titel + Quelle (network_name), falls nicht "Custom"
   const describePost = (post: any) => {
     const title = post?.title || 'Unbenannt';
     const network = post?.network_name;
-    if (network && network !== 'Custom') return `${title} · ${network}`;
+    if (network && network !== 'Custom') return `${title} Â· ${network}`;
     return title;
   };
 
-  const updatePosts = (newPosts: any[] | ((p: any[]) => any[]), actionDescription: string = 'Aktion durchgeführt') => {
+  const updatePosts = useCallback((newPosts: any[] | ((p: any[]) => any[]), actionDescription: string = 'Aktion durchgefÃ¼hrt') => {
     setFlickrPosts(current => {
       const next = typeof newPosts === 'function' ? newPosts(current) : newPosts;
       setPast((p): typeof p => [...p, { posts: current, action: actionDescription }].slice(-50)); // Keep last 50 states
@@ -1331,7 +1341,7 @@ export default function App() {
       setHasUnpublishedChanges(true);
       return next;
     });
-  };
+  }, []);
 
   const recordTrashUndo = (trashItems: any[], label: string) => {
     const trashKeys = trashItems
@@ -1363,7 +1373,7 @@ export default function App() {
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
-          throw new Error(data.error || 'R2-Trash konnte nicht rückgängig gemacht werden.');
+          throw new Error(data.error || 'R2-Trash konnte nicht rÃ¼ckgÃ¤ngig gemacht werden.');
         }
 
         const restoredKeys = new Set<string>(
@@ -1388,18 +1398,18 @@ export default function App() {
         if (remainingKeys.length > 0) {
           pushStatusNotice(
             'warning',
-            'R2-Undo teilweise ausgeführt',
+            'R2-Undo teilweise ausgefÃ¼hrt',
             `${restoredKeys.size} Datei(en) wiederhergestellt, ${remainingKeys.length} wegen Konflikten oder Fehlern noch im Trash.`
           );
         } else {
           pushStatusNotice(
             'success',
             'R2-Undo abgeschlossen',
-            `${restoredKeys.size} Datei(en) wurden an ihren ursprünglichen Pfad zurückverschoben.`
+            `${restoredKeys.size} Datei(en) wurden an ihren ursprÃ¼nglichen Pfad zurÃ¼ckverschoben.`
           );
         }
       } catch (undoError: any) {
-        const message = undoError.message || 'R2-Trash konnte nicht rückgängig gemacht werden.';
+        const message = undoError.message || 'R2-Trash konnte nicht rÃ¼ckgÃ¤ngig gemacht werden.';
         setError(message);
         pushStatusNotice('warning', 'R2-Undo fehlgeschlagen', message);
       } finally {
@@ -1429,7 +1439,7 @@ export default function App() {
         return { ...post, hidden: !post.hidden };
       }
       return post;
-    }), `Visibility geändert (${targetTitle})`);
+    }), `Visibility geÃ¤ndert (${targetTitle})`);
   };
 
   const handleStateToggle = (postId: string, stateId: string) => {
@@ -1446,7 +1456,7 @@ export default function App() {
         return { ...post, states: newStates };
       }
       return post;
-    }), `Kategorie geändert (${targetTitle})`);
+    }), `Kategorie geÃ¤ndert (${targetTitle})`);
   };
 
   const handlePostChange = (id: string, field: string, value: string) => {
@@ -1465,7 +1475,7 @@ export default function App() {
       type: 'image',
       states: []
     };
-    updatePosts([newPost, ...flickrPosts], 'Neuen Post hinzugefügt (Custom)');
+    updatePosts([newPost, ...flickrPosts], 'Neuen Post hinzugefÃ¼gt (Custom)');
     setIsEditing(true);
   };
 
@@ -1473,11 +1483,11 @@ export default function App() {
     const targetTitle = describePost(flickrPosts.find(p => String(p.id) === String(id)));
     updatePosts(
       posts => posts.filter(post => String(post.id) !== String(id)),
-      `Post gelöscht (${targetTitle})`
+      `Post gelÃ¶scht (${targetTitle})`
     );
   };
 
-  const handleMergeDown = (index: number) => {
+  const handleMergeDown = useCallback((index: number) => {
     const targetTitle = describePost(flickrPosts[index]);
     updatePosts(posts => {
       const newPosts = [...posts];
@@ -1525,19 +1535,19 @@ export default function App() {
 
       newPosts[index] = {
         ...current,
+        ...syncMediaFieldsFromPrimary({ ...current }, primaryMedia),
         description: mergedDescription,
         mergedMedia,
-        ...syncMediaFieldsFromPrimary({ ...current }, primaryMedia)
       };
 
       newPosts.splice(index + 1, 1);
       return newPosts;
-    }, `Posts zusammengeführt (${targetTitle})`);
-  };
+    }, `Posts zusammengefÃ¼hrt (${targetTitle})`);
+  }, [flickrPosts, updatePosts]);
 
   const handleUpdatePostMedia = (id: string, newMediaRaw: any[]) => {
     // FIX #3: Strikte Filter-Logik - Phantom-Elemente entfernen
-    // uploadId ist NUR während des Uploads erlaubt, danach müssen finale URLs vorhanden sein
+    // uploadId ist NUR wÃ¤hrend des Uploads erlaubt, danach mÃ¼ssen finale URLs vorhanden sein
     const newMedia = newMediaRaw.filter(hasRenderableMedia);
     const targetTitle = describePost(flickrPosts.find(p => String(p.id) === String(id)));
     updatePosts(posts => posts.map(post => {
@@ -1669,14 +1679,14 @@ export default function App() {
         if (isNew || mediaIndex === undefined) {
           const newItem: any = { uploadId, type: 'image', image_preview: localUrl };
           
-          // FIX #1: Explizites Array-Clearing beim Hinzufügen neuer Bilder
+          // FIX #1: Explizites Array-Clearing beim HinzufÃ¼gen neuer Bilder
           // Nur bereits fertiggestellte Bilder mit finalen URLs behalten, keine uploadId-Only oder Phantom-Elemente
           let validatedMedia: any[] = [];
           if (post.mergedMedia && post.mergedMedia.length > 0) {
             // Strikte Validierung: Nur Elemente mit echten finalen URLs beibehalten
             validatedMedia = post.mergedMedia.filter(hasRenderableMedia);
           } else if (hasPrimaryMedia(post)) {
-            // Falls keine mergedMedia aber primäre Post-Daten vorhanden: Diese als Basis verwenden
+            // Falls keine mergedMedia aber primÃ¤re Post-Daten vorhanden: Diese als Basis verwenden
             validatedMedia = [postToMediaItem(post)];
           }
           
@@ -1713,7 +1723,7 @@ export default function App() {
         return { ...cleanOldUrls(post), uploadId, image_preview: localUrl, type: 'image' };
       }
       return post;
-    }), `Lokales Bild hinzugefügt (${describePost(flickrPosts.find(p => String(p.id) === String(id)))})`);
+    }), `Lokales Bild hinzugefÃ¼gt (${describePost(flickrPosts.find(p => String(p.id) === String(id)))})`);
 
     try {
       const formData = new FormData();
@@ -1745,13 +1755,13 @@ export default function App() {
         pushStatusNotice(
           'success',
           'Direkt nach R2 hochgeladen',
-          'Die neuen Bildvarianten sind sofort in Cloudflare R2 verfügbar.'
+          'Die neuen Bildvarianten sind sofort in Cloudflare R2 verfÃ¼gbar.'
         );
       } else if (Array.isArray(uploadData.cloudUploadErrors) && uploadData.cloudUploadErrors.length > 0) {
         pushStatusNotice(
           'warning',
           'Lokal gespeichert',
-          'Mindestens eine R2-Variante hat den Direkt-Upload nicht geschafft und wird später synchronisiert.'
+          'Mindestens eine R2-Variante hat den Direkt-Upload nicht geschafft und wird spÃ¤ter synchronisiert.'
         );
       }
       
@@ -1809,9 +1819,9 @@ export default function App() {
                 return true;
               });
               
-              // Wenn das neue Upload nicht eingefügt wurde, versuche es noch einmal
+              // Wenn das neue Upload nicht eingefÃ¼gt wurde, versuche es noch einmal
               if (cleanedMedia.length === newMedia.length) {
-                // Element mit uploadId wurde nicht aktualisiert - füge direkt hinzu
+                // Element mit uploadId wurde nicht aktualisiert - fÃ¼ge direkt hinzu
                 const uploadedItem = { 
                   type: 'image', 
                   image: thumbUrl, 
@@ -1884,7 +1894,6 @@ export default function App() {
 
   const bunnyStepLabels: Record<string, string> = {
     starting: 'Starte Bunny-Upload…',
-    creating: 'Erstelle Eintrag bei Bunny…',
     uploading: 'Lade Video zu Bunny hoch…',
     encoding: 'Bunny verarbeitet das Video…',
     variants: 'Generiere Thumbnail-Varianten…',
@@ -1918,7 +1927,7 @@ export default function App() {
     }), `Video-Upload gestartet (${describePost(post)})`);
 
     // Show initial progress
-    setBunnyProgress(prev => ({ ...prev, [id]: { step: 'local', progress: 10, text: 'Speichere lokal & extrahiere Vorschau…' } }));
+    setBunnyProgress(prev => ({ ...prev, [id]: { step: 'local', progress: 10, text: 'Speichere lokal & extrahiere Vorschauâ€¦' } }));
 
     try {
       const formData = new FormData();
@@ -1955,8 +1964,13 @@ export default function App() {
       const url1k = uploadData.image_1k || thumbUrl;
       const url2k = uploadData.image_2k || '';
       const url3k = uploadData.image_3k || '';
-      const videoUrl = uploadData.url || uploadData.image_original || '';
+      // Use Bunny embed URL if videoId is available from Phase 1, otherwise fall back to local path
       const bunnyTaskId: string | null = uploadData.bunnyTaskId || null;
+      const phase1VideoId: string | null = uploadData.videoId || null;
+      const phase1LibraryId: string | null = uploadData.libraryId || null;
+      const videoUrl = (phase1VideoId && phase1LibraryId)
+        ? `https://iframe.mediadelivery.net/embed/${phase1LibraryId}/${phase1VideoId}`
+        : (uploadData.url || uploadData.image_original || '');
       const previewCloudUploaded = !!uploadData.previewCloudUploaded;
 
       if (previewCloudUploaded) {
@@ -1977,10 +1991,10 @@ export default function App() {
         const itemIdx = newMedia.findIndex(m => m.uploadId === uploadId);
 
         const updatedItem: any = {
-          type: 'video', // local for now; will update to 'bunny' when bg task completes
+          type: 'video', // stays 'video' until bg task confirms encoding; but videoId is already set
           uploadId,
-          videoId: uploadData.videoId,
-          libraryId: uploadData.libraryId,
+          videoId: phase1VideoId || uploadData.videoId,
+          libraryId: phase1LibraryId || uploadData.libraryId,
           duration: uploadData.duration || 0,
           image: thumbUrl,
           image_thumb: thumbUrl,
@@ -2003,7 +2017,7 @@ export default function App() {
         return { ...post, mergedMedia: newMedia };
       }), `Video lokal gespeichert (${describePost(flickrPosts.find(p => String(p.id) === String(id)))})`);
 
-      // ── Poll Bunny background task if available ──
+      // â”€â”€ Poll Bunny background task if available â”€â”€
       if (bunnyTaskId) {
         setBunnyProgress(prev => ({ ...prev, [id]: { step: 'starting', progress: 5, text: bunnyStepLabels.starting } }));
 
@@ -2039,13 +2053,13 @@ export default function App() {
                 pushStatusNotice(
                   'success',
                   'Bunny-Thumbnail nach R2',
-                  'Die endgültigen Bunny-Thumbnail-Varianten wurden direkt in R2 gespeichert.'
+                  'Die endgÃ¼ltigen Bunny-Thumbnail-Varianten wurden direkt in R2 gespeichert.'
                 );
               } else if (result.previewCloudUploaded) {
                 pushStatusNotice(
                   'info',
                   'Bunny-Preview bleibt online',
-                  'Die Vorschau ist bereits verfügbar. Der spätere Bunny-Thumb wurde lokal verarbeitet.'
+                  'Die Vorschau ist bereits verfÃ¼gbar. Der spÃ¤tere Bunny-Thumb wurde lokal verarbeitet.'
                 );
               }
               updatePosts(posts => posts.map(post => {
@@ -2073,8 +2087,18 @@ export default function App() {
                 }
                 return { ...post, mergedMedia: newMedia };
               }), `Bunny-Upload abgeschlossen (${describePost(flickrPosts.find(p => String(p.id) === String(id)))})`);
-              // Clear progress after short delay
-              setTimeout(() => setBunnyProgress(prev => { const n = { ...prev }; delete n[id]; return n; }), 3000);
+              // Clear progress after short delay; ping only when all uploads complete
+              setTimeout(() => setBunnyProgress(prev => {
+                const next = { ...prev };
+                delete next[id];
+                const hasPending = Object.values(next).some((v: any) =>
+                  v.step !== "done" && v.step !== "error"
+                );
+                if (!hasPending) {
+                  try { new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACAf39/gH9/f4CAf39/f4B/f3+AgH9/f3+Af39/gIB/f39/gH9/f4CAf39/f4B/f3+AgH9/f3+Af39/gIB/f39/gH9/f4B/f3+AgH9/f3+Af39/gIB/f39/gH9/f4B/f3+AgH9/f3+Af39/gIB/f39/gH9/f4B/f3+AgH9/f3+Af39/gIB/f39/gH9/f4CAf39/gH9/f3+AgH9/f3+Af39/gIB/f39/gH9/f4CAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAf39/gICAgICAgICAgIA==").play().catch(() => {}); } catch {}
+                }
+                return next;
+              }), 3000);
               return;
             }
 
@@ -2082,7 +2106,7 @@ export default function App() {
               console.warn('Bunny background task failed:', statusData.error);
               setBunnyProgress(prev => ({
                 ...prev,
-                [id]: { step: 'error', progress: 0, text: `Bunny: ${statusData.error || 'Fehler'} – Video lokal gespeichert` }
+                [id]: { step: 'error', progress: 0, text: `Bunny: ${statusData.error || 'Fehler'} â€“ Video lokal gespeichert` }
               }));
               setTimeout(() => setBunnyProgress(prev => { const n = { ...prev }; delete n[id]; return n; }), 8000);
               return;
@@ -2172,7 +2196,7 @@ export default function App() {
                image_3k: data.image_3k,
                duration: data.duration
              } : post
-           ), `Bunny Video hinzugefügt (${describePost(flickrPosts.find(p => String(p.id) === String(id)))})`);
+           ), `Bunny Video hinzugefÃ¼gt (${describePost(flickrPosts.find(p => String(p.id) === String(id)))})`);
         } else {
            console.error("Failed to sync Bunny video", data.error);
            alert("Fehler beim Abrufen der Bunny.net Metadaten: " + data.error);
@@ -2188,7 +2212,7 @@ export default function App() {
           libraryId: bunnyLibraryId,
           url: url
         } : post
-      ), 'Bunny Video wird verarbeitet…');
+      ), 'Bunny Video wird verarbeitetâ€¦');
     } else if (youtubeId) {
       const thumbnailUrl = `https://img.youtube.com/vi/${youtubeId}/maxresdefault.jpg`;
       shouldPushStateToR2Ref.current = true;
@@ -2202,7 +2226,7 @@ export default function App() {
           type: 'youtube',
           url: url
         } : post
-      ), `YouTube Link hinzugefügt (${describePost(flickrPosts.find(p => String(p.id) === String(id)))})`);
+      ), `YouTube Link hinzugefÃ¼gt (${describePost(flickrPosts.find(p => String(p.id) === String(id)))})`);
     } else {
       handlePostChange(id, 'url', url); // fallback
     }
@@ -3577,7 +3601,7 @@ export default function App() {
       }
     } catch (err: any) {
       console.error("Publish error:", err);
-      setError(err.message || 'Upload fehlgeschlagen. Prüfen Sie die Cloudflare CORS-Einstellungen.');
+      setError(err.message || 'Upload fehlgeschlagen. PrÃ¼fen Sie die Cloudflare CORS-Einstellungen.');
       setUploading(false);
       setUploadProgress(null);
     }
@@ -3713,7 +3737,7 @@ export default function App() {
             `Bytes affected: ${formatBytes(executeData.movedBytes || 0)}`
           ]);
 
-          recordTrashUndo(executeData.trashItems || [], 'R2-Cleanup rückgängig');
+          recordTrashUndo(executeData.trashItems || [], 'R2-Cleanup rÃ¼ckgÃ¤ngig');
           await loadTrashItems(true);
           await fetchCloudflareUsage();
         } catch (err: any) {
@@ -3796,7 +3820,7 @@ export default function App() {
             `Bytes affected: ${formatBytes(executeData.movedBytes || 0)}`
           ]);
 
-          recordTrashUndo(executeData.trashItems || [], 'Legacy-Cleanup rückgängig');
+          recordTrashUndo(executeData.trashItems || [], 'Legacy-Cleanup rÃ¼ckgÃ¤ngig');
           await loadTrashItems(true);
           await fetchCloudflareUsage();
         } catch (err: any) {
@@ -3911,7 +3935,7 @@ export default function App() {
           throw new Error("Keine Daten im Backup gefunden.");
         }
       } else {
-        throw new Error(isJson ? "JSON-Daten ungültig." : "Backup-Format ungültig (Script-Tag fehlt).");
+        throw new Error(isJson ? "JSON-Daten ungÃ¼ltig." : "Backup-Format ungÃ¼ltig (Script-Tag fehlt).");
       }
     } catch (e: any) {
       console.error("Restore failed:", e);
@@ -4009,7 +4033,7 @@ export default function App() {
 
         return post;
       });
-    }, `Medienelement(e) verschoben (${typeLabel} → ${describePost(targetPost)})`);
+    }, `Medienelement(e) verschoben (${typeLabel} â†’ ${describePost(targetPost)})`);
 
     for (const m of movedMediaItems) {
       if (m.type === 'bunny' && m.videoId) {
@@ -4045,7 +4069,7 @@ export default function App() {
     let combinedDescription = mainPost.description || "";
     for (const post of otherPosts) {
       if (post.title || post.description) {
-        combinedDescription += "\n\n──────────────────────────────\n\n";
+        combinedDescription += "\n\nâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€\n\n";
         if (post.title) combinedDescription += `<strong>${post.title}</strong>\n\n`;
         if (post.description) combinedDescription += post.description;
       }
@@ -4094,7 +4118,7 @@ export default function App() {
     updatePosts(prev => {
       const filtered = prev.filter(p => !selectedThumbnails.includes(String(p.id)) || String(p.id) === String(mainPost.id));
       return filtered.map(p => String(p.id) === String(mainPost.id) ? mainPost : p);
-    }, `Posts zusammengeführt (${describePost(mainPost)})`);
+    }, `Posts zusammengefÃ¼hrt (${describePost(mainPost)})`);
 
     // Stay in rearrange mode and select the newly merged post
     setSelectedThumbnails([String(mainPost.id)]);
@@ -4103,7 +4127,7 @@ export default function App() {
   const handleBulkDelete = async () => {
     if (selectedThumbnails.length === 0) return;
     
-    const confirmDelete = window.confirm(`Bist du sicher, dass du ${selectedThumbnails.length} Element(e) löschen möchtest?\n\nDies löscht die Daten vom Server und die Dateien von der Festplatte unwiderruflich!`);
+    const confirmDelete = window.confirm(`Bist du sicher, dass du ${selectedThumbnails.length} Element(e) lÃ¶schen mÃ¶chtest?\n\nDies lÃ¶scht die Daten vom Server und die Dateien von der Festplatte unwiderruflich!`);
     if (!confirmDelete) return;
 
     try {
@@ -4119,12 +4143,12 @@ export default function App() {
         // Remove from local state - filter out deleted posts by id
         updatePosts(
           prev => prev.filter(post => !idsToDelete.includes(String(post.id))),
-          `${idsToDelete.length} Posts gelöscht`
+          `${idsToDelete.length} Posts gelÃ¶scht`
         );
         setSelectedThumbnails([]);
-        alert(`${data.deletedCount} Element(e) und ${data.filesDeleted} Datei(en) erfolgreich gelöscht.`);
+        alert(`${data.deletedCount} Element(e) und ${data.filesDeleted} Datei(en) erfolgreich gelÃ¶scht.`);
       } else {
-        alert('Fehler beim Löschen: ' + data.error);
+        alert('Fehler beim LÃ¶schen: ' + data.error);
       }
     } catch (err) {
       console.error(err);
@@ -4239,7 +4263,7 @@ export default function App() {
                   setSelectedImage(post);
                 }}
                 className="absolute top-1 left-1 p-1 bg-black/50 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80 z-10"
-                title="Lightbox öffnen"
+                title="Lightbox Ã¶ffnen"
               >
                 <Maximize2 className="w-3 h-3 text-white/70" />
               </button>
@@ -4309,7 +4333,7 @@ export default function App() {
             className="fixed bottom-10 left-1/2 z-[100] bg-white/30 text-white px-6 py-3 rounded-full shadow-2xl font-bold flex items-center gap-3 border border-white/20 backdrop-blur-md"
           >
             <ImageIcon className="w-5 h-5" />
-            <span>Auflösungs-Overlay: {showResolutions ? 'AN' : 'AUS'} (Strg+Alt+Y)</span>
+            <span>AuflÃ¶sungs-Overlay: {showResolutions ? 'AN' : 'AUS'} (Strg+Alt+Y)</span>
           </motion.div>
         )}
       </AnimatePresence>
@@ -4396,7 +4420,7 @@ export default function App() {
                 setStatusNotice(null);
               }}
               className="shrink-0 text-current/70 hover:text-current transition-colors"
-              aria-label="Hinweis schließen"
+              aria-label="Hinweis schlieÃŸen"
             >
               <X className="w-4 h-4" />
             </button>

@@ -82,12 +82,10 @@ export function FeedPostCard({
   }, [post.mergedMedia, post.type, post.image, post.image_large, post.youtubeId, post.youtubeUrl, post.url]);
 
   useEffect(() => {
-    console.log(`[FeedPostCard] Syncing title for ${post.id}`);
     setLocalTitle(getAsString(post.title, 'title'));
   }, [post.title]);
 
   useEffect(() => {
-    console.log(`[FeedPostCard] Syncing description for ${post.id}`);
     setLocalDescription(getAsString(post.description, 'description'));
   }, [post.description]);
 
@@ -281,10 +279,10 @@ export function FeedPostCard({
         setMergeChoice(prev => (prev === 'y' ? 'n' : 'y'));
       } else if (e.key === 'Enter') {
         e.preventDefault();
-        setConfirmingMerge(false);
         if (mergeChoice === 'y') {
           handleMergeDown(index);
         }
+        setConfirmingMerge(false);
       } else if (e.key === 'Escape') {
         e.preventDefault();
         setConfirmingMerge(false);
@@ -749,6 +747,33 @@ export function FeedPostCard({
                           if (!url) return;
                           setApplyLoading(prev => ({ ...prev, [i]: true }));
 
+                          // If media is already 'bunny' with videoId/libraryId, sync directly
+                          if (media.type === 'bunny' && media.videoId && media.libraryId) {
+                            fetch('/api/bunny/sync-video', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ libraryId: media.libraryId, videoId: media.videoId })
+                            }).then(res => res.json()).then(data => {
+                              setApplyLoading(prev => ({ ...prev, [i]: false }));
+                              if (data.success) {
+                                const syncedMedia = [...mediaItems];
+                                syncedMedia[i] = {
+                                  ...syncedMedia[i],
+                                  image: data.image_thumb || data.image || '',
+                                  image_thumb: data.image_thumb || '',
+                                  image_1k: data.image_1k || '',
+                                  image_2k: data.image_2k || '',
+                                  image_3k: data.image_3k || '',
+                                  duration: data.duration || media.duration || 0,
+                                };
+                                handleUpdatePostMedia(post.id, syncedMedia);
+                              } else {
+                                setApplyLoading(prev => ({ ...prev, [i]: false }));
+                              }
+                            }).catch(() => setApplyLoading(prev => ({ ...prev, [i]: false })));
+                            return;
+                          }
+
                           // Detect YouTube
                           const ytRegExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
                           const ytMatch = url.match(ytRegExp);
@@ -818,7 +843,7 @@ export function FeedPostCard({
                         ) : (
                           <Check className="w-3 h-3" />
                         )}
-                        <span>Anwenden</span>
+                        <span>{media.type === 'bunny' ? 'ThumbDL' : 'Anwenden'}</span>
                       </button>
                     </div>
                     {applyLoading[i] && (
@@ -1167,7 +1192,7 @@ export function FeedPostCard({
                 <span className="text-white/80 select-none">Sure?</span>
                 <button
                   ref={mergeYesRef}
-                  onClick={() => { setConfirmingMerge(false); handleMergeDown(index); }}
+                  onClick={() => { handleMergeDown(index); setConfirmingMerge(false); }}
                   className={`px-2 py-0.5 rounded border transition-colors ${
                     mergeChoice === 'y'
                       ? 'bg-green-600 border-green-400 text-white ring-1 ring-green-300'
