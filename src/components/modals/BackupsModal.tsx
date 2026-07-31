@@ -1,6 +1,6 @@
 // src/components/modals/BackupsModal.tsx
 import React from 'react';
-import { History, X, RefreshCw, Download } from 'lucide-react';
+import { History, X, RefreshCw, Download, CheckCircle2 } from 'lucide-react';
 
 interface Backup {
   filename: string;
@@ -13,6 +13,7 @@ interface BackupsModalProps {
   backupsList: Backup[];
   isRestoring: string | null;
   restoreError: string | null;
+  lastRestoredFilename: string | null;
   onRestore: (filename: string) => Promise<void>;
 }
 
@@ -52,6 +53,7 @@ export function BackupsModal({
   backupsList,
   isRestoring,
   restoreError,
+  lastRestoredFilename,
   onRestore
 }: BackupsModalProps) {
   if (!isOpen) return null;
@@ -92,16 +94,28 @@ export function BackupsModal({
               const displayDate = formatBackupDate(filename);
               const isThisRestoring = isRestoring === filename;
 
+              const isLastRestored = filename === lastRestoredFilename;
+
               return (
-                <div key={filename} className="flex items-center justify-between bg-white/10 p-3 rounded border border-white/10 hover:border-white/20 transition-all duration-300">
+                <div key={filename} className={`flex items-center justify-between p-3 rounded border transition-all duration-300 ${
+                  isLastRestored
+                    ? 'bg-green-500/5 border-green-500/30 hover:border-green-500/50'
+                    : 'bg-white/10 border-white/10 hover:border-white/20'
+                }`}>
                   <div className="flex flex-col min-w-0 mr-4">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-medium text-white/90 truncate">{displayDate}</span>
                       <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${
                         backup.type === 'full' ? 'bg-blue-500/20 text-blue-400' : 'bg-purple-500/20 text-purple-400'
                       }`}>
                         {backup.type === 'full' ? 'Full' : 'Data'}
                       </span>
+                      {isLastRestored && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase bg-green-500/15 text-green-400 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          Zuletzt wiederhergestellt
+                        </span>
+                      )}
                     </div>
                     <span className="text-[10px] text-white/30 truncate mt-0.5">{filename}</span>
                   </div>

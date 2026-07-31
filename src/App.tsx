@@ -532,6 +532,9 @@ export default function App() {
   const [isResettingAll, setIsResettingAll] = useState(false);
   const [isRestoring, setIsRestoring] = useState<string | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [lastRestoredFilename, setLastRestoredFilename] = useState<string | null>(
+    () => localStorage.getItem('portfolioLastRestoredBackup')
+  );
   const [scrapeLogs, setScrapeLogs] = useState<string[]>([]);
   const [isScraping, setIsScraping] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
@@ -3876,6 +3879,10 @@ export default function App() {
             if (data.scrapeConfig.flickrUrl) setFlickrUrl(data.scrapeConfig.flickrUrl);
           }
           
+          // Track last restored backup for visual indicator
+          setLastRestoredFilename(filename);
+          localStorage.setItem('portfolioLastRestoredBackup', filename);
+
           // Close modal after a short delay to show success
           setTimeout(() => {
             setShowBackups(false);
@@ -4468,6 +4475,7 @@ export default function App() {
         backupsList={backupsList}
         isRestoring={isRestoring}
         restoreError={restoreError}
+        lastRestoredFilename={lastRestoredFilename}
         onRestore={handleRestoreBackup}
       />
 
