@@ -183,8 +183,8 @@ const getVideoSrc = (media: any, preferLarge = false) => {
 
 const getRenderableMediaSource = (media: any) => {
   if (!media || typeof media !== 'object') return '';
-  if (media.type === 'youtube' && media.youtubeId) return `yt:${media.youtubeId}`;
-  if (media.type === 'bunny' && media.videoId) return `bunny:${media.libraryId || ''}:${media.videoId}`;
+  if (media.type === 'youtube') return media.youtubeId ? `yt:${media.youtubeId}` : 'yt:new';
+  if (media.type === 'bunny') return media.videoId ? `bunny:${media.libraryId || ''}:${media.videoId}` : 'bunny:new';
   return (
     getImageSrc(media, true) ||
     getImageSrc(media) ||
@@ -2296,8 +2296,8 @@ export default function App() {
     const ytMatch = url.match(ytRegExp);
     const youtubeId = (ytMatch && ytMatch[2].length === 11) ? ytMatch[2] : null;
     
-    // Check Bunny (assuming they paste e.g. "bunny:LIBRARY_ID/VIDEO_ID" or a full bunnycdn url)
-    const bunnyRegExp = /video\.bunnycdn\.com\/play\/(\d+)\/([a-zA-Z0-9-]+)/i;
+    // Check Bunny (video.bunnycdn.com, player.mediadelivery.net, or bunny: scheme)
+    const bunnyRegExp = /(?:video\.bunnycdn\.com|player\.mediadelivery\.net)\/play\/(\d+)\/([a-zA-Z0-9-]+)/i;
     const bunnyMatch = url.match(bunnyRegExp);
     let bunnyLibraryId = null;
     let bunnyVideoId = null;
@@ -2800,6 +2800,7 @@ export default function App() {
 
         function hasRenderableMedia(media) {
           return !!(media && (
+            media.type === 'youtube' ||
             media.type === 'bunny' ||
             getImageSrc(media, true) ||
             getImageSrc(media) ||

@@ -462,9 +462,123 @@ export function FeedPostCard({
     handleRemoveMedia(post.id, i);
   };
 
-  const addMedia = (type: 'image' | 'youtube') => {
+  const addMedia = (type: 'image' | 'youtube' | 'bunny') => {
     const newMedia = [{ type, image: '', image_large: '', link: '', youtubeId: '', youtubeUrl: '' }, ...mediaItems];
     handleUpdatePostMedia(post.id, newMedia);
+  };
+
+  const applyUrlToMedia = (i: number, urlString: string) => {
+    const url = urlString.trim();
+    if (!url) return;
+
+    const media = mediaItems[i];
+    if (!media) return;
+
+    setApplyLoading(prev => ({ ...prev, [i]: true }));
+
+    // If media is already 'bunny' with videoId/libraryId, sync directly
+    if (media.type === 'bunny' && media.videoId && media.libraryId) {
+      const existingVidId = media.videoId;
+      const existingLibId = media.libraryId;
+      fetch('/api/bunny/sync-video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ libraryId: existingLibId, videoId: existingVidId })
+      }).then(res => res.json()).then(data => {
+        setApplyLoading(prev => ({ ...prev, [i]: false }));
+        if (data.success) {
+          // NOTE: mediaItems is stale here (closure from render when fetch started).
+          // Explicitly preserve videoId/libraryId/type/url instead of spreading stale item.
+          const syncedMedia = [...mediaItems];
+          syncedMedia[i] = {
+            ...syncedMedia[i],
+            type: 'bunny',
+            videoId: existingVidId,
+            libraryId: existingLibId,
+            url: `https://iframe.mediadelivery.net/embed/${existingLibId}/${existingVidId}`,
+            image_original: `https://iframe.mediadelivery.net/embed/${existingLibId}/${existingVidId}`,
+            image: data.image_thumb || data.image || '',
+            image_thumb: data.image_thumb || '',
+            image_1k: data.image_1k || '',
+            image_2k: data.image_2k || '',
+            image_3k: data.image_3k || '',
+            duration: data.duration || media.duration || 0,
+          };
+          handleUpdatePostMedia(post.id, syncedMedia);
+        }
+      }).catch(() => setApplyLoading(prev => ({ ...prev, [i]: false })));
+      return;
+    }
+
+    // Detect YouTube
+    const ytRegExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+    const ytMatch = url.match(ytRegExp);
+    const youtubeId = (ytMatch && ytMatch[2].length === 11) ? ytMatch[2] : null;
+
+    // Detect Bunny (video.bunnycdn.com, player.mediadelivery.net, or bunny: scheme)
+    const bunnyRegExp = /(?:video\.bunnycdn\.com|player\.mediadelivery\.net)\/play\/(\d+)\/([a-zA-Z0-9-]+)/i;
+    const bunnyMatch = url.match(bunnyRegExp);
+    let bunnyLibraryId: string | null = null;
+    let bunnyVideoId: string | null = null;
+    if (bunnyMatch) {
+      bunnyLibraryId = bunnyMatch[1];
+      bunnyVideoId = bunnyMatch[2];
+    } else if (url.startsWith('bunny:')) {
+      const parts = url.replace('bunny:', '').split('/');
+      if (parts.length === 2) {
+        bunnyLibraryId = parts[0];
+        bunnyVideoId = parts[1];
+      }
+    }
+
+    if (bunnyLibraryId && bunnyVideoId) {
+      const embedUrl = `https://iframe.mediadelivery.net/embed/${bunnyLibraryId}/${bunnyVideoId}`;
+      // Bunny video: optimistic update (set proper embed URL) + background sync
+      const newMedia = [...mediaItems];
+      newMedia[i] = { ...media, type: 'bunny', libraryId: bunnyLibraryId, videoId: bunnyVideoId, url: embedUrl, image_original: embedUrl };
+      handleUpdatePostMedia(post.id, newMedia);
+
+      fetch('/api/bunny/sync-video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ libraryId: bunnyLibraryId, videoId: bunnyVideoId })
+      }).then(res => res.json()).then(data => {
+        setApplyLoading(prev => ({ ...prev, [i]: false }));
+        if (data.success) {
+          // NOTE: mediaItems is stale here (closure from render when fetch started).
+          // Explicitly preserve videoId/libraryId/type/url instead of spreading stale item.
+          const syncedMedia = [...mediaItems];
+          syncedMedia[i] = {
+            ...syncedMedia[i],
+            type: 'bunny',
+            videoId: bunnyVideoId,
+            libraryId: bunnyLibraryId,
+            url: embedUrl,
+            image_original: embedUrl,
+            image: data.url,
+            image_thumb: data.image_thumb || data.url,
+            image_1k: data.image_1k || '',
+            image_2k: data.image_2k || '',
+            image_3k: data.image_3k || '',
+            duration: data.duration || 0
+          };
+          handleUpdatePostMedia(post.id, syncedMedia);
+        }
+      }).catch(() => setApplyLoading(prev => ({ ...prev, [i]: false })));
+    } else if (youtubeId) {
+      // YouTube: apply immediately
+      const thumbnailUrl = `https://img.youtube.com/vi/${youtubeId}/maxresdefault.jpg`;
+      const newMedia = [...mediaItems];
+      newMedia[i] = { ...media, type: 'youtube', youtubeUrl: url, youtubeId, image: thumbnailUrl, image_large: thumbnailUrl, url };
+      handleUpdatePostMedia(post.id, newMedia);
+      setApplyLoading(prev => ({ ...prev, [i]: false }));
+    } else {
+      // Unknown: just store URL
+      const newMedia = [...mediaItems];
+      newMedia[i] = { ...newMedia[i], url };
+      handleUpdatePostMedia(post.id, newMedia);
+      setApplyLoading(prev => ({ ...prev, [i]: false }));
+    }
   };
 
   const handleMediaDragStart = (e: React.DragEvent, index: number) => {
@@ -778,109 +892,17 @@ export function FeedPostCard({
                             if (e.key === 'Enter') {
                               e.preventDefault();
                               const url = localUrlInputs[i] ?? (media.youtubeUrl || media.url || '');
-                            if (url.trim()) {
-                              handleVideoLinkChange(post.id, url);
-                              // Also update the media item's displayed URL immediately
-                              updateMediaItem(i, 'url', url);
+                              applyUrlToMedia(i, url);
                             }
-                          }
-                        }}
+                          }}
                         className="flex-1 bg-black/50 border border-white/20 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-white/40"
                         placeholder="YouTube oder Bunny URL einfügen..."
                       />
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                            const url = (localUrlInputs[i] ?? (media.youtubeUrl || media.url || '')).trim();
-                          if (!url) return;
-                          setApplyLoading(prev => ({ ...prev, [i]: true }));
-
-                          // If media is already 'bunny' with videoId/libraryId, sync directly
-                          if (media.type === 'bunny' && media.videoId && media.libraryId) {
-                            fetch('/api/bunny/sync-video', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ libraryId: media.libraryId, videoId: media.videoId })
-                            }).then(res => res.json()).then(data => {
-                              setApplyLoading(prev => ({ ...prev, [i]: false }));
-                              if (data.success) {
-                                const syncedMedia = [...mediaItems];
-                                syncedMedia[i] = {
-                                  ...syncedMedia[i],
-                                  image: data.image_thumb || data.image || '',
-                                  image_thumb: data.image_thumb || '',
-                                  image_1k: data.image_1k || '',
-                                  image_2k: data.image_2k || '',
-                                  image_3k: data.image_3k || '',
-                                  duration: data.duration || media.duration || 0,
-                                };
-                                handleUpdatePostMedia(post.id, syncedMedia);
-                              } else {
-                                setApplyLoading(prev => ({ ...prev, [i]: false }));
-                              }
-                            }).catch(() => setApplyLoading(prev => ({ ...prev, [i]: false })));
-                            return;
-                          }
-
-                          // Detect YouTube
-                          const ytRegExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-                          const ytMatch = url.match(ytRegExp);
-                          const youtubeId = (ytMatch && ytMatch[2].length === 11) ? ytMatch[2] : null;
-
-                          // Detect Bunny
-                          const bunnyRegExp = /video\.bunnycdn\.com\/play\/(\d+)\/([a-zA-Z0-9-]+)/i;
-                          const bunnyMatch = url.match(bunnyRegExp);
-                          let bunnyLibraryId: string | null = null;
-                          let bunnyVideoId: string | null = null;
-                          if (bunnyMatch) {
-                            bunnyLibraryId = bunnyMatch[1];
-                            bunnyVideoId = bunnyMatch[2];
-                          } else if (url.startsWith('bunny:')) {
-                            const parts = url.replace('bunny:', '').split('/');
-                            if (parts.length === 2) {
-                              bunnyLibraryId = parts[0];
-                              bunnyVideoId = parts[1];
-                            }
-                          }
-
-                          if (bunnyLibraryId && bunnyVideoId) {
-                            // Bunny video: optimistic update + background sync
-                            const newMedia = [...mediaItems];
-                            newMedia[i] = { ...media, type: 'bunny', libraryId: bunnyLibraryId, videoId: bunnyVideoId, url };
-                            handleUpdatePostMedia(post.id, newMedia);
-
-                            fetch('/api/bunny/sync-video', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ libraryId: bunnyLibraryId, videoId: bunnyVideoId })
-                            }).then(res => res.json()).then(data => {
-                              setApplyLoading(prev => ({ ...prev, [i]: false }));
-                              if (data.success) {
-                                const syncedMedia = [...mediaItems];
-                                syncedMedia[i] = {
-                                  ...syncedMedia[i],
-                                  image: data.url,
-                                  image_thumb: data.image_thumb || data.url,
-                                  image_1k: data.image_1k,
-                                  image_2k: data.image_2k,
-                                  image_3k: data.image_3k,
-                                  duration: data.duration
-                                };
-                                handleUpdatePostMedia(post.id, syncedMedia);
-                              }
-                            }).catch(() => setApplyLoading(prev => ({ ...prev, [i]: false })));
-                          } else if (youtubeId) {
-                            // YouTube: apply immediately
-                            const thumbnailUrl = `https://img.youtube.com/vi/${youtubeId}/maxresdefault.jpg`;
-                            const newMedia = [...mediaItems];
-                            newMedia[i] = { ...media, type: 'youtube', youtubeUrl: url, youtubeId, image: thumbnailUrl, image_large: thumbnailUrl, url };
-                            handleUpdatePostMedia(post.id, newMedia);
-                            setApplyLoading(prev => ({ ...prev, [i]: false }));
-                          } else {
-                            // Unknown: just store URL
-                            updateMediaItem(i, 'url', url);
-                            setApplyLoading(prev => ({ ...prev, [i]: false }));
-                          }
+                          const url = (localUrlInputs[i] ?? (media.youtubeUrl || media.url || '')).trim();
+                          applyUrlToMedia(i, url);
                         }}
                         disabled={applyLoading[i]}
                         className="flex items-center gap-1 bg-white/20 hover:bg-white/30 border border-white/20 rounded px-2 py-1 text-xs text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
