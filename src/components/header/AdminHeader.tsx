@@ -210,26 +210,35 @@ export function AdminHeader({
           <CloudflareUsageDisplay />
         </div>
 
-        {/* Row 1 */}
-        <AdminButton onClick={() => handleScrape('flickr')} disabled={isScraping} tooltip="Flickr Album einlesen">
-          <RefreshCw className={`w-3 h-3 sm:w-4 sm:h-4 ${isScraping ? 'animate-spin' : ''}`} />
-          <span className="text-center">Flickr</span>
-        </AdminButton>
-        
-        <AdminButton onClick={() => handleScrape('instagram')} disabled={isScraping} tooltip="Instagram Feed einlesen">
-          <RefreshCw className={`w-3 h-3 sm:w-4 sm:h-4 ${isScraping ? 'animate-spin text-white' : ''}`} />
-          <span className="text-center">Insta</span>
-        </AdminButton>
-        
-        <AdminButton onClick={() => handleScrape('combined')} disabled={isScraping} tooltip="Flickr & Instagram gleichzeitig einlesen">
-          <RefreshCw className={`w-3 h-3 sm:w-4 sm:h-4 ${isScraping ? 'animate-spin text-blue-400' : ''}`} />
-          <span className="text-center">Alle</span>
-        </AdminButton>
-
-        <AdminButton onClick={() => handleScrape('flickr_html')} disabled={isScraping} tooltip="Flickr HTML Galerie einlesen (flickr-html.pages.dev)">
-          <RefreshCw className={`w-3 h-3 sm:w-4 sm:h-4 ${isScraping ? 'animate-spin text-orange-400' : ''}`} />
-          <span className="text-center">HTML</span>
-        </AdminButton>
+        {/* Row 1: Insta & Flickr in one standard-size split button (beginning) */}
+        <div
+          className="col-span-1 flex rounded-xl border border-[var(--admin-btn-border)] overflow-hidden"
+          style={{ ['--admin-btn-bg' as any]: '#4d4d4d', ['--admin-btn-bg-hover' as any]: '#5e5e5e', ['--admin-btn-border' as any]: '#6a6a6a' } as React.CSSProperties}
+        >
+          <button
+            onClick={() => handleScrape('instagram')}
+            disabled={isScraping}
+            title="Instagram Feed einlesen"
+            className={`flex-1 flex flex-col items-center justify-center gap-1 px-1 py-3 text-[10px] sm:text-xs font-medium transition-all duration-300
+              bg-[var(--admin-btn-bg)] hover:bg-[var(--admin-btn-bg-hover)] text-white
+              ${isScraping ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer active:scale-95'}
+              border-r border-[var(--admin-btn-border)]`}
+          >
+            <RefreshCw className={`w-3 h-3 sm:w-4 sm:h-4 ${isScraping ? 'animate-spin' : ''}`} />
+            <span className="text-center">Insta</span>
+          </button>
+          <button
+            onClick={() => handleScrape('flickr')}
+            disabled={isScraping}
+            title="Flickr Album einlesen"
+            className={`flex-1 flex flex-col items-center justify-center gap-1 px-1 py-3 text-[10px] sm:text-xs font-medium transition-all duration-300
+              bg-[var(--admin-btn-bg)] hover:bg-[var(--admin-btn-bg-hover)] text-white
+              ${isScraping ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer active:scale-95'}`}
+          >
+            <RefreshCw className={`w-3 h-3 sm:w-4 sm:h-4 ${isScraping ? 'animate-spin' : ''}`} />
+            <span className="text-center">Flickr</span>
+          </button>
+        </div>
 
 
         {/* Row 2 */}
