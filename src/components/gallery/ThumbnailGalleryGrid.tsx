@@ -30,6 +30,7 @@ interface ThumbnailGalleryGridProps {
   handleDeletePost: (postId: string) => void;
   handleMergeDown: (index: number) => void;
   handleUpdatePostMedia: (postId: string, media: any[]) => void;
+  handleRemoveMedia: (postId: string, mediaIndex: number) => void;
   setSelectedImage: (post: any) => void;
   handleStateToggle: (postId: string, stateId: string) => void;
   handleToggleHidden: (postId: string) => void;
@@ -69,6 +70,7 @@ export function ThumbnailGalleryGrid({
   handleDeletePost,
   handleMergeDown,
   handleUpdatePostMedia,
+  handleRemoveMedia,
   setSelectedImage,
   handleStateToggle,
   handleToggleHidden,
@@ -118,6 +120,7 @@ export function ThumbnailGalleryGrid({
               handleDeletePost={handleDeletePost}
               handleMergeDown={handleMergeDown}
               handleUpdatePostMedia={handleUpdatePostMedia}
+              handleRemoveMedia={handleRemoveMedia}
               setSelectedImage={setSelectedImage}
               handleStateToggle={handleStateToggle}
               handleToggleHidden={handleToggleHidden}

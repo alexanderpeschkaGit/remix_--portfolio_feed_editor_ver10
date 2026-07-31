@@ -67,13 +67,18 @@ export function resolveMediaAssetLocation(value: string, rootDir = process.cwd()
   let localPath: string | null = null;
   if (canonicalR2Key) {
     localPath = path.join(rootDir, 'data_v2', canonicalR2Key.slice('v2/data/'.length));
-  } else if (path.isAbsolute(originalValue) && !/^https?:\/\//i.test(originalValue)) {
-    localPath = path.normalize(originalValue);
   } else {
     const normalized = pathname.replace(/^\/+/, '');
-    if (/^data\//i.test(normalized)) localPath = path.join(rootDir, normalized);
-    else if (/^originals\//i.test(normalized)) localPath = path.join(rootDir, normalized);
-    else if (originalValue && !/^https?:\/\//i.test(originalValue)) localPath = path.resolve(rootDir, originalValue);
+    if (/^data\//i.test(normalized) || /^originals\//i.test(normalized)) {
+      // App-internal web paths (e.g. /data/..., /originals/...) -> workspace-relative.
+      // IMPORTANT: must be checked BEFORE path.isAbsolute — on Windows a leading "/"
+      // is treated as drive-root-relative ("\data\..."), which would produce a bogus path.
+      localPath = path.join(rootDir, normalized);
+    } else if (path.isAbsolute(originalValue) && !/^https?:\/\//i.test(originalValue)) {
+      localPath = path.normalize(originalValue);
+    } else if (originalValue && !/^https?:\/\//i.test(originalValue)) {
+      localPath = path.resolve(rootDir, originalValue);
+    }
   }
 
   return { originalValue, pathname, canonicalR2Key, localPath, publicBaseUrl };

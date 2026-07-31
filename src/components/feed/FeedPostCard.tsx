@@ -29,6 +29,7 @@ interface FeedPostCardProps {
   handleDeletePost: (postId: string) => void;
   handleMergeDown: (index: number) => void;
   handleUpdatePostMedia: (postId: string, media: any[]) => void;
+  handleRemoveMedia: (postId: string, mediaIndex: number) => void;
   setSelectedImage: (post: any) => void;
   handleStateToggle: (postId: string, stateId: string) => void;
   handleToggleHidden: (postId: string) => void;
@@ -50,7 +51,7 @@ export function FeedPostCard({
   imageDimensions, getDisplayImage, getImageSrc, getVideoSrc, handleImageLoad, formatDescription,
   isR2Fallback, isEmbeddedData, isValidImageCandidate,
   handleImageUpload, handleVideoFileUpload, handlePostChange, handleVideoLinkChange, handleDeletePost,
-  handleMergeDown, handleUpdatePostMedia, setSelectedImage, handleStateToggle, handleToggleHidden,
+  handleMergeDown, handleUpdatePostMedia, handleRemoveMedia, setSelectedImage, handleStateToggle, handleToggleHidden,
   bunnyProgress,
   activeMediaDrag, onMediaDragStart, onMediaDragEnd, onCrossPostMediaDrop,
   mediaSelection, onMediaClick, onMediaAltClick, clearMediaSelection
@@ -458,8 +459,7 @@ export function FeedPostCard({
   };
 
   const removeMedia = (i: number) => {
-    const newMedia = mediaItems.filter((_: any, idx: number) => idx !== i);
-    handleUpdatePostMedia(post.id, newMedia);
+    handleRemoveMedia(post.id, i);
   };
 
   const addMedia = (type: 'image' | 'youtube') => {

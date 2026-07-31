@@ -269,6 +269,18 @@ const syncMediaFieldsFromPrimary = (target: any, primary: any) => {
   return target;
 };
 
+// Removes all media reference fields from a post (used when the last media entry is removed).
+const clearPostMediaFields = (post: any) => {
+  const fields = [
+    'image', 'image_thumb', 'image_1k', 'image_2k', 'image_3k', 'image_large', 'image_original', 'image_preview',
+    'imageLarge', 'largeUrl', 'local_highres', 'video', 'video_large', 'url', 'link', 'poster', 'thumbnail', 'thumb', 'preview',
+    'videoId', 'libraryId', 'youtubeId', 'youtubeUrl', 'image_width', 'image_height',
+  ];
+  const copy = { ...post };
+  for (const f of fields) delete copy[f];
+  return copy;
+};
+
 const EDITOR_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
@@ -288,7 +300,8 @@ const EDITOR_FAVICON_DATA_URI = `data:image/svg+xml,${encodeURIComponent(EDITOR_
 
 type PostHistoryEntry = { posts: any[]; action: string };
 type TrashHistoryEntry = { trashKeys: string[]; action: string };
-type UndoHistoryEntry = PostHistoryEntry | TrashHistoryEntry;
+type MediaDeleteHistoryEntry = { posts: any[]; bakFiles: Array<{ from: string; to: string }>; action: string };
+type UndoHistoryEntry = PostHistoryEntry | TrashHistoryEntry | MediaDeleteHistoryEntry;
 
 // SortablePost component moved to src/components/feed/FeedPostCard.tsx
 
@@ -1418,6 +1431,34 @@ export default function App() {
       return;
     }
 
+    if ('bakFiles' in previousState) {
+      const bakFiles = previousState.bakFiles;
+      if (bakFiles.length > 0) {
+        try {
+          const resp = await fetch('/api/bak/restore', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bakFiles })
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok) throw new Error(data.error || 'Bak-Wiederherstellung fehlgeschlagen.');
+          if (data.failedCount > 0) {
+            pushStatusNotice('warning', 'Undo teilweise ausgeführt', `${data.restoredCount ?? 0} Datei(en) aus bak/ zurückgeholt, ${data.failedCount} fehlgeschlagen.`);
+          } else {
+            pushStatusNotice('success', 'Undo abgeschlossen', `${data.restoredCount ?? 0} Datei(en) aus bak/ wiederhergestellt. R2-Objekte werden beim nächsten Cloud Sync neu hochgeladen.`);
+          }
+        } catch (undoError: any) {
+          setError(undoError.message || 'Bak-Wiederherstellung fehlgeschlagen.');
+          pushStatusNotice('warning', 'Undo fehlgeschlagen', undoError.message || 'Bak-Wiederherstellung fehlgeschlagen.');
+        }
+      }
+      shouldPushStateToR2Ref.current = true;
+      setPast(p => p.slice(0, -1));
+      setFuture([]);
+      setFlickrPosts(previousState.posts);
+      return;
+    }
+
     setPast(p => p.slice(0, -1));
     setFuture((f): typeof f => [...f, { posts: current, action: previousState.action }].slice(-50));
     setFlickrPosts(previousState.posts);
@@ -1479,12 +1520,40 @@ export default function App() {
     setIsEditing(true);
   };
 
-  const handleDeletePost = (id: string) => {
-    const targetTitle = describePost(flickrPosts.find(p => String(p.id) === String(id)));
-    updatePosts(
-      posts => posts.filter(post => String(post.id) !== String(id)),
-      `Post gelÃ¶scht (${targetTitle})`
+  const handleDeletePost = async (id: string) => {
+    const targetPost = flickrPosts.find(p => String(p.id) === String(id));
+    if (!targetPost) return;
+    const targetTitle = describePost(targetPost);
+    const hasMediaFiles = !!(
+      targetPost.image || targetPost.image_original || targetPost.url || targetPost.image_thumb ||
+      (Array.isArray(targetPost.mergedMedia) && targetPost.mergedMedia.length > 0)
     );
+    const confirmMessage = hasMediaFiles
+      ? `Post "${targetTitle}" wirklich löschen?\n\nLokale Dateien werden nach bak/ verschoben (über Undo wiederherstellbar) und die R2-Dateien werden unwiderruflich gelöscht.`
+      : `Post "${targetTitle}" wirklich löschen?`;
+    if (!window.confirm(confirmMessage)) return;
+
+    try {
+      const res = await fetch('/api/state/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'Löschen fehlgeschlagen');
+
+      const bakFiles = Array.isArray(data.movedToBak) ? data.movedToBak : [];
+      const prevPosts = flickrPosts;
+      setPast(p => [...p, { posts: prevPosts, bakFiles, action: `Post gelöscht (${targetTitle})` }].slice(-50));
+      setFuture([]);
+      setHasUnpublishedChanges(true);
+      setFlickrPosts(prev => prev.filter(post => String(post.id) !== String(id)));
+      if (bakFiles.length > 0) {
+        pushStatusNotice('info', 'Post gelöscht', `${bakFiles.length} Datei(en) nach bak/ verschoben, ${data.r2DeletedCount ?? 0} von R2 gelöscht.`);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Ein Fehler ist aufgetreten.');
+    }
   };
 
   const handleMergeDown = useCallback((index: number) => {
@@ -1565,6 +1634,78 @@ export default function App() {
       return post;
     }), `Post Media aktualisiert (${targetTitle})`);
     shouldPushStateToR2Ref.current = true;
+  };
+
+  const handleRemoveMedia = async (postId: string, mediaIndex: number) => {
+    const targetPost = flickrPosts.find(p => String(p.id) === String(postId));
+    if (!targetPost) return;
+    const mergedMedia = Array.isArray(targetPost.mergedMedia) ? targetPost.mergedMedia : [];
+    const mediaItems = mergedMedia.length > 0
+      ? mergedMedia
+      : [{ type: targetPost.type || 'image', image: targetPost.image, image_large: targetPost.image_large, youtubeId: targetPost.youtubeId, youtubeUrl: targetPost.youtubeUrl, link: targetPost.url }];
+    const removedItem = mediaItems[mediaIndex];
+    if (!removedItem) return;
+
+    const isRealEntry = mergedMedia.includes(removedItem);
+
+    // Synthesized entry (post without mergedMedia) -> keep old local-only removal.
+    if (!isRealEntry) {
+      handleUpdatePostMedia(postId, mediaItems.filter((_: any, idx: number) => idx !== mediaIndex));
+      return;
+    }
+
+    const mediaId = removedItem?.id !== undefined && removedItem?.id !== null ? String(removedItem.id) : undefined;
+    const mediaUrl =
+      (typeof removedItem?.video === 'string' && removedItem.video) ||
+      (typeof removedItem?.url === 'string' && removedItem.url) ||
+      (typeof removedItem?.image_original === 'string' && removedItem.image_original) ||
+      (typeof removedItem?.image_large === 'string' && removedItem.image_large) ||
+      (typeof removedItem?.image === 'string' && removedItem.image) ||
+      undefined;
+
+    const removedLabel = removedItem.type === 'youtube' ? 'YouTube' : removedItem.type === 'bunny' ? 'Bunny-Video' : removedItem.type === 'video' ? 'Video' : 'Bild';
+    if (!window.confirm(`"${removedLabel}" wirklich entfernen?\n\nLokale Dateien werden nach bak/ verschoben (über Undo wiederherstellbar) und die R2-Dateien werden unwiderruflich gelöscht.`)) return;
+
+    try {
+      const res = await fetch('/api/state/delete-media', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: postId, mediaId, mediaIndex, mediaUrl })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 404) {
+        // Server could not find the media entry (e.g. state drift) -> safe local-only removal.
+        handleUpdatePostMedia(postId, mediaItems.filter((_: any, idx: number) => idx !== mediaIndex));
+        return;
+      }
+      if (!res.ok || !data.success) throw new Error(data.error || 'Entfernen fehlgeschlagen');
+
+      const bakFiles = Array.isArray(data.movedToBak) ? data.movedToBak : [];
+      const newMedia = mediaItems.filter((_: any, idx: number) => idx !== mediaIndex).filter(hasRenderableMedia);
+      const prevPosts = flickrPosts;
+      const newPosts = prevPosts.map(post => {
+        if (String(post.id) !== String(postId)) return post;
+        const updatedPost = { ...post, mergedMedia: newMedia };
+        const primaryMedia = getPrimaryMergedMedia(newMedia);
+        if (primaryMedia) {
+          return { ...syncMediaFieldsFromPrimary(updatedPost, primaryMedia), mergedMedia: newMedia };
+        }
+        if (newMedia.length === 0) {
+          return clearPostMediaFields({ ...updatedPost, mergedMedia: undefined });
+        }
+        return updatedPost;
+      });
+      setPast(p => [...p, { posts: prevPosts, bakFiles, action: `Media entfernt (${removedLabel})` }].slice(-50));
+      setFuture([]);
+      setHasUnpublishedChanges(true);
+      setFlickrPosts(newPosts);
+      shouldPushStateToR2Ref.current = true;
+      if (bakFiles.length > 0) {
+        pushStatusNotice('info', 'Media entfernt', `${bakFiles.length} Datei(en) nach bak/ verschoben, ${data.r2DeletedCount ?? 0} von R2 gelöscht.`);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Ein Fehler ist aufgetreten.');
+    }
   };
 
   const handleMoveToTarget = (targetId: string) => {
@@ -4126,29 +4267,30 @@ export default function App() {
 
   const handleBulkDelete = async () => {
     if (selectedThumbnails.length === 0) return;
-    
-    const confirmDelete = window.confirm(`Bist du sicher, dass du ${selectedThumbnails.length} Element(e) lÃ¶schen mÃ¶chtest?\n\nDies lÃ¶scht die Daten vom Server und die Dateien von der Festplatte unwiderruflich!`);
+
+    const confirmDelete = window.confirm(`Bist du sicher, dass du ${selectedThumbnails.length} Element(e) löschen möchtest?\n\nLokale Dateien werden nach bak/ verschoben (über Undo wiederherstellbar), R2-Dateien werden unwiderruflich gelöscht.`);
     if (!confirmDelete) return;
 
     try {
       const idsToDelete = selectedThumbnails.map(id => String(id));
+      const prevPosts = flickrPosts;
       const res = await fetch('/api/state/bulk-delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: idsToDelete })
       });
-      
+
       const data = await res.json();
       if (data.success) {
-        // Remove from local state - filter out deleted posts by id
-        updatePosts(
-          prev => prev.filter(post => !idsToDelete.includes(String(post.id))),
-          `${idsToDelete.length} Posts gelÃ¶scht`
-        );
+        const bakFiles = Array.isArray(data.movedToBak) ? data.movedToBak : [];
+        setPast(p => [...p, { posts: prevPosts, bakFiles, action: `${idsToDelete.length} Posts gelöscht` }].slice(-50));
+        setFuture([]);
+        setHasUnpublishedChanges(true);
+        setFlickrPosts(prev => prev.filter(post => !idsToDelete.includes(String(post.id))));
         setSelectedThumbnails([]);
-        alert(`${data.deletedCount} Element(e) und ${data.filesDeleted} Datei(en) erfolgreich gelÃ¶scht.`);
+        alert(`${data.deletedCount} Element(e) gelöscht. ${bakFiles.length} Datei(en) nach bak/ verschoben, ${data.r2DeletedCount ?? 0} von R2 gelöscht.`);
       } else {
-        alert('Fehler beim LÃ¶schen: ' + data.error);
+        alert('Fehler beim Löschen: ' + data.error);
       }
     } catch (err) {
       console.error(err);
@@ -4485,6 +4627,7 @@ export default function App() {
           handleDeletePost={handleDeletePost}
           handleMergeDown={handleMergeDown}
           handleUpdatePostMedia={handleUpdatePostMedia}
+          handleRemoveMedia={handleRemoveMedia}
           setSelectedImage={setSelectedImage}
           handleStateToggle={handleStateToggle}
           handleToggleHidden={handleToggleHidden}

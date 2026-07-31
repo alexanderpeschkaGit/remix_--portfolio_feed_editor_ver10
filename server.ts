@@ -15,6 +15,7 @@ import { promisify } from "util";
 import { validateMediaState } from "./src/server/mediaValidation.ts";
 import { assertStateAcceptable, stateValidationHttpPayload } from "./src/server/statePublishing.ts";
 import { firstExistingLocalMediaPath, resolveMediaAssetLocation } from "./src/server/mediaAssets.ts";
+import { moveFileToBak, enumerateLocalFilesForMedia, enumerateR2KeysForMedia, toPossibleR2Key, BAK_DIR_NAME } from "./src/server/mediaDeletion.ts";
 const execAsync = promisify(exec);
 
 async function startServer() {
@@ -30,6 +31,7 @@ async function startServer() {
   const BACKUPS_DIR = path.join(process.cwd(), 'backups');
   const DATA_BACKUPS_DIR = path.join(BACKUPS_DIR, 'data');
   const ORIGINALS_DIR = path.join(process.cwd(), 'originals');
+  const BAK_DIR = path.join(process.cwd(), BAK_DIR_NAME);
   const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
   const UPLOADS_ORIGINALS_DIR = path.join(UPLOADS_DIR, 'originals');
   const UPLOADS_2K_DIR = path.join(UPLOADS_DIR, '2k');
@@ -49,6 +51,11 @@ async function startServer() {
     highres: path.join(DATA_V2_DIR, 'highres'),
     previews: path.join(DATA_V2_DIR, 'previews'),
   } as const;
+
+  // NOTE: The top-level `bak/` folder (deleted-media archive) is intentionally NEVER
+  // uploaded or synced to R2. All sync scans below only cover data/, data_v2/<groups>
+  // and originals/ — a top-level bak/ can therefore never be picked up. Do not add it
+  // to any scan, cleanup prefix or high-res scan.
 
   const MEDIA_VARIANTS = [
     { field: 'image_thumb', dir: 'thumbs400', suffix: 'thumb', maxSide: 400, quality: 74, alwaysCreate: true },
@@ -72,6 +79,7 @@ async function startServer() {
   await fs.mkdir(BACKUPS_DIR, { recursive: true }).catch(() => {});
   await fs.mkdir(DATA_BACKUPS_DIR, { recursive: true }).catch(() => {});
   await fs.mkdir(ORIGINALS_DIR, { recursive: true }).catch(() => {});
+  await fs.mkdir(BAK_DIR, { recursive: true }).catch(() => {});
   await fs.mkdir(UPLOADS_DIR, { recursive: true }).catch(() => {});
   await fs.mkdir(UPLOADS_ORIGINALS_DIR, { recursive: true }).catch(() => {});
   await fs.mkdir(UPLOADS_2K_DIR, { recursive: true }).catch(() => {});
@@ -3265,20 +3273,246 @@ async function startServer() {
     }
   });
 
-  // API route to delete a post (adds to blacklist)
+  // ===================== Media deletion: local bak/ + R2 hard delete =====================
+
+  const deleteR2ObjectHard = async (key: string): Promise<boolean> => {
+    try {
+      await s3Client.send(new HeadObjectCommand({ Bucket: R2_CONFIG.bucketName, Key: key }));
+    } catch (e: any) {
+      if (e?.name === 'NotFound' || e?.$metadata?.httpStatusCode === 404) return false;
+      throw e;
+    }
+    await s3Client.send(new DeleteObjectCommand({ Bucket: R2_CONFIG.bucketName, Key: key }));
+    try {
+      const manifest = await loadSyncManifest();
+      if (manifest[key]) {
+        delete manifest[key];
+        await saveSyncManifest(manifest);
+      }
+    } catch (e) {
+      console.error(`Failed to update sync manifest after deleting ${key}:`, e);
+    }
+    return true;
+  };
+
+  // Exact local paths + R2 keys still referenced by the given items -> "keep" set for the delete guard.
+  const collectExactMediaResources = async (items: any[]) => {
+    const localFiles = new Set<string>();
+    const r2Keys = new Set<string>();
+    for (const item of items) {
+      const mediaObjects = [item, ...(Array.isArray(item.mergedMedia) ? item.mergedMedia : [])];
+      for (const m of mediaObjects) {
+        for (const field of MEDIA_REFERENCE_FIELDS) {
+          const value = m?.[field];
+          if (typeof value !== 'string' || !value) continue;
+          const loc = resolveMediaAssetLocation(value, process.cwd());
+          if (loc.localPath) localFiles.add(loc.localPath);
+          const key = toPossibleR2Key(value);
+          if (key) r2Keys.add(key);
+        }
+      }
+    }
+    return { localFiles, r2Keys };
+  };
+
+  // Move files to bak/ + hard-delete from R2, skipping anything still referenced by finalStateItems.
+  const deleteMediaResources = async (mediaObjects: any[], finalStateItems: any[]) => {
+    const movedToBak: Array<{ from: string; to: string }> = [];
+    const r2Deleted: string[] = [];
+    const r2Skipped: string[] = [];
+    const localSkipped: string[] = [];
+
+    const keep = await collectExactMediaResources(finalStateItems);
+    const localFiles = new Set<string>();
+    const r2Keys = new Set<string>();
+    for (const m of mediaObjects) {
+      for (const f of await enumerateLocalFilesForMedia(m, process.cwd())) localFiles.add(f);
+      for (const k of enumerateR2KeysForMedia(m)) r2Keys.add(k);
+    }
+
+    for (const file of localFiles) {
+      if (keep.localFiles.has(file)) { localSkipped.push(file); continue; }
+      try {
+        const moved = await moveFileToBak(file, process.cwd());
+        if (moved) movedToBak.push(moved); else localSkipped.push(file);
+      } catch (e: any) {
+        console.error(`Failed to move ${file} to bak:`, e);
+        localSkipped.push(file);
+      }
+    }
+
+    for (const key of r2Keys) {
+      if (keep.r2Keys.has(key)) { r2Skipped.push(key); continue; }
+      try {
+        const deleted = await deleteR2ObjectHard(key);
+        if (deleted) r2Deleted.push(key); else r2Skipped.push(key);
+      } catch (e: any) {
+        console.error(`Failed to delete R2 object ${key}:`, e);
+        r2Skipped.push(key);
+      }
+    }
+
+    return { movedToBak, r2Deleted, r2Skipped, localSkipped };
+  };
+
+  const serverMediaPriorityScore = (m: any): number => {
+    if (!m) return -1;
+    if (m.type === 'youtube' || m.youtubeId || m.type === 'bunny') return 25;
+    if (m.image_original) return 100;
+    if (m.image_3k) return 90;
+    if (m.image_2k) return 80;
+    if (m.image_large || m.largeUrl) return 70;
+    if (m.image_1k) return 60;
+    if (m.image) return 50;
+    if (m.image_preview) return 40;
+    if (m.image_thumb) return 30;
+    if (m.url || m.link) return 10;
+    return 0;
+  };
+
+  const serverGetPrimaryMergedMedia = (mediaList: any[]) => {
+    if (!Array.isArray(mediaList) || mediaList.length === 0) return undefined;
+    let best = mediaList[0];
+    let bestScore = serverMediaPriorityScore(best);
+    for (let i = 1; i < mediaList.length; i++) {
+      const s = serverMediaPriorityScore(mediaList[i]);
+      if (s > bestScore) { best = mediaList[i]; bestScore = s; }
+    }
+    return best;
+  };
+
+  const serverSyncMediaFieldsFromPrimary = (target: any, primary: any) => {
+    if (!primary) return target;
+    target.type = primary.type || target.type || 'image';
+    target.image = primary.image || primary.image_thumb || target.image || '';
+    target.image_thumb = primary.image_thumb || primary.image || target.image_thumb || '';
+    target.image_1k = primary.image_1k || '';
+    target.image_2k = primary.image_2k || '';
+    target.image_large = primary.image_large || primary.image_2k || primary.image_3k || primary.image_1k || primary.image || target.image_large || '';
+    target.image_3k = primary.image_3k || '';
+    target.image_original = primary.image_original || '';
+    target.image_preview = primary.image_preview || target.image_preview;
+    target.url = primary.url || primary.link || target.url || '';
+    target.youtubeId = primary.youtubeId || target.youtubeId || '';
+    target.youtubeUrl = primary.youtubeUrl || target.youtubeUrl || '';
+    target.videoId = primary.videoId || target.videoId || '';
+    target.libraryId = primary.libraryId || target.libraryId || '';
+    target.image_width = primary.image_width || target.image_width || 0;
+    target.image_height = primary.image_height || target.image_height || 0;
+    return target;
+  };
+
+  const POST_MEDIA_CLEAR_FIELDS = [
+    'image', 'image_thumb', 'image_1k', 'image_2k', 'image_3k', 'image_large', 'image_original', 'image_preview',
+    'imageLarge', 'largeUrl', 'local_highres', 'video', 'video_large', 'url', 'link', 'poster', 'thumbnail', 'thumb', 'preview',
+    'videoId', 'libraryId', 'youtubeId', 'youtubeUrl', 'image_width', 'image_height',
+  ] as const;
+
+  const serverClearPostMediaFields = (item: any) => {
+    for (const field of POST_MEDIA_CLEAR_FIELDS) delete item[field];
+    return item;
+  };
+
+  // API route to delete a post: removes it from state, moves local files to bak/,
+  // hard-deletes the R2 objects and adds the ID to the scrape blacklist.
   app.post("/api/state/delete", async (req, res) => {
     try {
       const { id } = req.body;
       if (!id) return res.status(400).json({ error: 'ID required' });
-      
+      const idStr = String(id);
+
+      const statePath = path.join(DATA_DIR, 'state.json');
+      let state: any = { items: [] };
+      try {
+        state = JSON.parse(await fs.readFile(statePath, 'utf-8'));
+      } catch (e) {}
+
+      const item = state.items.find((it: any) => String(it.id) === idStr);
+      if (!item) return res.status(404).json({ error: 'Post nicht gefunden' });
+
+      const finalState = { ...state, items: state.items.filter((it: any) => String(it.id) !== idStr) };
+      const result = await deleteMediaResources([item], finalState.items);
+
       const deletedIds = await getDeletedIds();
-      if (!deletedIds.includes(id)) {
-        deletedIds.push(id);
+      if (!deletedIds.includes(idStr)) {
+        deletedIds.push(idStr);
         await saveDeletedIds(deletedIds);
       }
-      res.json({ success: true });
-    } catch (e) {
-      res.status(500).json({ error: 'Failed to blacklist ID' });
+
+      await backupState();
+      await persistAcceptedState(finalState, statePath);
+
+      res.json({ success: true, deletedCount: 1, filesMovedToBak: result.movedToBak.length, r2DeletedCount: result.r2Deleted.length, ...result });
+    } catch (e: any) {
+      console.error("Delete post error:", e);
+      res.status(500).json({ error: 'Failed to delete post' });
+    }
+  });
+
+  // API route to remove a single media entry from a post: moves its files to bak/,
+  // hard-deletes its R2 objects, re-syncs the post's primary fields and persists.
+  app.post("/api/state/delete-media", async (req, res) => {
+    try {
+      const { id, mediaId, mediaIndex, mediaUrl } = req.body;
+      if (!id) return res.status(400).json({ error: 'ID required' });
+      const idStr = String(id);
+      const mediaIdStr = mediaId === undefined || mediaId === null ? undefined : String(mediaId);
+      const mediaIndexNum = (typeof mediaIndex === 'number' && Number.isInteger(mediaIndex))
+        ? mediaIndex
+        : (typeof mediaIndex === 'string' && mediaIndex !== '' ? Number(mediaIndex) : NaN);
+      const mediaUrlStr = (typeof mediaUrl === 'string' && mediaUrl) ? mediaUrl : undefined;
+
+      const statePath = path.join(DATA_DIR, 'state.json');
+      let state: any = { items: [] };
+      try {
+        state = JSON.parse(await fs.readFile(statePath, 'utf-8'));
+      } catch (e) {}
+
+      const itemIndex = state.items.findIndex((it: any) => String(it.id) === idStr);
+      if (itemIndex === -1) return res.status(404).json({ error: 'Post nicht gefunden' });
+      const item = state.items[itemIndex];
+      const mergedMedia = Array.isArray(item.mergedMedia) ? item.mergedMedia : [];
+
+      let removed: any = null;
+      if (mediaIdStr) {
+        removed = mergedMedia.find((m: any) => String(m.id) === mediaIdStr) || null;
+      }
+      if (!removed && Number.isInteger(mediaIndexNum) && mediaIndexNum >= 0 && mediaIndexNum < mergedMedia.length) {
+        removed = mergedMedia[mediaIndexNum] || null;
+      }
+      if (!removed && mediaUrlStr) {
+        removed = mergedMedia.find((m: any) => {
+          for (const field of MEDIA_REFERENCE_FIELDS) {
+            if (typeof m?.[field] === 'string' && m[field] === mediaUrlStr) return true;
+          }
+          return false;
+        }) || null;
+      }
+      if (!removed) return res.status(404).json({ error: 'Media-Eintrag nicht gefunden' });
+
+      const newMedia = mergedMedia.filter((m: any) => m !== removed);
+      const updatedItem = { ...item };
+      if (newMedia.length > 0) {
+        updatedItem.mergedMedia = newMedia;
+        const primary = serverGetPrimaryMergedMedia(newMedia);
+        if (primary) serverSyncMediaFieldsFromPrimary(updatedItem, primary);
+      } else {
+        delete updatedItem.mergedMedia;
+        serverClearPostMediaFields(updatedItem);
+      }
+
+      const finalState = { ...state, items: state.items.map((it: any, idx: number) => idx === itemIndex ? updatedItem : it) };
+      const result = await deleteMediaResources([removed], finalState.items);
+
+      await backupState();
+      await persistAcceptedState(finalState, statePath);
+
+      res.json({ success: true, filesMovedToBak: result.movedToBak.length, r2DeletedCount: result.r2Deleted.length, ...result });
+    } catch (e: any) {
+      console.error("Delete media error:", e);
+      const validationError = stateValidationHttpPayload(e);
+      if (validationError) return res.status(validationError.status).json(validationError.body);
+      res.status(500).json({ error: 'Failed to delete media' });
     }
   });
 
@@ -3311,61 +3545,64 @@ async function startServer() {
         state = JSON.parse(data);
       } catch (e) {}
 
-      // 3. Find items to delete and extract their file paths
+      // 3. Find items to delete
       const itemsToDelete = state.items.filter((item: any) => idsSet.has(String(item.id)));
-      
-      const filesToDelete: string[] = [];
-      const extractPath = (url: string) => {
-        if (!url) return null;
-        // Remove query parameters
-        const cleanUrl = url.split('?')[0];
-        if (cleanUrl.startsWith('/data_v2/')) {
-          return path.join(DATA_V2_DIR, cleanUrl.replace('/data_v2/', ''));
-        }
-        if (cleanUrl.startsWith('/data/')) {
-          return path.join(DATA_DIR, cleanUrl.replace('/data/', ''));
-        } else if (cleanUrl.startsWith('/originals/')) {
-          return path.join(ORIGINALS_DIR, cleanUrl.replace('/originals/', ''));
-        }
-        return null;
-      };
 
-      for (const item of itemsToDelete) {
-        [item.image, item.image_thumb, item.image_1k, item.image_2k, item.image_large, item.image_3k, item.image_original].forEach(url => {
-          const p = extractPath(url);
-          if (p) filesToDelete.push(p);
-        });
-        
-        if (item.mergedMedia) {
-          for (const media of item.mergedMedia) {
-            [media.image, media.image_thumb, media.image_1k, media.image_2k, media.image_large, media.image_3k, media.image_original].forEach((url: string) => {
-              const p = extractPath(url);
-              if (p) filesToDelete.push(p);
-            });
-          }
-        }
-      }
-
-      // 4. Delete files from local disk
-      const uniqueFiles = [...new Set(filesToDelete)];
-      for (const file of uniqueFiles) {
-        try {
-          await fs.unlink(file);
-          console.log(`Deleted file: ${file}`);
-        } catch (err) {
-          // Ignore if file doesn't exist
-        }
-      }
+      // 4. Move files to bak/ + hard-delete from R2 (skips files still referenced by remaining items)
+      const finalState = { ...state, items: state.items.filter((item: any) => !idsSet.has(String(item.id))) };
+      const result = await deleteMediaResources(itemsToDelete, finalState.items);
 
       // 5. Remove items from state.json and save
-      state.items = state.items.filter((item: any) => !idsSet.has(String(item.id)));
       await backupState();
-      await persistAcceptedState(state, statePath);
+      await persistAcceptedState(finalState, statePath);
 
-      res.json({ success: true, deletedCount: itemsToDelete.length, filesDeleted: uniqueFiles.length });
+      res.json({ success: true, deletedCount: itemsToDelete.length, filesMovedToBak: result.movedToBak.length, r2DeletedCount: result.r2Deleted.length, ...result });
     } catch (e) {
       console.error("Bulk delete error:", e);
       res.status(500).json({ error: 'Failed to bulk delete items' });
+    }
+  });
+
+  // API route to restore files from the local bak/ folder (used by Undo)
+  app.post("/api/bak/restore", async (req, res) => {
+    try {
+      const bakFiles = Array.isArray(req.body?.bakFiles) ? req.body.bakFiles : [];
+      const restored: string[] = [];
+      const failed: Array<{ from: string; to: string; error: string }> = [];
+      const bakRoot = path.resolve(BAK_DIR) + path.sep;
+      const dataV2Root = path.resolve(DATA_V2_DIR) + path.sep;
+      const dataRoot = path.resolve(DATA_DIR) + path.sep;
+      const originalsRoot = path.resolve(ORIGINALS_DIR) + path.sep;
+
+      for (const entry of bakFiles) {
+        const from = typeof entry?.from === 'string' ? entry.from : '';
+        const to = typeof entry?.to === 'string' ? entry.to : '';
+        if (!from || !to) { failed.push({ from, to, error: 'Ungültiger Eintrag' }); continue; }
+        const fromPath = path.resolve(from);
+        const toPath = path.resolve(to);
+        const inBak = toPath.startsWith(bakRoot);
+        const inMediaRoot =
+          fromPath.startsWith(dataV2Root) ||
+          fromPath.startsWith(dataRoot) ||
+          fromPath.startsWith(originalsRoot);
+        if (!inBak || !inMediaRoot) { failed.push({ from, to, error: 'Pfad nicht erlaubt' }); continue; }
+        try {
+          const stats = await fs.stat(toPath).catch(() => null);
+          if (!stats || !stats.isFile()) { failed.push({ from, to, error: 'Datei in bak/ nicht gefunden' }); continue; }
+          if (await fs.access(fromPath).then(() => true).catch(() => false)) {
+            failed.push({ from, to, error: 'Ziel existiert bereits' }); continue;
+          }
+          await fs.mkdir(path.dirname(fromPath), { recursive: true });
+          await fs.rename(toPath, fromPath);
+          restored.push(fromPath);
+        } catch (e: any) {
+          failed.push({ from, to, error: e.message || 'Unbekannter Fehler' });
+        }
+      }
+      res.json({ success: true, restoredCount: restored.length, failedCount: failed.length, restored, failed });
+    } catch (e: any) {
+      console.error("Bak restore error:", e);
+      res.status(500).json({ error: 'Bak-Wiederherstellung fehlgeschlagen' });
     }
   });
 
