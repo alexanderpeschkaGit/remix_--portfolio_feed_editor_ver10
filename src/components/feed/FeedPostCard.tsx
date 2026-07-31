@@ -837,7 +837,11 @@ export function FeedPostCard({
                         src={getDisplayImage(getPreviewImageSrc(media) ?? undefined, isR2Fallback, isEmbeddedData)}
                         alt=""
                         className="w-full h-24 object-cover rounded cursor-pointer"
-                        onClick={() => setSelectedImage(post)}
+                        onClick={(e) => {
+                          if (e.ctrlKey || e.shiftKey || e.altKey) return;
+                          e.stopPropagation();
+                          setSelectedImage(post);
+                        }}
                         onError={(e) => {
                           const img = e.currentTarget as HTMLImageElement;
                           img.style.display = 'none';
@@ -853,7 +857,11 @@ export function FeedPostCard({
                         loop
                         muted
                         playsInline
-                        onClick={() => setSelectedImage(post)}
+                        onClick={(e) => {
+                          if (e.ctrlKey || e.shiftKey || e.altKey) return;
+                          e.stopPropagation();
+                          setSelectedImage(post);
+                        }}
                       />
                     ) : (
                       <>
@@ -867,14 +875,22 @@ export function FeedPostCard({
                       src={getDisplayImage(getVideoSrc(media) ?? undefined, isR2Fallback, isEmbeddedData)} 
                       className="w-full h-24 object-cover rounded cursor-pointer"
                       autoPlay loop muted playsInline
-                      onClick={() => setSelectedImage(post)}
+                      onClick={(e) => {
+                        if (e.ctrlKey || e.shiftKey || e.altKey) return;
+                        e.stopPropagation();
+                        setSelectedImage(post);
+                      }}
                     />
                   ) : (
                     <img 
                       src={getDisplayImage(getImageSrc(media) ?? undefined, isR2Fallback, isEmbeddedData)} 
                       alt="" 
                       className="w-full h-24 object-cover rounded cursor-pointer"
-                      onClick={() => setSelectedImage(post)}
+                      onClick={(e) => {
+                        if (e.ctrlKey || e.shiftKey || e.altKey) return;
+                        e.stopPropagation();
+                        setSelectedImage(post);
+                      }}
                       onError={(e) => {
                         const target = e.currentTarget;
                         if (target.src.includes('maxresdefault.jpg')) {
