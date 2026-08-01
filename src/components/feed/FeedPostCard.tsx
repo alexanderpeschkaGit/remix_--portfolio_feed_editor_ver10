@@ -1,5 +1,6 @@
 // src/components/feed/FeedPostCard.tsx
 import React, { useState, useRef, useLayoutEffect, useEffect, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Loader2, Eye, GripVertical, ImageIcon, Youtube, Film, X, Maximize2, FoldVertical, Trash2, ExternalLink, Check, Upload, CheckCircle2, AlertCircle, Camera } from 'lucide-react';
@@ -71,7 +72,6 @@ export function FeedPostCard({
   const [localDescription, setLocalDescription] = useState(() => getAsString(post.description, 'description'));
   const [hoveredState, setHoveredState] = useState<string | null>(null);
   const [feedImageDimensions, setFeedImageDimensions] = useState<string>('');
-  const [thumbAvailability, setThumbAvailability] = useState<Record<number, boolean>>({});
   const [confirmingMerge, setConfirmingMerge] = useState(false);
   const [mergeChoice, setMergeChoice] = useState<'y' | 'n'>('y');
   const mergeYesRef = useRef<HTMLButtonElement>(null);
@@ -97,33 +97,6 @@ export function FeedPostCard({
       textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
     }
   }, [localDescription, isEditing]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const checkThumbs = async () => {
-      const entries = await Promise.all(rawMediaItems.map(async (media: any, index: number) => {
-        const thumbUrl = media?.image_thumb;
-        if (!thumbUrl || media?.type === 'youtube') return [index, false] as const;
-        try {
-          const response = await fetch(`/api/media/exists?url=${encodeURIComponent(thumbUrl)}`);
-          const data = await response.json();
-          return [index, !!data.exists] as const;
-        } catch {
-          return [index, false] as const;
-        }
-      }));
-
-      if (!cancelled) {
-        setThumbAvailability(Object.fromEntries(entries));
-      }
-    };
-
-    checkThumbs();
-    return () => {
-      cancelled = true;
-    };
-  }, [rawMediaItems]);
 
   const style = {
     transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
@@ -216,12 +189,168 @@ export function FeedPostCard({
     return src && isVideoMediaUrl(src) ? src : undefined;
   };
 
+  // Mirror of LightboxModal.getResolutionVariants: shared thumbnail variant chips (video + bunny)
+  const getMediaVariantLabels = (media: any): { key: string; label: string }[] => {
+    if (!media) return [];
+
+    if (media.type === 'youtube') {
+      return [{ key: 'youtube', label: 'YT' }];
+    }
+
+    const orderedVariants = [
+      { key: 'custom_thumb', label: 'CT' },
+      { key: 'image_thumb', label: 'TH' },
+      { key: 'image_preview', label: 'PV' },
+      { key: 'image_1k', label: '1K' },
+      { key: 'image_2k', label: '2K' },
+      { key: 'image_3k', label: '3K' },
+      { key: 'image_large', label: 'LG' },
+      { key: 'image_original', label: 'OR' },
+      { key: 'image', label: 'IMG' },
+    ];
+
+    const seen = new Set<string>();
+    return orderedVariants.filter(({ key }) => {
+      const value = media[key];
+      if (!value) return false;
+      if (seen.has(value)) return false;
+      seen.add(value);
+      return true;
+    });
+  };
+
+  // "is it an image" guard for bunny `image_original` (never treat the embed URL as an image)
+  const isBildUrl = (url: string | undefined) => {
+    if (!url) return false;
+    return isValidImageCandidate ? isValidImageCandidate(url) : (!!url && !url.includes('mediadelivery.net/embed/'));
+  };
+
+  // Bunny thumbnail resolution order (contract): custom_thumb → image_thumb → image → image_1k → bunnyThumbUrl → image_original (only if image)
+  const getBunnyPosterSrc = (media: any): string | undefined => {
+    const candidates = [
+      media.custom_thumb,
+      media.image_thumb,
+      media.image,
+      media.image_1k,
+      media.bunnyThumbUrl,
+      isBildUrl(media.image_original) ? media.image_original : undefined,
+    ];
+    for (const c of candidates) {
+      if (c) return getDisplayImage(c, isR2Fallback, isEmbeddedData);
+    }
+    return undefined;
+  };
+
+  // Standard video resolution order (normal image variant chain)
+  const getStandardVideoPosterSrc = (media: any): string | undefined => {
+    const candidates = [
+      media.custom_thumb,
+      media.image_thumb,
+      media.image,
+      media.image_1k,
+      media.image_2k,
+      media.image_3k,
+      media.image_original,
+      media.image_large,
+    ];
+    for (const c of candidates) {
+      if (c) return getDisplayImage(c, isR2Fallback, isEmbeddedData);
+    }
+    return undefined;
+  };
+
+  // Highest-resolution renderable thumbnail (skip non-image values, e.g. bunny embed URL)
+  const getHighestResThumbUrl = (media: any): string | undefined => {
+    if (!media) return undefined;
+    const candidates = [
+      media.image_3k,
+      media.image_2k,
+      isBildUrl(media.image_original) ? media.image_original : undefined,
+      media.image_large,
+      media.image_1k,
+      media.image,
+      media.image_preview,
+      media.bunnyThumbUrl,
+      media.image_thumb,
+      media.custom_thumb,
+    ];
+    for (const c of candidates) {
+      if (c && isBildUrl(c)) return c;
+    }
+    return undefined;
+  };
+
+  const handleHoverPreviewEnter = (media: any, i: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setPopoverPos({ top: rect.bottom + 6, left: rect.left });
+    setHoverPreview({ media, index: i });
+    if (hoverPreviewCloseTimerRef.current) {
+      window.clearTimeout(hoverPreviewCloseTimerRef.current);
+      hoverPreviewCloseTimerRef.current = null;
+    }
+    // Only bunny items fetch stream resolutions from the server (cache by libraryId/videoId)
+    if (media.libraryId && media.videoId) {
+      const cacheKey = `${media.libraryId}/${media.videoId}`;
+      if (!(cacheKey in bunnyResolutions)) {
+        setHoverPreviewLoading(true);
+        fetch('/api/bunny/video-url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ libraryId: media.libraryId, videoId: media.videoId }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            setBunnyResolutions((prev) => ({
+              ...prev,
+              [cacheKey]: data?.success
+                ? {
+                    availableResolutions: data.availableResolutions ?? null,
+                    width: data.width ?? 0,
+                    height: data.height ?? 0,
+                    length: data.length ?? 0,
+                  }
+                : null,
+            }));
+          })
+          .catch((err) => {
+            console.error('Failed to fetch bunny resolutions:', err);
+            setBunnyResolutions((prev) => ({ ...prev, [cacheKey]: null }));
+          })
+          .finally(() => setHoverPreviewLoading(false));
+      }
+    }
+  };
+
+  const scheduleHoverPreviewClose = () => {
+    if (hoverPreviewCloseTimerRef.current) {
+      window.clearTimeout(hoverPreviewCloseTimerRef.current);
+    }
+    hoverPreviewCloseTimerRef.current = window.setTimeout(() => {
+      setHoverPreview(null);
+      setPopoverPos(null);
+      hoverPreviewCloseTimerRef.current = null;
+    }, 150);
+  };
+
+  const handleHoverPreviewLeave = () => {
+    scheduleHoverPreviewClose();
+  };
+
   const [isMediaDragOvered, setIsMediaDragOvered] = useState(false);
   const [applyLoading, setApplyLoading] = useState<Record<number, boolean>>({});
   // Custom thumbnail modal state
   const [customThumbnailMedia, setCustomThumbnailMedia] = useState<{ media: any; index: number } | null>(null);
   const [customThumbnailVideoUrl, setCustomThumbnailVideoUrl] = useState<string>('');
   const [customThumbnailLoading, setCustomThumbnailLoading] = useState(false);
+  // Hover preview (thumbnail + resolutions) popover state
+  const [hoverPreview, setHoverPreview] = useState<{ media: any; index: number } | null>(null);
+  const [hoverPreviewLoading, setHoverPreviewLoading] = useState(false);
+  const [bunnyResolutions, setBunnyResolutions] = useState<Record<string, any | null>>({});
+  const [popoverPos, setPopoverPos] = useState<{ top: number; left: number } | null>(null);
+  const hoverPreviewTimerRef = useRef<number | null>(null);
+  const hoverPreviewCloseTimerRef = useRef<number | null>(null);
+  const hoverPreviewRef = useRef<HTMLDivElement | null>(null);
   const [localUrlInputs, setLocalUrlInputs] = useState<Record<number, string>>({});
   const [isFileDragOverCard, setIsFileDragOverCard] = useState(false);
   const cardDragDepthRef = useRef(0);
@@ -295,6 +424,38 @@ export function FeedPostCard({
       }
     };
   }, []);
+
+  // Hover preview timer cleanup
+  useEffect(() => {
+    return () => {
+      if (hoverPreviewTimerRef.current) {
+        window.clearTimeout(hoverPreviewTimerRef.current);
+      }
+      if (hoverPreviewCloseTimerRef.current) {
+        window.clearTimeout(hoverPreviewCloseTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Keep the popover fully inside the viewport (avoid clipping at right/bottom edges)
+  useEffect(() => {
+    if (!hoverPreview || !popoverPos) {
+      hoverPreviewRef.current = null;
+      return;
+    }
+    const el = hoverPreviewRef.current;
+    if (!el) return;
+    const margin = 8;
+    const rect = el.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let left = popoverPos.left;
+    let top = popoverPos.top;
+    if (left + rect.width > vw - margin) left = Math.max(margin, vw - rect.width - margin);
+    if (top + rect.height > vh - margin) top = Math.max(margin, vh - rect.height - margin);
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
+  }, [hoverPreview, popoverPos, bunnyResolutions, hoverPreviewLoading]);
 
   // Merge-Confirm: Tastatur-Steuerung (Enter bestätigt aktuelle Wahl, ←/→ toggelt y/n, Escape bricht ab)
   useEffect(() => {
@@ -849,19 +1010,22 @@ export function FeedPostCard({
                 <div className="flex items-center gap-2 mb-2 pr-8">
                   <GripVertical className="w-4 h-4 text-white/30 cursor-grab" />
                   <span className="text-xs text-white/50">{media.type === 'youtube' ? 'YouTube' : media.type === 'bunny' ? 'Bunny' : media.type === 'video' ? 'Video' : 'Bild'}</span>
-                  {media.type !== 'youtube' && media.image_thumb && thumbAvailability[i] && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openThumb(media.image_thumb);
-                      }}
-                      className="w-5 h-5 rounded-md bg-white/30 hover:bg-white/40 text-white flex items-center justify-center transition-colors border border-white/20"
-                      title="Thumbnail öffnen"
-                    >
-                      <ExternalLink className="w-2.5 h-2.5" />
-                    </button>
-                  )}
+                  {media.type !== 'youtube' && (() => {
+                    const highResThumb = getHighestResThumbUrl(media);
+                    return highResThumb ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openThumb(highResThumb);
+                        }}
+                        className="w-5 h-5 rounded-md bg-white/30 hover:bg-white/40 text-white flex items-center justify-center transition-colors border border-white/20"
+                        title="Thumbnail in höchster Auflösung öffnen"
+                      >
+                        <ExternalLink className="w-2.5 h-2.5" />
+                      </button>
+                    ) : null;
+                  })()}
                   {/* Custom Thumbnail button: bunny + standard/Instagram videos */}
                   {(isInstagramVideoCandidate(media, mediaItems)) && (
                     <button
@@ -918,6 +1082,18 @@ export function FeedPostCard({
                       ) : (
                         <Camera className="w-2.5 h-2.5" />
                       )}
+                    </button>
+                  )}
+                  {/* Hover preview + resolutions button (video & bunny) */}
+                  {(isInstagramVideoCandidate(media, mediaItems)) && (
+                    <button
+                      type="button"
+                      onMouseEnter={(e) => handleHoverPreviewEnter(media, i, e)}
+                      onMouseLeave={handleHoverPreviewLeave}
+                      className="w-5 h-5 rounded-md bg-white/30 hover:bg-white/40 text-white flex items-center justify-center transition-colors border border-white/20"
+                      title="Vorschau & Auflösungen"
+                    >
+                      <Eye className="w-2.5 h-2.5" />
                     </button>
                   )}
                 </div>
@@ -1371,6 +1547,82 @@ export function FeedPostCard({
           </a>
         </div>
       </div>
+
+      {/* Hover Preview / Resolutions Popover */}
+      {hoverPreview && popoverPos && (() => {
+        const hoverMedia = hoverPreview.media;
+        const isBunny = !!hoverMedia.libraryId && !!hoverMedia.videoId;
+        const cacheKey = isBunny ? `${hoverMedia.libraryId}/${hoverMedia.videoId}` : null;
+        const resolCache = cacheKey ? bunnyResolutions[cacheKey] : null;
+        const posterSrc = isBunny
+          ? getBunnyPosterSrc(hoverMedia)
+          : getStandardVideoPosterSrc(hoverMedia);
+        const variantChips = getMediaVariantLabels(hoverMedia);
+        const width = isBunny && resolCache ? resolCache.width : (hoverMedia.image_width || 0);
+        const height = isBunny && resolCache ? resolCache.height : (hoverMedia.image_height || 0);
+        const length = isBunny && resolCache ? resolCache.length : 0;
+        return createPortal((
+          <div
+            ref={hoverPreviewRef}
+            style={{ position: 'fixed', top: popoverPos.top, left: popoverPos.left, zIndex: 1000 }}
+            className="pointer-events-auto bg-[#1a1a1a] border border-white/20 rounded-lg shadow-xl p-3 w-[22rem] max-w-[calc(100vw-16px)]"
+            onMouseEnter={(e) => {
+              e.stopPropagation();
+              if (hoverPreviewCloseTimerRef.current) {
+                window.clearTimeout(hoverPreviewCloseTimerRef.current);
+                hoverPreviewCloseTimerRef.current = null;
+              }
+            }}
+            onMouseLeave={handleHoverPreviewLeave}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {posterSrc ? (
+              <img
+                src={posterSrc}
+                alt="Vorschau"
+                className="w-full h-auto max-h-[55vh] object-contain rounded mb-2"
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <div className="w-full h-20 rounded bg-black/40 flex items-center justify-center mb-2">
+                <span className="text-[10px] text-white/40">Kein Poster</span>
+              </div>
+            )}
+            {((width > 0) || (isBunny && resolCache)) && (
+              <div className="mb-2 text-[10px] text-white/50">
+                {width > 0 && height > 0 ? `${width} × ${height}` : ''}
+                {isBunny && resolCache && length > 0 ? ` · Dauer: ${length}s` : ''}
+              </div>
+            )}
+            <div className="mb-1 text-[10px] uppercase tracking-wider text-white/40">Bildvarianten</div>
+            <div className="flex flex-wrap gap-1 mb-2">
+              {variantChips.length > 0 ? (
+                variantChips.map(({ key, label }) => (
+                  <span key={key} className="bg-white/20 rounded px-1.5 text-[10px] text-white">{label}</span>
+                ))
+              ) : (
+                <span className="text-[10px] text-white/40">–</span>
+              )}
+            </div>
+            {isBunny && (
+              <>
+                <div className="mb-1 text-[10px] uppercase tracking-wider text-white/40">Video-Auflösungen</div>
+                <div className="flex flex-wrap gap-1">
+                  {hoverPreviewLoading && !resolCache ? (
+                    <Loader2 className="w-3 h-3 animate-spin text-white/50" />
+                  ) : resolCache && resolCache.availableResolutions ? (
+                    String(resolCache.availableResolutions).split(',').map((r) => r.trim()).filter(Boolean).map((r) => (
+                      <span key={r} className="bg-white/20 rounded px-1.5 text-[10px] text-white">{r}</span>
+                    ))
+                  ) : (
+                    <span className="text-[10px] text-white/40">–</span>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        ), document.body);
+      })()}
 
       {/* Custom Thumbnail Modal */}
       {customThumbnailMedia && customThumbnailVideoUrl && (

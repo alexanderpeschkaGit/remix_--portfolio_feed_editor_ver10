@@ -5420,11 +5420,29 @@ async function startServer() {
         bestUrl = `https://${BUNNY_CONFIG.pullZone}/${videoId}/play_720p.mp4`;
       }
 
+      // Best-effort metadata enrichment (width/height/length + availableResolutions).
+      // Tolerated: on any failure these stay null/0 and success/videoUrl are never jeopardized.
+      let meta: any = null;
+      try {
+        meta = await fetchBunnyVideoMetadata(libraryId, videoId);
+      } catch {}
+
+      const availableResolutions = meta && Array.isArray(meta.availableResolutions)
+        ? meta.availableResolutions.join(',')
+        : null;
+
       res.json({
         success: true,
         videoUrl: bestUrl,
         // Also provide HLS as alternative
         hlsUrl: `https://${BUNNY_CONFIG.pullZone}/${videoId}/playlist.m3u8`,
+        // Optional enrichment fields (only attached when metadata lookup succeeded)
+        ...(meta ? {
+          availableResolutions,
+          width: Number(meta.width) > 0 ? Number(meta.width) : 0,
+          height: Number(meta.height) > 0 ? Number(meta.height) : 0,
+          length: Number(meta.length) > 0 ? Number(meta.length) : 0,
+        } : {}),
       });
     } catch (error: any) {
       console.error("Error getting Bunny video URL:", error);

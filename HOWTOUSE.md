@@ -75,3 +75,23 @@ Der **Thumbs**-Button in der Admin-Leiste öffnet das Media-Variants-Modal. Hier
 
 **Typischer Ablauf:** Scan Local → Generate → Publish → Verify Live (zum Kontrollieren). Oder einfach Gen + Publish für alles auf einmal.
 
+---
+
+## 👁️ Vorschau & Auflösungen (Hover-Popover im Edit Mode)
+
+Wenn du im Edit Mode über das **Augen-Icon (Eye)** neben dem Custom-Thumbnail-Button eines Videos hovert, öffnet sich ein kleines Popover. Es zeigt das Video-Poster, alle vorhandenen **Bildvarianten** und – nur bei Bunny-Videos – die **Streaming-Auflösungen**. In den Chips erscheinen dabei folgende Abkürzungen:
+
+| Abkürzung | Medien-Feld | Bedeutung |
+|---|---|---|
+| **CT** | `custom_thumb` | Custom Thumbnail – benutzerdefiniertes Thumbnail (vom Nutzer ausgewählt) |
+| **TH** | `image_thumb` | Thumbnail – kleine Vorschau-Variante |
+| **PV** | `image_preview` | Preview – Vorschau-Bild |
+| **1K** | `image_1k` | Variante mit ~1000 px Breite |
+| **2K** | `image_2k` | Variante mit ~2000 px Breite |
+| **3K** | `image_3k` | Variante mit ~3000 px Breite |
+| **LG** | `image_large` | Large – größere Downscale-Stufe |
+| **OR** | `image_original` | Original – die unskalierte Quelldatei in voller Auflösung (nur bei Bildern) |
+| **IMG** | `image` | Generisches Bild-Feld / Fallback |
+
+
+
