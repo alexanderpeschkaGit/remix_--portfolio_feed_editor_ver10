@@ -181,12 +181,17 @@ export function FeedPostCard({
 
   const getPreviewImageSrc = (media: any, preferLarge = false) => {
     const src = getImageSrc(media, preferLarge);
-    return src && !isVideoMediaUrl(src) ? src : undefined;
+    // A blob: could be a just-dropped video — never render it as an <img> (it can't decode a video).
+    if (!src || src.startsWith('blob:')) return undefined;
+    return isVideoMediaUrl(src) ? undefined : src;
   };
 
   const getPreviewVideoSrc = (media: any, preferLarge = false) => {
     const src = getVideoSrc(media, preferLarge);
-    return src && isVideoMediaUrl(src) ? src : undefined;
+    if (!src) return undefined;
+    // blob: has no file extension; treat it as a playable (optimistic local) video blob.
+    if (src.startsWith('blob:')) return src;
+    return isVideoMediaUrl(src) ? src : undefined;
   };
 
   // Mirror of LightboxModal.getResolutionVariants: shared thumbnail variant chips (video + bunny)
@@ -1629,6 +1634,7 @@ export function FeedPostCard({
         <CustomThumbnailModal
           videoUrl={customThumbnailVideoUrl}
           media={customThumbnailMedia.media}
+          mediaIndex={customThumbnailMedia.index}
           postTitle={localTitle || post.title || 'Untitled'}
           postId={post.id}
           getDisplayImage={getDisplayImage}

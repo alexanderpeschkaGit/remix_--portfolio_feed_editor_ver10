@@ -172,6 +172,9 @@ const getImageSrc = (media: any, preferLarge = false) => {
 const getVideoSrc = (media: any, preferLarge = false) => {
   if (media?.type === 'youtube' || media?.youtubeId || media?.type === 'bunny') return undefined;
 
+  // Optimistic local preview: a blob: URL is a just-dropped video file → play it directly.
+  if (typeof media?.video === 'string' && media.video.startsWith('blob:')) return media.video;
+
   const primary = preferLarge
     ? [media?.video, media?.video_large, media?.image_3k, media?.image_2k, media?.image_large, media?.imageLarge, media?.largeUrl, media?.image, media?.url, media?.link]
     : [media?.video, media?.video_large, media?.image, media?.image_preview, media?.image_thumb, media?.image_1k, media?.image_large, media?.imageLarge, media?.url, media?.link];
@@ -2061,7 +2064,9 @@ export default function App() {
     // Optimistic update: add video item to mergedMedia
     updatePosts(posts => posts.map(post => {
       if (String(post.id) !== String(id)) return post;
-      const newItem: any = { uploadId, type: 'video', image: localUrl, image_thumb: localUrl, url: localUrl };
+      // `video` holds the local blob so the card can play the dropped file immediately;
+      // `image`/`image_thumb` keep the blob only for drop-compat (never rendered as <img>).
+      const newItem: any = { uploadId, type: 'video', video: localUrl, image: localUrl, image_thumb: localUrl, url: localUrl };
       const existingMedia = post.mergedMedia && post.mergedMedia.length > 0
         ? post.mergedMedia.filter(hasRenderableMedia)
         : [];
@@ -2151,7 +2156,16 @@ export default function App() {
         };
 
         if (itemIdx !== -1) {
-          newMedia[itemIdx] = updatedItem;
+          const previous = newMedia[itemIdx] || {};
+          const updatedItemFinal: any = {
+            ...updatedItem,
+            // If phase-1 produced no thumbnail yet, keep the optimistic blob so the card
+            // keeps showing the live video until the background task provides real variants.
+            video: updatedItem.image && updatedItem.image.startsWith('/') ? (previous.video || updatedItem.video) : (previous.video || updatedItem.video || localUrl),
+            image: updatedItem.image || previous.image || previous.image_thumb || '',
+            image_thumb: updatedItem.image_thumb || previous.image_thumb || previous.image || '',
+          };
+          newMedia[itemIdx] = updatedItemFinal;
         } else {
           newMedia.push(updatedItem);
         }
@@ -2191,17 +2205,11 @@ export default function App() {
               shouldPushStateToR2Ref.current = true;
               // Update media entry with Bunny results
               const result = statusData.result;
-              if (result.bunnyThumbCloudUploaded) {
-                pushStatusNotice(
-                  'success',
-                  'Bunny-Thumbnail nach R2',
-                  'Die endgÃ¼ltigen Bunny-Thumbnail-Varianten wurden direkt in R2 gespeichert.'
-                );
-              } else if (result.previewCloudUploaded) {
+              if (result.previewCloudUploaded) {
                 pushStatusNotice(
                   'info',
-                  'Bunny-Preview bleibt online',
-                  'Die Vorschau ist bereits verfÃ¼gbar. Der spÃ¤tere Bunny-Thumb wurde lokal verarbeitet.'
+                  'Bunny-Preview online',
+                  'Der Vorschau-Thumbnail wurde via R2 gespeichert.'
                 );
               }
               updatePosts(posts => posts.map(post => {
@@ -2769,6 +2777,8 @@ export default function App() {
 
         function getVideoSrc(media, preferLarge) {
           if (!media) return undefined;
+          // Optimistic local preview: a blob: URL is a just-dropped video file → play it directly.
+          if (typeof media.video === 'string' && media.video.startsWith('blob:')) return media.video;
           const primary = preferLarge
             ? [media.video, media.video_large, media.image_3k, media.image_2k, media.image_large, media.imageLarge, media.largeUrl, media.image, media.url, media.link]
             : [media.video, media.video_large, media.image, media.image_preview, media.image_thumb, media.image_1k, media.image_large, media.imageLarge, media.url, media.link];

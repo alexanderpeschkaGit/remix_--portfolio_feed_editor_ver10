@@ -17,6 +17,8 @@ interface CustomThumbnailModalProps {
   videoUrl: string;
   /** The media item being edited */
   media: any;
+  /** Index of this media within the post's mergedMedia array */
+  mediaIndex?: number;
   /** Post title for display */
   postTitle: string;
   /** Post ID for server-side naming */
@@ -43,6 +45,7 @@ type SaveState = 'idle' | 'capturing' | 'uploading' | 'done' | 'error';
 export const CustomThumbnailModal: React.FC<CustomThumbnailModalProps> = ({
   videoUrl,
   media,
+  mediaIndex,
   postTitle,
   postId,
   getDisplayImage,
@@ -175,7 +178,7 @@ export const CustomThumbnailModal: React.FC<CustomThumbnailModalProps> = ({
       const response = await fetch('/api/upload-custom-thumb', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageData, postId }),
+        body: JSON.stringify({ imageData, postId, mediaIndex }),
       });
 
       const data = await response.json();
@@ -202,7 +205,7 @@ export const CustomThumbnailModal: React.FC<CustomThumbnailModalProps> = ({
       setSaveState('error');
       setErrorMessage(error.message || 'Failed to upload custom thumbnail');
     }
-  }, [captureFrame, postId, onSave, onClose]);
+  }, [captureFrame, postId, mediaIndex, onSave, onClose]);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);

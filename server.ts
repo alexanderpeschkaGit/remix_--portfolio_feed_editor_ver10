@@ -3387,6 +3387,118 @@ async function startServer() {
     return true;
   };
 
+  // ── Unified thumbnail replacement: clean up old variants (local → bak, R2 → delete),
+  //     generate new ones from a fresh buffer, update state.json, return new URLs. ──
+  const replaceMediaThumbnail = async (
+    postId: string,
+    mediaIndex: number,
+    newThumbBuffer: Buffer,
+    source: 'bunny' | 'custom',
+  ) => {
+    const statePath = path.join(DATA_DIR, 'state.json');
+    const rawState = await fs.readFile(statePath, 'utf-8');
+    const state = JSON.parse(rawState);
+
+    const item = Array.isArray(state.items) ? state.items.find((p: any) => String(p?.id) === String(postId)) : null;
+    if (!item || !Array.isArray(item.mergedMedia)) {
+      throw new Error(`Post ${postId} not found or has no media`);
+    }
+    if (mediaIndex < 0 || mediaIndex >= item.mergedMedia.length) {
+      throw new Error(`Media index ${mediaIndex} out of range for post ${postId}`);
+    }
+
+    const media = { ...item.mergedMedia[mediaIndex] };
+    const isBunny = media.type === 'bunny' || (!!media.videoId && !!media.libraryId);
+
+    // Fields that hold thumbnail variant URLs (all are image URLs, never the Bunny embed).
+    const thumbFields = ['image_thumb', 'image_1k', 'image_2k', 'image_3k', 'image_original'] as const;
+
+    // Phase A: clean up existing variants (local → bak, R2 → delete).
+    const cleanupResult = { movedToBak: 0, r2Deleted: 0, r2Skipped: 0 };
+
+    for (const field of thumbFields) {
+      const url = String(media[field] || '');
+      if (!url) continue;
+
+      // For Bunny items, image_original is the embed URL — NEVER delete it.
+      if (isBunny && field === 'image_original') continue;
+      // Skip if the URL is a Bunny CDN thumbnail (not our R2-managed variant).
+      if (url.includes('mediadelivery.net') && (url.includes('thumbnail.jpg') || url.includes('/embed/'))) continue;
+
+      // Resolve local file.
+      const loc = resolveMediaAssetLocation(url, process.cwd());
+      if (loc.localPath) {
+        try {
+          await moveFileToBak(loc.localPath, process.cwd());
+          cleanupResult.movedToBak++;
+        } catch (e: any) {
+          console.warn(`[replaceMediaThumbnail] bak move failed for ${field}: ${e.message}`);
+        }
+      }
+
+      // Resolve R2 key.
+      const r2Key = toPossibleR2Key(url);
+      if (r2Key) {
+        try {
+          await deleteR2ObjectHard(r2Key);
+          cleanupResult.r2Deleted++;
+        } catch (e: any) {
+          console.warn(`[replaceMediaThumbnail] R2 delete failed for ${field} (${r2Key}): ${e.message}`);
+        }
+      }
+    }
+
+    // Phase B: generate new variants from the fresh buffer.
+    const baseName = source === 'bunny'
+      ? `bunny-${media.videoId || postId}-${Date.now()}`
+      : `custom-${String(postId).replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 40)}-${Date.now()}`;
+
+    const variantSet = await materializeVariantSet(newThumbBuffer, {
+      group: 'uploads',
+      baseName,
+      originalBuffer: newThumbBuffer,
+      originalExt: 'jpg',
+      uploadToCloud: true, // R2 upload is part of the unified flow
+    });
+
+    // Build URLs — prefer remote (R2) over local.
+    const pick = (field: string) => variantSet.remoteUrls[field] || variantSet.localUrls[field] || '';
+
+    // Phase C: update the media item in state.
+    const updatedMedia = {
+      ...media,
+      image_thumb: pick('image_thumb'),
+      image_1k: pick('image_1k'),
+      image_2k: pick('image_2k'),
+      image_3k: pick('image_3k'),
+      image_original: isBunny
+        ? `https://iframe.mediadelivery.net/embed/${media.libraryId}/${media.videoId}`
+        : pick('image_original'),
+      custom_thumb: source === 'custom' ? pick('image_thumb') : (media.custom_thumb || ''),
+      image_width: variantSet.sourceWidth,
+      image_height: variantSet.sourceHeight,
+    };
+
+    const newMergedMedia = [...item.mergedMedia];
+    newMergedMedia[mediaIndex] = updatedMedia;
+    state.items = state.items.map((p: any) =>
+      String(p?.id) === String(postId) ? { ...p, mergedMedia: newMergedMedia } : p
+    );
+
+    await persistAcceptedState(state, statePath);
+    console.log(`[replaceMediaThumbnail] ${source} thumb replaced for post=${postId} idx=${mediaIndex}: ${cleanupResult.movedToBak} bak, ${cleanupResult.r2Deleted} R2 deleted`);
+
+    return {
+      image_thumb: pick('image_thumb'),
+      image_1k: pick('image_1k'),
+      image_2k: pick('image_2k'),
+      image_3k: pick('image_3k'),
+      image_original: updatedMedia.image_original,
+      image_width: variantSet.sourceWidth,
+      image_height: variantSet.sourceHeight,
+    };
+  };
+
   // Exact local paths + R2 keys still referenced by the given items -> "keep" set for the delete guard.
   const collectExactMediaResources = async (items: any[]) => {
     const localFiles = new Set<string>();
@@ -4584,7 +4696,7 @@ async function startServer() {
   // API: Upload a custom thumbnail image (captured from video frame via canvas)
   app.post("/api/upload-custom-thumb", async (req, res) => {
     try {
-      const { imageData, postId } = req.body;
+      const { imageData, postId, mediaIndex } = req.body;
       if (!imageData) {
         return res.status(400).json({ error: "No image data provided" });
       }
@@ -4602,6 +4714,24 @@ async function startServer() {
         return res.status(400).json({ error: "Image data too small" });
       }
 
+      // If mediaIndex is provided, use the unified replacement flow (cleanup old + generate new).
+      if (postId && mediaIndex !== undefined && mediaIndex !== null) {
+        const result = await replaceMediaThumbnail(String(postId), Number(mediaIndex), imageBuffer, 'custom');
+        return res.json({
+          success: true,
+          cloudUploaded: true,
+          cloudUploadErrors: [],
+          image_thumb: result.image_thumb,
+          image_1k: result.image_1k,
+          image_2k: result.image_2k,
+          image_3k: result.image_3k,
+          image_original: result.image_original,
+          image_width: result.image_width,
+          image_height: result.image_height,
+        });
+      }
+
+      // Legacy path (no mediaIndex): first-time thumbnail, no cleanup needed.
       const safePostId = (postId || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 40);
       const baseName = `custom-${safePostId}-${Date.now()}`;
 
@@ -4725,7 +4855,7 @@ async function startServer() {
                 duration: meta.length || 0,
                 image: '', image_thumb: '', image_1k: '', image_2k: '', image_3k: '',
                 image_width: meta.width || 0, image_height: meta.height || 0, bunnyThumbUrl: '',
-                previewCloudUploaded: false, bunnyThumbCloudUploaded: false,
+                previewCloudUploaded: false,
               };
               bunnyTasks.set(taskId, { step: 'done', progress: 100, startedAt: task.startedAt, result, videoId: task.videoId, libraryId: task.libraryId, projectId: task.projectId });
               delete p[taskId]; // resolved → remove from file
@@ -4990,34 +5120,11 @@ async function startServer() {
             } catch {}
           }
 
-          bunnyTasks.set(taskId, { step: 'variants', progress: 90, startedAt: Date.now() });
-
-          // Step D: Generate variants from Bunny thumbnail (better quality)
-          let bunnyVariantSet: any = {};
-          if (bunnyThumbUrl) {
-            try {
-              const thumbFetchRes = await fetch(bunnyThumbUrl);
-              if (thumbFetchRes.ok) {
-                const arrayBuffer = await thumbFetchRes.arrayBuffer();
-                const bunnyThumbBuffer = Buffer.from(arrayBuffer);
-                bunnyVariantSet = await materializeVariantSet(bunnyThumbBuffer, {
-                  group: 'uploads',
-                  baseName: `bunny-${videoId}`,
-                  originalBuffer: bunnyThumbBuffer,
-                  originalExt: 'jpg',
-                  uploadToCloud: true,
-                });
-              }
-            } catch (bErr: any) {
-              console.warn("Bunny thumbnail variant generation failed:", bErr.message);
-            }
-          }
-
-          const finalThumb = bunnyVariantSet.localUrls?.image_thumb || localThumb;
-          const final1k = bunnyVariantSet.localUrls?.image_1k || local1k;
-          const final2k = bunnyVariantSet.localUrls?.image_2k || local2k;
-          const final3k = bunnyVariantSet.localUrls?.image_3k || local3k;
-          const bunnyThumbCloudUploaded = !!Object.keys(bunnyVariantSet.remoteUrls || {}).length;
+          // Step D: Build result from ffmpeg variants (single thumbnail model — no Bunny auto-thumb download).
+          const finalThumb = localThumb;
+          const final1k = local1k;
+          const final2k = local2k;
+          const final3k = local3k;
 
           bunnyTasks.set(taskId, {
             step: 'done', progress: 100, startedAt: Date.now(),
@@ -5029,12 +5136,11 @@ async function startServer() {
               image_thumb: finalThumb,
               image_1k: final1k, image_2k: final2k, image_3k: final3k,
               image_original: `https://iframe.mediadelivery.net/embed/${BUNNY_CONFIG.libraryId}/${videoId}`,
-              image_width: bunnyWidth || bunnyVariantSet.sourceWidth || localVariantSet.sourceWidth || 0,
-              image_height: bunnyHeight || bunnyVariantSet.sourceHeight || localVariantSet.sourceHeight || 0,
+              image_width: bunnyWidth || localVariantSet.sourceWidth || 0,
+              image_height: bunnyHeight || localVariantSet.sourceHeight || 0,
               duration: bunnyDuration,
               bunnyThumbUrl,
               previewCloudUploaded,
-              bunnyThumbCloudUploaded,
             }
           });
           // Remove resolved task from recovery file (no longer needs recovery)
