@@ -31,6 +31,7 @@ The active application is implemented in `src/` with a modular React structure.
 ### Notes
 - `backups_app/` is intentionally preserved and contains backup copies and older integration references.
 - Active source code lives under `src/`; runtime build is driven by `vite` and `package.json`.
+- `data/` (runtime state: `state.json`, previews, uploads, etc.) is **gitignored** by design — it is not version-controlled. Migration scripts (e.g. `scripts/migrate-*.ts`) automatically back up `data/state.json` to `backups/data/` before applying changes.
 
 [!IMPORTANT]
 > **AI INSTRUCTIONS:**
