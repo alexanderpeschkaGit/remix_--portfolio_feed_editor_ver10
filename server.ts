@@ -593,7 +593,10 @@ async function startServer() {
             const mergedMedia = Array.isArray(item.media_list)
               ? item.media_list.map((media: any) => {
                   if (typeof media === 'string') {
-                    return { type: media.endsWith('.mp4') ? 'video' : 'image', image: media, image_large: media, link: item.link };
+                    if (media.endsWith('.mp4')) {
+                      return { type: 'video', video: media, video_url: media, url: media, link: item.link };
+                    }
+                    return { type: 'image', image: media, image_large: media, link: item.link };
                   }
                   const bestImage = pickBestImage(media.image_original, media.image_3k, media.image_2k, media.image_large, media.image_1k, media.image_thumb, media.image);
                   return {
@@ -4184,7 +4187,10 @@ async function startServer() {
             const mergedMedia = Array.isArray(item.media_list)
               ? item.media_list.map((media: any) => {
                   if (typeof media === 'string') {
-                    return { type: media.endsWith('.mp4') ? 'video' : 'image', image: media, image_large: media, link: item.link };
+                    if (media.endsWith('.mp4')) {
+                      return { type: 'video', video: media, video_url: media, url: media, link: item.link };
+                    }
+                    return { type: 'image', image: media, image_large: media, link: item.link };
                   }
                   return { type: media.type || 'image', image: media.image || media.image_thumb || '', image_thumb: media.image_thumb || '', image_1k: media.image_1k || '', image_2k: media.image_2k || '', image_large: media.image_large || '', image_3k: media.image_3k || '', image_original: media.image_original || '', image_width: media.image_width || 0, image_height: media.image_height || 0, link: media.link || item.link };
                 })

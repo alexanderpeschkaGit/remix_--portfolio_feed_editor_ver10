@@ -12,6 +12,18 @@ button {
   .animate-pulse-subtle {
     animation: pulse-subtle 3s ease-in-out infinite;
   }
+
+  @keyframes glow-pulse {
+    0%, 100% {
+      box-shadow: 0 0 8px rgba(56, 189, 248, 0.45), 0 0 18px rgba(56, 189, 248, 0.3);
+    }
+    50% {
+      box-shadow: 0 0 16px rgba(56, 189, 248, 0.95), 0 0 32px rgba(56, 189, 248, 0.6);
+    }
+  }
+  .animate-glow-pulse {
+    animation: glow-pulse 2s ease-in-out infinite;
+  }
 }
 
 .custom-scrollbar::-webkit-scrollbar {

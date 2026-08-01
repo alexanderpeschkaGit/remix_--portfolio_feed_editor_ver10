@@ -990,7 +990,7 @@ export function FeedPostCard({
               return (
               <div 
                 key={i} 
-                className={`relative w-full bg-black/30 rounded p-2 ${isSelected ? 'ring-2 ring-orange-400/70 border-orange-400 shadow-lg shadow-orange-400/10 scale-[1.01]' : 'border border-white/10'}`}
+                className={`relative w-full bg-black/30 rounded p-2 border ${isSelected ? 'border-sky-400' : 'border-white/10'}`}
                 draggable
                 onDragStart={(e) => handleMediaDragStart(e, i)}
                 onDragOver={handleMediaDragOver}
@@ -1006,6 +1006,9 @@ export function FeedPostCard({
                   onMediaClick(post.id, i, e.ctrlKey, e.shiftKey);
                 }}
               >
+                {isSelected && (
+                  <div className="absolute inset-0 rounded border-4 border-sky-400 animate-glow-pulse pointer-events-none z-10" />
+                )}
                 <button 
                   onClick={(e) => { e.stopPropagation(); removeMedia(i); }}
                   className="absolute top-1 right-1 z-10 bg-white/30 hover:bg-white/40 text-white p-1 rounded-full transition-colors"
@@ -1095,6 +1098,9 @@ export function FeedPostCard({
                       type="button"
                       onMouseEnter={(e) => handleHoverPreviewEnter(media, i, e)}
                       onMouseLeave={handleHoverPreviewLeave}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                      }}
                       className="w-5 h-5 rounded-md bg-white/30 hover:bg-white/40 text-white flex items-center justify-center transition-colors border border-white/20"
                       title="Vorschau & Auflösungen"
                     >
@@ -1668,6 +1674,7 @@ export function FeedPostCard({
           }}
         />
       )}
+
     </div>
   );
 }

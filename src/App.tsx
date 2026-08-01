@@ -202,8 +202,6 @@ const getRenderableMediaSource = (media: any) => {
     media.image_preview ||
     media.image_thumb ||
     media.image ||
-    media.url ||
-    media.link ||
     media.youtubeId ||
     media.youtubeUrl ||
     ''
@@ -2438,7 +2436,11 @@ export default function App() {
             return `<div class="video-container mb-2" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'><iframe class="feed-video-preview" src="${getBunnyFeedEmbedUrl(String(m.libraryId), String(m.videoId))}" frameborder="0" allow="autoplay; encrypted-media" tabindex="-1" aria-hidden="true"></iframe></div>`;
           } else if (m.type === 'video' || (m.image && m.image.endsWith('.mp4')) || ((m.url || m.link) && (m.url || m.link).endsWith('.mp4'))) {
             const videoUrl = getProxiedUrl(getVideoSrc(m, true) || getVideoSrc(m));
-            if (!videoUrl) return '';
+            if (!videoUrl) {
+              const imageUrl = getProxiedUrl(getImageSrc(m, true) || getImageSrc(m));
+              if (!imageUrl) return '';
+              return `<div class="block mb-2" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'><img src="${imageUrl}" alt="" loading="lazy" onerror="if(this.src.includes('maxresdefault.jpg')) this.src=this.src.replace('maxresdefault.jpg', 'hqdefault.jpg')" style="width: 100%; max-height: 400px; object-fit: cover; cursor: pointer;" /></div>`;
+            }
             const posterUrl = getProxiedUrl(getImageSrc(m));
             const poster = posterUrl ? ` poster="${posterUrl}"` : '';
             return `<video src="${videoUrl}"${poster} class="feed-video-preview block mb-2" autoplay loop muted playsinline preload="metadata" disablepictureinpicture tabindex="-1" aria-hidden="true" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})' style="width: 100%; max-height: 400px; background: #000; cursor: pointer;"></video>`;
