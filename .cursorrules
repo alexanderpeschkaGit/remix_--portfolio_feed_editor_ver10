@@ -48,6 +48,41 @@ This application must run flawlessly in TWO environments:
   - `largeUrl`
   - `link`
 
+## Video Thumbnail Contract (Bunny Stream) — ALWAYS
+Every media item of `type: "bunny"` MUST have exactly this shape:
+
+- `videoId`, `libraryId` — Bunny identity (always present).
+- `url` AND `image_original` — ALWAYS the embed URL:
+  `https://iframe.mediadelivery.net/embed/{libraryId}/{videoId}`.
+  Never store an image here, even when a custom thumbnail is used.
+- `bunnyThumbUrl` — ALWAYS set to the deterministic CDN thumbnail:
+  `https://iframe.mediadelivery.net/{libraryId}/{videoId}/thumbnail.jpg`.
+  This is the guaranteed fallback that does not depend on R2 sync.
+- `image_thumb`, `image_1k`, `image_2k`, `image_3k`, `image` — the variant
+  set with the SINGLE canonical base name `bunny-{videoId}`:
+  `bunny-{videoId}_thumb.jpg`, `bunny-{videoId}_1k.jpg`, etc.
+  `image_2k`/`image_3k` may be "" when the source is too small (never upscale).
+  In published state these MUST be absolute R2 URLs
+  (`https://pub-85bb68a84f3b4ba6b512b3d165c96497.r2.dev/v2/data/uploads/...`).
+- `image_width`, `image_height` — real source resolution.
+- `custom_thumb` — ONLY when the user picked a custom thumbnail (optional);
+  if set, it wins in the UI, but the `image_*` set and `bunnyThumbUrl` stay intact.
+
+FORBIDDEN:
+- Base names `vidbunny-{timestamp}*` for anything stored long-term.
+- `image_original`/`url` pointing to an image on a bunny item.
+- Persisting `bunnyThumbUrl: ""` — always compute it.
+
+FRONTEND RESOLUTION ORDER (single rule for feed/lightbox/reorder):
+`custom_thumb` → `image_thumb` → `image` → `image_1k` → `bunnyThumbUrl`
+→ `image_original` (only if it is an image, never if it contains `mediadelivery.net/embed/`).
+Feed cards render bunny items as an autoplaying iframe; the thumbnail is a fallback/poster.
+
+NORMALIZATION:
+Any code that saves/publishes state must pass bunny items through the
+normalizer (sets embed URLs, `bunnyThumbUrl`, best `image`). New thumbnails
+are always generated under `bunny-{videoId}` and uploaded to R2.
+
 ## Versioned Storage Strategy
 - Keep the existing Cloudflare R2 bucket.
 - Store all newly generated media in a new versioned path prefix: `v2/`.

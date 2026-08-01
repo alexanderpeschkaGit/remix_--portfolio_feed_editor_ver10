@@ -186,6 +186,26 @@ export function FeedPostCard({
   const isVideoMediaUrl = (url?: string) =>
     !!url && /\.(mp4|webm|mov)(\?.*)?$/i.test(url);
 
+  const isDirectVideoFileUrl = (value?: string) =>
+    !!value && /\.(mp4|webm|mov)(\?.*)?$/i.test(String(value).split('?')[0]);
+
+  const hasRenderableImageCandidate = (m: any) => {
+    if (!m) return false;
+    const src = getImageSrc?.(m) || m?.image || m?.image_thumb || m?.image_1k;
+    return !!src && !isDirectVideoFileUrl(src);
+  };
+
+  // Detect video-like IG items (incl. legacy type:'image' split entries / mp4 in fields)
+  const isInstagramVideoCandidate = (m: any, items: any[]) => {
+    if (!m) return false;
+    if (m.type === 'video' || m.type === 'bunny') return true;
+    if (m.type === 'youtube') return false;
+    if (isDirectVideoFileUrl(m.video) || isDirectVideoFileUrl(m.video_url) || isDirectVideoFileUrl(m.url) || isDirectVideoFileUrl(m.image)) return true;
+    if (post.source !== 'instagram') return false;
+    // No usable image → likely a video whose thumbnail lives on a sibling item
+    return !hasRenderableImageCandidate(m);
+  };
+
   const getPreviewImageSrc = (media: any, preferLarge = false) => {
     const src = getImageSrc(media, preferLarge);
     return src && !isVideoMediaUrl(src) ? src : undefined;
@@ -497,11 +517,12 @@ export function FeedPostCard({
             libraryId: existingLibId,
             url: `https://iframe.mediadelivery.net/embed/${existingLibId}/${existingVidId}`,
             image_original: `https://iframe.mediadelivery.net/embed/${existingLibId}/${existingVidId}`,
-            image: data.image_thumb || data.image || '',
-            image_thumb: data.image_thumb || '',
+            image: data.image_2k || data.image_3k || data.image_1k || data.image_thumb || data.image || '',
+            image_thumb: data.image_thumb || data.image || '',
             image_1k: data.image_1k || '',
             image_2k: data.image_2k || '',
             image_3k: data.image_3k || '',
+            bunnyThumbUrl: data.bunnyThumbUrl || `https://iframe.mediadelivery.net/${existingLibId}/${existingVidId}/thumbnail.jpg`,
             duration: data.duration || media.duration || 0,
             image_width: data.image_width || media.image_width || 0,
             image_height: data.image_height || media.image_height || 0,
@@ -557,11 +578,12 @@ export function FeedPostCard({
             libraryId: bunnyLibraryId,
             url: embedUrl,
             image_original: embedUrl,
-            image: data.url,
+            image: data.image_2k || data.image_3k || data.image_1k || data.image_thumb || data.image || data.url,
             image_thumb: data.image_thumb || data.url,
             image_1k: data.image_1k || '',
             image_2k: data.image_2k || '',
             image_3k: data.image_3k || '',
+            bunnyThumbUrl: data.bunnyThumbUrl || `https://iframe.mediadelivery.net/${bunnyLibraryId}/${bunnyVideoId}/thumbnail.jpg`,
             duration: data.duration || 0,
             image_width: data.image_width || 0,
             image_height: data.image_height || 0,
@@ -840,16 +862,16 @@ export function FeedPostCard({
                       <ExternalLink className="w-2.5 h-2.5" />
                     </button>
                   )}
-                  {/* Custom Thumbnail button: only for video and bunny types */}
-                  {(media.type === 'video' || media.type === 'bunny') && (
+                  {/* Custom Thumbnail button: bunny + standard/Instagram videos */}
+                  {(isInstagramVideoCandidate(media, mediaItems)) && (
                     <button
                       type="button"
                       onClick={async (e) => {
                         e.stopPropagation();
                         setCustomThumbnailLoading(true);
                         try {
-                          if (media.type === 'bunny' && media.libraryId && media.videoId) {
-                            // Fetch direct Bunny video URL for canvas capture
+                          if (media.libraryId && media.videoId) {
+                            // Bunny video (incl. items mis-typed as 'video'): fetch direct playable URL for canvas capture
                             const res = await fetch('/api/bunny/video-url', {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
@@ -858,9 +880,25 @@ export function FeedPostCard({
                             const data = await res.json();
                             if (!data.success) throw new Error(data.error || 'Failed to get Bunny video URL');
                             setCustomThumbnailVideoUrl(data.videoUrl);
-                          } else if (media.type === 'video') {
-                            // Use existing video URL directly
-                            const videoSrc = getVideoSrc(media, true) || getVideoSrc(media) || media.url || '';
+                          } else {
+                            // Standard/Instagram video: resolve a playable, same-origin source
+                            // via the server (prefers the local mp4 on disk / insta_data.json).
+                            const res = await fetch('/api/video/resolve-source', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ postId: post.id, index: i, media }),
+                            });
+                            const data = await res.json();
+                            let videoSrc = '';
+                            if (data.success && data.videoUrl) {
+                              videoSrc = data.videoUrl;
+                            } else {
+                              // Fallback: use a direct URL if present on the item
+                              videoSrc = getVideoSrc(media, true) || getVideoSrc(media) || media.url || '';
+                            }
+                            if (!videoSrc) {
+                              throw new Error(data.error || 'No playable video source found for this item.');
+                            }
                             setCustomThumbnailVideoUrl(videoSrc);
                           }
                           setCustomThumbnailMedia({ media, index: i });
@@ -1348,14 +1386,19 @@ export function FeedPostCard({
             // Update the media item with the custom thumbnail variant URLs
             const newMedia = [...mediaItems];
             const idx = customThumbnailMedia.index;
+            const current = newMedia[idx] || {};
+            const isBunny = current.type === 'bunny' || (!!current.videoId && !!current.libraryId);
             newMedia[idx] = {
-              ...newMedia[idx],
+              ...current,
               custom_thumb: variantUrls.image_thumb,
               image_thumb: variantUrls.image_thumb,
               image_1k: variantUrls.image_1k,
               image_2k: variantUrls.image_2k,
               image_3k: variantUrls.image_3k,
-              image_original: variantUrls.image_original,
+              // For bunny videos image_original MUST stay the embed URL (contract), never the custom image
+              image_original: isBunny
+                ? `https://iframe.mediadelivery.net/embed/${current.libraryId}/${current.videoId}`
+                : variantUrls.image_original,
               image_width: variantUrls.image_width,
               image_height: variantUrls.image_height,
             };

@@ -159,8 +159,8 @@ const getImageSrc = (media: any, preferLarge = false) => {
   }
 
   const primary = preferLarge
-    ? [media?.image_3k, media?.image_2k, media?.image_original, media?.image_1k, media?.image_large, media?.imageLarge, media?.largeUrl, media?.image, media?.image_preview, media?.custom_thumb, media?.image_thumb, media?.url, media?.link]
-    : [media?.custom_thumb, media?.image_thumb, media?.image_preview, media?.image, media?.image_original, media?.image_1k, media?.image_2k, media?.image_3k, media?.image_large, media?.imageLarge, media?.largeUrl, media?.url, media?.link];
+    ? [media?.image_3k, media?.image_2k, media?.image_original, media?.image_1k, media?.bunnyThumbUrl, media?.image_large, media?.imageLarge, media?.largeUrl, media?.image, media?.image_preview, media?.custom_thumb, media?.image_thumb, media?.url, media?.link]
+    : [media?.custom_thumb, media?.image_thumb, media?.image_preview, media?.image, media?.image_original, media?.image_1k, media?.bunnyThumbUrl, media?.image_2k, media?.image_3k, media?.image_large, media?.imageLarge, media?.largeUrl, media?.url, media?.link];
     
   for (const candidate of primary) {
     if (isValidImageCandidate(candidate)) return candidate;
@@ -224,6 +224,7 @@ const getMediaPriorityScore = (media: any) => {
   if (isValidImageCandidate(media.image_1k)) return 60;
   if (isValidImageCandidate(media.image)) return 50;
   if (isValidImageCandidate(media.image_preview)) return 40;
+  if (isValidImageCandidate(media.bunnyThumbUrl)) return 35;
   if (isValidImageCandidate(media.image_thumb)) return 30;
   if (isValidImageCandidate(media.url) || isValidImageCandidate(media.link)) return 10;
   return 0;
@@ -2329,12 +2330,14 @@ export default function App() {
                type: 'bunny',
                videoId: bunnyVideoId,
                libraryId: bunnyLibraryId,
-               url: url,
-               image: data.url,
+               url: `https://iframe.mediadelivery.net/embed/${bunnyLibraryId}/${bunnyVideoId}`,
+               image_original: `https://iframe.mediadelivery.net/embed/${bunnyLibraryId}/${bunnyVideoId}`,
+               image: data.image_2k || data.image_3k || data.image_1k || data.image_thumb || data.image || data.url,
                image_thumb: data.image_thumb || data.url,
                image_1k: data.image_1k,
                image_2k: data.image_2k,
                image_3k: data.image_3k,
+               bunnyThumbUrl: data.bunnyThumbUrl || `https://iframe.mediadelivery.net/${bunnyLibraryId}/${bunnyVideoId}/thumbnail.jpg`,
                duration: data.duration,
                image_width: data.image_width || 0,
                image_height: data.image_height || 0
@@ -2689,6 +2692,8 @@ export default function App() {
           if (url.startsWith('data:') || url.startsWith('blob:')) return true;
           if (url.startsWith('/data/') || url.startsWith('/data_v2/') || url.startsWith('/originals/')) return true;
           if (url.includes('img.youtube.com/vi/')) return true;
+          // Bunny embed URLs are videos, never <img> sources
+          if (url.includes('iframe.mediadelivery.net/embed/') || url.includes('player.mediadelivery.net/embed/')) return false;
           if (url.startsWith('http')) return true;
           return !!url.match(/\.(jpe?g|png|webp|gif|avif|bmp)(\\?.*)?$/i);
         }
@@ -2706,8 +2711,8 @@ export default function App() {
             }
           }
           const primary = preferLarge
-            ? [media.image_3k, media.image_2k, media.image_original, media.image_1k, media.image_large, media.imageLarge, media.largeUrl, media.image, media.image_preview, media.image_thumb, media.url, media.link]
-            : [media.image_thumb, media.image_preview, media.image, media.image_original, media.image_1k, media.image_2k, media.image_3k, media.image_large, media.imageLarge, media.largeUrl, media.url, media.link];
+            ? [media.image_3k, media.image_2k, media.image_original, media.image_1k, media.bunnyThumbUrl, media.image_large, media.imageLarge, media.largeUrl, media.image, media.image_preview, media.image_thumb, media.url, media.link]
+            : [media.image_thumb, media.image_preview, media.image, media.image_original, media.image_1k, media.bunnyThumbUrl, media.image_2k, media.image_3k, media.image_large, media.imageLarge, media.largeUrl, media.url, media.link];
           for (var i = 0; i < primary.length; i++) {
             if (isValidImageCandidate(primary[i])) return primary[i];
           }
@@ -2742,6 +2747,7 @@ export default function App() {
           if (isValidImageCandidate(media.image_1k)) return 60;
           if (isValidImageCandidate(media.image)) return 50;
           if (isValidImageCandidate(media.image_preview)) return 40;
+          if (isValidImageCandidate(media.bunnyThumbUrl)) return 35;
           if (isValidImageCandidate(media.image_thumb)) return 30;
           if (isValidImageCandidate(media.url) || isValidImageCandidate(media.link)) return 10;
           return 0;

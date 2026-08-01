@@ -1,0 +1,126 @@
+
+## Bunny Schema Backfill Report
+- Timestamp: 2026-08-01T18:28:09.852100Z
+- 4b510540-1ef7-4622-85eb-95f41d4c7406: renamed vidbunny-1783457895158_local_thumb.jpg -> bunny-4b510540-1ef7-4622-85eb-95f41d4c7406_thumb.jpg
+- 4b510540-1ef7-4622-85eb-95f41d4c7406: renamed vidbunny-1783457895158_local_thumb.jpg -> bunny-4b510540-1ef7-4622-85eb-95f41d4c7406_1k.jpg
+- 4b510540-1ef7-4622-85eb-95f41d4c7406: Quelle zu klein fuer image_2k, image_3k
+- 4b510540-1ef7-4622-85eb-95f41d4c7406: renamed vidbunny-1783457895158_local_thumb.jpg -> bunny-4b510540-1ef7-4622-85eb-95f41d4c7406_thumb.jpg
+- 4b510540-1ef7-4622-85eb-95f41d4c7406: renamed vidbunny-1783457895158_local_1k.jpg -> bunny-4b510540-1ef7-4622-85eb-95f41d4c7406_1k.jpg
+- 4b510540-1ef7-4622-85eb-95f41d4c7406: Quelle zu klein fuer image_2k, image_3k
+- 6e6938ef-f631-4bcf-9845-8169516bf3f7: renamed vidbunny-1782602042308_local_thumb.jpg -> bunny-6e6938ef-f631-4bcf-9845-8169516bf3f7_thumb.jpg
+- 6e6938ef-f631-4bcf-9845-8169516bf3f7: renamed vidbunny-1782602042308_local_1k.jpg -> bunny-6e6938ef-f631-4bcf-9845-8169516bf3f7_1k.jpg
+- 6e6938ef-f631-4bcf-9845-8169516bf3f7: Quelle zu klein fuer image_2k, image_3k
+- 28c4fafd-3590-421a-908d-163060afd2fa: Quelle zu klein fuer image_2k, image_3k
+- 8de07962-b1dc-4245-b9b6-ce589561a67b: Quelle zu klein fuer image_2k, image_3k
+- 2123660c-c7bb-41e1-be6a-1b13fd0182d2: Quelle zu klein fuer image_3k
+- 2123660c-c7bb-41e1-be6a-1b13fd0182d2: Quelle zu klein fuer image_2k, image_3k
+- 26539ae6-4566-4120-bfd1-01873b295a70: Quelle zu klein fuer image_2k, image_3k
+- 26539ae6-4566-4120-bfd1-01873b295a70: Quelle zu klein fuer image_2k, image_3k
+- 05920876-98cb-4aaa-b767-7904c9928689: renamed vidbunny-1785495963290_local_thumb.jpg -> bunny-05920876-98cb-4aaa-b767-7904c9928689_thumb.jpg
+- 05920876-98cb-4aaa-b767-7904c9928689: renamed vidbunny-1785495963290_local_1k.jpg -> bunny-05920876-98cb-4aaa-b767-7904c9928689_1k.jpg
+- 05920876-98cb-4aaa-b767-7904c9928689: Quelle zu klein fuer image_2k, image_3k
+- a8b02419-daee-4a06-9818-dfda310b18d6: renamed vidbunny-1785495959456_local_thumb.jpg -> bunny-a8b02419-daee-4a06-9818-dfda310b18d6_thumb.jpg
+- a8b02419-daee-4a06-9818-dfda310b18d6: renamed vidbunny-1785495959456_local_1k.jpg -> bunny-a8b02419-daee-4a06-9818-dfda310b18d6_1k.jpg
+- a8b02419-daee-4a06-9818-dfda310b18d6: Quelle zu klein fuer image_2k, image_3k
+- 67bcc908-20a8-40ad-bd1d-6f3f4f73e98e: Quelle zu klein fuer image_2k, image_3k
+- 06171e1a-745d-4270-973b-cee38185b1ca: renamed vidbunny-1785507359414_local_thumb.jpg -> bunny-06171e1a-745d-4270-973b-cee38185b1ca_thumb.jpg
+- 06171e1a-745d-4270-973b-cee38185b1ca: renamed vidbunny-1785507359414_local_1k.jpg -> bunny-06171e1a-745d-4270-973b-cee38185b1ca_1k.jpg
+- 06171e1a-745d-4270-973b-cee38185b1ca: renamed vidbunny-1785507359414_local_2k.jpg -> bunny-06171e1a-745d-4270-973b-cee38185b1ca_2k.jpg
+- 06171e1a-745d-4270-973b-cee38185b1ca: renamed vidbunny-1785507359414_local_3k.jpg -> bunny-06171e1a-745d-4270-973b-cee38185b1ca_3k.jpg
+- ee4cf2d0-4edb-423b-82d1-dc07c650daf7: renamed vidbunny-1785507363402_local_thumb.jpg -> bunny-ee4cf2d0-4edb-423b-82d1-dc07c650daf7_thumb.jpg
+- ee4cf2d0-4edb-423b-82d1-dc07c650daf7: renamed vidbunny-1785507363402_local_1k.jpg -> bunny-ee4cf2d0-4edb-423b-82d1-dc07c650daf7_1k.jpg
+- ee4cf2d0-4edb-423b-82d1-dc07c650daf7: renamed vidbunny-1785507363402_local_2k.jpg -> bunny-ee4cf2d0-4edb-423b-82d1-dc07c650daf7_2k.jpg
+- ee4cf2d0-4edb-423b-82d1-dc07c650daf7: renamed vidbunny-1785507363402_local_3k.jpg -> bunny-ee4cf2d0-4edb-423b-82d1-dc07c650daf7_3k.jpg
+- af2aa143-e753-45d4-8121-3d79367e2f2c: renamed vidbunny-1785507360312_local_thumb.jpg -> bunny-af2aa143-e753-45d4-8121-3d79367e2f2c_thumb.jpg
+- af2aa143-e753-45d4-8121-3d79367e2f2c: renamed vidbunny-1785507360312_local_1k.jpg -> bunny-af2aa143-e753-45d4-8121-3d79367e2f2c_1k.jpg
+- af2aa143-e753-45d4-8121-3d79367e2f2c: renamed vidbunny-1785507360312_local_2k.jpg -> bunny-af2aa143-e753-45d4-8121-3d79367e2f2c_2k.jpg
+- af2aa143-e753-45d4-8121-3d79367e2f2c: renamed vidbunny-1785507360312_local_3k.jpg -> bunny-af2aa143-e753-45d4-8121-3d79367e2f2c_3k.jpg
+- 4bdd3b18-bc1f-47c5-8a90-f7b9b93b3058: renamed vidbunny-1785507362871_local_thumb.jpg -> bunny-4bdd3b18-bc1f-47c5-8a90-f7b9b93b3058_thumb.jpg
+- 4bdd3b18-bc1f-47c5-8a90-f7b9b93b3058: renamed vidbunny-1785507362871_local_1k.jpg -> bunny-4bdd3b18-bc1f-47c5-8a90-f7b9b93b3058_1k.jpg
+- 4bdd3b18-bc1f-47c5-8a90-f7b9b93b3058: renamed vidbunny-1785507362871_local_2k.jpg -> bunny-4bdd3b18-bc1f-47c5-8a90-f7b9b93b3058_2k.jpg
+- 4bdd3b18-bc1f-47c5-8a90-f7b9b93b3058: renamed vidbunny-1785507362871_local_3k.jpg -> bunny-4bdd3b18-bc1f-47c5-8a90-f7b9b93b3058_3k.jpg
+- 271ee65e-3561-491e-9c63-240190bc06bd: renamed vidbunny-1785507377112_local_thumb.jpg -> bunny-271ee65e-3561-491e-9c63-240190bc06bd_thumb.jpg
+- 271ee65e-3561-491e-9c63-240190bc06bd: renamed vidbunny-1785507377112_local_1k.jpg -> bunny-271ee65e-3561-491e-9c63-240190bc06bd_1k.jpg
+- 271ee65e-3561-491e-9c63-240190bc06bd: renamed vidbunny-1785507377112_local_2k.jpg -> bunny-271ee65e-3561-491e-9c63-240190bc06bd_2k.jpg
+- 271ee65e-3561-491e-9c63-240190bc06bd: renamed vidbunny-1785507377112_local_3k.jpg -> bunny-271ee65e-3561-491e-9c63-240190bc06bd_3k.jpg
+- 2cd490a2-8cac-489a-8b5f-fb7dafcf5027: renamed vidbunny-1785507378640_local_thumb.jpg -> bunny-2cd490a2-8cac-489a-8b5f-fb7dafcf5027_thumb.jpg
+- 2cd490a2-8cac-489a-8b5f-fb7dafcf5027: renamed vidbunny-1785507378640_local_1k.jpg -> bunny-2cd490a2-8cac-489a-8b5f-fb7dafcf5027_1k.jpg
+- 2cd490a2-8cac-489a-8b5f-fb7dafcf5027: renamed vidbunny-1785507378640_local_2k.jpg -> bunny-2cd490a2-8cac-489a-8b5f-fb7dafcf5027_2k.jpg
+- 2cd490a2-8cac-489a-8b5f-fb7dafcf5027: renamed vidbunny-1785507378640_local_3k.jpg -> bunny-2cd490a2-8cac-489a-8b5f-fb7dafcf5027_3k.jpg
+- c9c03840-2e51-42a5-8aed-f75252de45ab: renamed vidbunny-1785507372390_local_thumb.jpg -> bunny-c9c03840-2e51-42a5-8aed-f75252de45ab_thumb.jpg
+- c9c03840-2e51-42a5-8aed-f75252de45ab: renamed vidbunny-1785507372390_local_1k.jpg -> bunny-c9c03840-2e51-42a5-8aed-f75252de45ab_1k.jpg
+- c9c03840-2e51-42a5-8aed-f75252de45ab: renamed vidbunny-1785507372390_local_2k.jpg -> bunny-c9c03840-2e51-42a5-8aed-f75252de45ab_2k.jpg
+- c9c03840-2e51-42a5-8aed-f75252de45ab: renamed vidbunny-1785507372390_local_3k.jpg -> bunny-c9c03840-2e51-42a5-8aed-f75252de45ab_3k.jpg
+- 91ddbc3d-f813-4f98-8953-ebeb89bdff50: renamed vidbunny-1785507362138_local_thumb.jpg -> bunny-91ddbc3d-f813-4f98-8953-ebeb89bdff50_thumb.jpg
+- 91ddbc3d-f813-4f98-8953-ebeb89bdff50: renamed vidbunny-1785507362138_local_1k.jpg -> bunny-91ddbc3d-f813-4f98-8953-ebeb89bdff50_1k.jpg
+- 91ddbc3d-f813-4f98-8953-ebeb89bdff50: renamed vidbunny-1785507362138_local_2k.jpg -> bunny-91ddbc3d-f813-4f98-8953-ebeb89bdff50_2k.jpg
+- 91ddbc3d-f813-4f98-8953-ebeb89bdff50: renamed vidbunny-1785507362138_local_3k.jpg -> bunny-91ddbc3d-f813-4f98-8953-ebeb89bdff50_3k.jpg
+- 9c06ffa2-4c55-4f79-87ab-57a622561228: renamed vidbunny-1785507384792_local_thumb.jpg -> bunny-9c06ffa2-4c55-4f79-87ab-57a622561228_thumb.jpg
+- 9c06ffa2-4c55-4f79-87ab-57a622561228: renamed vidbunny-1785507384792_local_1k.jpg -> bunny-9c06ffa2-4c55-4f79-87ab-57a622561228_1k.jpg
+- 9c06ffa2-4c55-4f79-87ab-57a622561228: renamed vidbunny-1785507384792_local_2k.jpg -> bunny-9c06ffa2-4c55-4f79-87ab-57a622561228_2k.jpg
+- 9c06ffa2-4c55-4f79-87ab-57a622561228: renamed vidbunny-1785507384792_local_3k.jpg -> bunny-9c06ffa2-4c55-4f79-87ab-57a622561228_3k.jpg
+- e6158d19-d409-4299-8fa3-f28133a3b4ef: renamed vidbunny-1785507379505_local_thumb.jpg -> bunny-e6158d19-d409-4299-8fa3-f28133a3b4ef_thumb.jpg
+- e6158d19-d409-4299-8fa3-f28133a3b4ef: renamed vidbunny-1785507379505_local_1k.jpg -> bunny-e6158d19-d409-4299-8fa3-f28133a3b4ef_1k.jpg
+- e6158d19-d409-4299-8fa3-f28133a3b4ef: renamed vidbunny-1785507379505_local_2k.jpg -> bunny-e6158d19-d409-4299-8fa3-f28133a3b4ef_2k.jpg
+- e6158d19-d409-4299-8fa3-f28133a3b4ef: renamed vidbunny-1785507379505_local_3k.jpg -> bunny-e6158d19-d409-4299-8fa3-f28133a3b4ef_3k.jpg
+- 210d2d2b-8797-4123-920b-13130c4b1795: renamed vidbunny-1785507379820_local_thumb.jpg -> bunny-210d2d2b-8797-4123-920b-13130c4b1795_thumb.jpg
+- 210d2d2b-8797-4123-920b-13130c4b1795: renamed vidbunny-1785507379820_local_1k.jpg -> bunny-210d2d2b-8797-4123-920b-13130c4b1795_1k.jpg
+- 210d2d2b-8797-4123-920b-13130c4b1795: renamed vidbunny-1785507379820_local_2k.jpg -> bunny-210d2d2b-8797-4123-920b-13130c4b1795_2k.jpg
+- 210d2d2b-8797-4123-920b-13130c4b1795: renamed vidbunny-1785507379820_local_3k.jpg -> bunny-210d2d2b-8797-4123-920b-13130c4b1795_3k.jpg
+- 24fb1e69-73f0-4877-8fb2-b07e4019dc39: renamed vidbunny-1785507385860_local_thumb.jpg -> bunny-24fb1e69-73f0-4877-8fb2-b07e4019dc39_thumb.jpg
+- 24fb1e69-73f0-4877-8fb2-b07e4019dc39: renamed vidbunny-1785507385860_local_1k.jpg -> bunny-24fb1e69-73f0-4877-8fb2-b07e4019dc39_1k.jpg
+- 24fb1e69-73f0-4877-8fb2-b07e4019dc39: Quelle zu klein fuer image_2k, image_3k
+- 63b043f0-f95c-4d6d-99dc-2eb4b65e1c71: renamed vidbunny-1782994060729_local_thumb.jpg -> bunny-63b043f0-f95c-4d6d-99dc-2eb4b65e1c71_thumb.jpg
+- 63b043f0-f95c-4d6d-99dc-2eb4b65e1c71: renamed vidbunny-1782994060729_local_1k.jpg -> bunny-63b043f0-f95c-4d6d-99dc-2eb4b65e1c71_1k.jpg
+- 63b043f0-f95c-4d6d-99dc-2eb4b65e1c71: Quelle zu klein fuer image_2k, image_3k
+- e17d3abb-11eb-49c5-a19c-76ffd326faa1: renamed vidbunny-1782994229155_local_thumb.jpg -> bunny-e17d3abb-11eb-49c5-a19c-76ffd326faa1_thumb.jpg
+- e17d3abb-11eb-49c5-a19c-76ffd326faa1: renamed vidbunny-1782994229155_local_1k.jpg -> bunny-e17d3abb-11eb-49c5-a19c-76ffd326faa1_1k.jpg
+- e17d3abb-11eb-49c5-a19c-76ffd326faa1: Quelle zu klein fuer image_2k, image_3k
+- 4dcbe7e3-8427-41db-b903-fcdddafd214f: renamed vidbunny-1782994331893_local_thumb.jpg -> bunny-4dcbe7e3-8427-41db-b903-fcdddafd214f_thumb.jpg
+- 4dcbe7e3-8427-41db-b903-fcdddafd214f: renamed vidbunny-1782994331893_local_1k.jpg -> bunny-4dcbe7e3-8427-41db-b903-fcdddafd214f_1k.jpg
+- 4dcbe7e3-8427-41db-b903-fcdddafd214f: Quelle zu klein fuer image_2k, image_3k
+- 2f9452a5-f431-447c-9a85-68617fa76340: renamed vidbunny-1782592373467_local_thumb.jpg -> bunny-2f9452a5-f431-447c-9a85-68617fa76340_thumb.jpg
+- 2f9452a5-f431-447c-9a85-68617fa76340: renamed vidbunny-1782592373467_local_1k.jpg -> bunny-2f9452a5-f431-447c-9a85-68617fa76340_1k.jpg
+- 2f9452a5-f431-447c-9a85-68617fa76340: Quelle zu klein fuer image_2k, image_3k
+- 97031f26-78cd-4108-b146-e966286baf4a: renamed vidbunny-1781596246184_local_thumb.jpg -> bunny-97031f26-78cd-4108-b146-e966286baf4a_thumb.jpg
+- 97031f26-78cd-4108-b146-e966286baf4a: renamed vidbunny-1781596246184_local_thumb.jpg -> bunny-97031f26-78cd-4108-b146-e966286baf4a_1k.jpg
+- 97031f26-78cd-4108-b146-e966286baf4a: Quelle zu klein fuer image_2k, image_3k
+- 97031f26-78cd-4108-b146-e966286baf4a: renamed vidbunny-1781596246184_local_thumb.jpg -> bunny-97031f26-78cd-4108-b146-e966286baf4a_thumb.jpg
+- 97031f26-78cd-4108-b146-e966286baf4a: renamed vidbunny-1781596246184_local_1k.jpg -> bunny-97031f26-78cd-4108-b146-e966286baf4a_1k.jpg
+- 97031f26-78cd-4108-b146-e966286baf4a: Quelle zu klein fuer image_2k, image_3k
+
+## Bunny Schema Backfill Report
+- Timestamp: 2026-08-01T18:29:43.117331Z
+- 4b510540-1ef7-4622-85eb-95f41d4c7406: renamed vidbunny-1783457895158_local_thumb.jpg -> bunny-4b510540-1ef7-4622-85eb-95f41d4c7406_thumb.jpg
+- 4b510540-1ef7-4622-85eb-95f41d4c7406: renamed vidbunny-1783457895158_local_thumb.jpg -> bunny-4b510540-1ef7-4622-85eb-95f41d4c7406_1k.jpg
+- 4b510540-1ef7-4622-85eb-95f41d4c7406: Quelle zu klein fuer image_2k, image_3k
+- 4b510540-1ef7-4622-85eb-95f41d4c7406: renamed vidbunny-1783457895158_local_thumb.jpg -> bunny-4b510540-1ef7-4622-85eb-95f41d4c7406_thumb.jpg
+- 4b510540-1ef7-4622-85eb-95f41d4c7406: renamed vidbunny-1783457895158_local_1k.jpg -> bunny-4b510540-1ef7-4622-85eb-95f41d4c7406_1k.jpg
+- 4b510540-1ef7-4622-85eb-95f41d4c7406: Quelle zu klein fuer image_2k, image_3k
+- 6e6938ef-f631-4bcf-9845-8169516bf3f7: renamed vidbunny-1782602042308_local_thumb.jpg -> bunny-6e6938ef-f631-4bcf-9845-8169516bf3f7_thumb.jpg
+- 6e6938ef-f631-4bcf-9845-8169516bf3f7: renamed vidbunny-1782602042308_local_1k.jpg -> bunny-6e6938ef-f631-4bcf-9845-8169516bf3f7_1k.jpg
+- 6e6938ef-f631-4bcf-9845-8169516bf3f7: Quelle zu klein fuer image_2k, image_3k
+- 28c4fafd-3590-421a-908d-163060afd2fa: Quelle zu klein fuer image_2k, image_3k
+- 8de07962-b1dc-4245-b9b6-ce589561a67b: Quelle zu klein fuer image_2k, image_3k
+- 2123660c-c7bb-41e1-be6a-1b13fd0182d2: Quelle zu klein fuer image_3k
+- 2123660c-c7bb-41e1-be6a-1b13fd0182d2: Quelle zu klein fuer image_2k, image_3k
+- 26539ae6-4566-4120-bfd1-01873b295a70: Quelle zu klein fuer image_2k, image_3k
+- 26539ae6-4566-4120-bfd1-01873b295a70: Quelle zu klein fuer image_2k, image_3k
+- 05920876-98cb-4aaa-b767-7904c9928689: renamed vidbunny-1785495963290_local_thumb.jpg -> bunny-05920876-98cb-4aaa-b767-7904c9928689_thumb.jpg
+- 05920876-98cb-4aaa-b767-7904c9928689: renamed vidbunny-1785495963290_local_1k.jpg -> bunny-05920876-98cb-4aaa-b767-7904c9928689_1k.jpg
+- 05920876-98cb-4aaa-b767-7904c9928689: Quelle zu klein fuer image_2k, image_3k
+- a8b02419-daee-4a06-9818-dfda310b18d6: renamed vidbunny-1785495959456_local_thumb.jpg -> bunny-a8b02419-daee-4a06-9818-dfda310b18d6_thumb.jpg
+- a8b02419-daee-4a06-9818-dfda310b18d6: renamed vidbunny-1785495959456_local_1k.jpg -> bunny-a8b02419-daee-4a06-9818-dfda310b18d6_1k.jpg
+- a8b02419-daee-4a06-9818-dfda310b18d6: Quelle zu klein fuer image_2k, image_3k
+- 67bcc908-20a8-40ad-bd1d-6f3f4f73e98e: Quelle zu klein fuer image_2k, image_3k
+- 24fb1e69-73f0-4877-8fb2-b07e4019dc39: Quelle zu klein fuer image_2k, image_3k
+- 63b043f0-f95c-4d6d-99dc-2eb4b65e1c71: Quelle zu klein fuer image_2k, image_3k
+- e17d3abb-11eb-49c5-a19c-76ffd326faa1: Quelle zu klein fuer image_2k, image_3k
+- 4dcbe7e3-8427-41db-b903-fcdddafd214f: Quelle zu klein fuer image_2k, image_3k
+- 2f9452a5-f431-447c-9a85-68617fa76340: Quelle zu klein fuer image_2k, image_3k
+- 97031f26-78cd-4108-b146-e966286baf4a: renamed vidbunny-1781596246184_local_thumb.jpg -> bunny-97031f26-78cd-4108-b146-e966286baf4a_thumb.jpg
+- 97031f26-78cd-4108-b146-e966286baf4a: renamed vidbunny-1781596246184_local_thumb.jpg -> bunny-97031f26-78cd-4108-b146-e966286baf4a_1k.jpg
+- 97031f26-78cd-4108-b146-e966286baf4a: Quelle zu klein fuer image_2k, image_3k
+- 97031f26-78cd-4108-b146-e966286baf4a: renamed vidbunny-1781596246184_local_thumb.jpg -> bunny-97031f26-78cd-4108-b146-e966286baf4a_thumb.jpg
+- 97031f26-78cd-4108-b146-e966286baf4a: renamed vidbunny-1781596246184_local_1k.jpg -> bunny-97031f26-78cd-4108-b146-e966286baf4a_1k.jpg
+- 97031f26-78cd-4108-b146-e966286baf4a: Quelle zu klein fuer image_2k, image_3k
