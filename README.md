@@ -2,16 +2,6 @@
 
 A web-based portfolio management tool that allows you to scrape images from Flickr/Instagram, manage high-resolution assets, and publish to Cloudflare R2.
 
-## Getting Started
-
-### Prerequisites
-- Node.js (https://nodejs.org/)
-
-### Installation
-1. Clone the repository.
-2. Run `npm install` in the root directory.
-3. Create a `.env` file based on `.env.example` and add your Cloudflare R2 credentials.
-
 ### Running the Application
 
 - **Standard Start:** Run `start_windows.bat`. This checks for dependencies and starts the server.

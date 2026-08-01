@@ -7,17 +7,20 @@ import { discoverMediaAssetFamily, extractMediaAssetFamily, firstExistingLocalMe
 
 export const IMAGE_FIELDS = [
   'image_thumb',
+  'image_thumb400',
   'image_1k',
   'image_2k',
   'image_3k',
   'image_original',
   'image_large',
   'image',
+  'thumbnail',
 ] as const;
 
 export const GENERATED_VARIANT_FIELDS = ['image_1k', 'image_2k', 'image_3k'] as const;
 
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'bmp', 'tif', 'tiff']);
+const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'webm', 'mkv', 'avi']);
 const MIN_VARIANT_SIDE: Record<string, number> = { image_1k: 1024, image_2k: 2048, image_3k: 3072 };
 
 export type ValidationSeverity = 'error' | 'warning';
@@ -173,7 +176,19 @@ export async function validateMediaState(state: any, options: ValidateMediaState
     if (hasCarousel && options.includeTopLevelReferences) entries.push({ media: item, mediaIndex: 0 });
 
     for (const { media, mediaIndex } of entries) {
-      if (!media || isYoutube(media) || isVideo(media)) continue;
+      if (!media || isYoutube(media)) continue;
+
+      if (isVideo(media)) {
+        for (const field of IMAGE_FIELDS) {
+          const value = String(media[field] || '').trim();
+          if (!value) continue;
+          const extension = extensionForUrl(value);
+          if (VIDEO_EXTENSIONS.has(extension)) {
+            issues.push(makeIssue(item, mediaIndex, field, 'error', 'NON_IMAGE_EXTENSION', `The video item image field points to a video extension .${extension}.`, 'Clear the field or replace it with a verified image asset.', { url: value, extension }));
+          }
+        }
+        continue;
+      }
       scannedMedia++;
       const decodedByField = new Map<string, DecodedAsset>();
 
