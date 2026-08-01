@@ -2335,7 +2335,9 @@ export default function App() {
                image_1k: data.image_1k,
                image_2k: data.image_2k,
                image_3k: data.image_3k,
-               duration: data.duration
+               duration: data.duration,
+               image_width: data.image_width || 0,
+               image_height: data.image_height || 0
              } : post
            ), `Bunny Video hinzugefÃ¼gt (${describePost(flickrPosts.find(p => String(p.id) === String(id)))})`);
         } else {

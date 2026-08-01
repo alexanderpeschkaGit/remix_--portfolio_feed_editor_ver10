@@ -156,6 +156,21 @@ async function startServer() {
     return null;
   }
 
+  async function fetchBunnyVideoMetadata(libraryId: any, videoId: any): Promise<any | null> {
+    if (!BUNNY_CONFIG.apiKey || !libraryId || !videoId) return null;
+    try {
+      const metaUrl = `https://video.bunnycdn.com/library/${libraryId}/videos/${videoId}`;
+      const metaRes = await fetch(metaUrl, {
+        headers: { "AccessKey": BUNNY_CONFIG.apiKey, "Accept": "application/json" }
+      });
+      if (!metaRes.ok) return null;
+      return await metaRes.json();
+    } catch (error: any) {
+      console.warn(`[bunny] Metadata lookup failed for video ${videoId}:`, error.message || error);
+      return null;
+    }
+  }
+
   async function ensureStateVideoDimensions(state: any) {
     if (!state || !Array.isArray(state.items)) return;
     
@@ -163,10 +178,25 @@ async function startServer() {
       if (!url) return false;
       return /\.(mp4|webm|mov|avi|mkv|flv)$/i.test(url.split('?')[0]);
     };
+    const isBunnyItem = (obj: any) => {
+      const type = String(obj?.type || '').toLowerCase();
+      return type === 'bunny' || (!!obj?.videoId && !!obj?.libraryId);
+    };
+    const resolveDims = async (obj: any) => {
+      if (isBunnyItem(obj)) {
+        const meta = await fetchBunnyVideoMetadata(obj.libraryId, obj.videoId);
+        if (meta && Number(meta.width) > 0 && Number(meta.height) > 0) {
+          return { width: Number(meta.width), height: Number(meta.height) };
+        }
+        return null;
+      }
+      const videoSrc = obj.video || obj.image || obj.url;
+      return await probeVideoDimensions(videoSrc);
+    };
 
     for (const item of state.items) {
       const itemType = String(item.type || '').toLowerCase();
-      const isVideo = itemType === 'video' || isVideoUrl(item.video) || isVideoUrl(item.image) || isVideoUrl(item.url);
+      const isVideo = isBunnyItem(item) || itemType === 'video' || isVideoUrl(item.video) || isVideoUrl(item.image) || isVideoUrl(item.url);
       
       if (isVideo) {
         const currentW = item.image_width;
@@ -174,8 +204,7 @@ async function startServer() {
         const isFallback = (currentW === 1080 && currentH === 1080) || !currentH || !currentW;
         
         if (isFallback) {
-          const videoSrc = item.video || item.image || item.url;
-          const dims = await probeVideoDimensions(videoSrc);
+          const dims = await resolveDims(item);
           if (dims) {
             item.image_width = dims.width;
             item.image_height = dims.height;
@@ -188,7 +217,7 @@ async function startServer() {
         for (let idx = 0; idx < item.mergedMedia.length; idx++) {
           const media = item.mergedMedia[idx];
           const mediaType = String(media.type || '').toLowerCase();
-          const isMediaVideo = mediaType === 'video' || isVideoUrl(media.video) || isVideoUrl(media.image) || isVideoUrl(media.url);
+          const isMediaVideo = isBunnyItem(media) || mediaType === 'video' || isVideoUrl(media.video) || isVideoUrl(media.image) || isVideoUrl(media.url);
           
           if (isMediaVideo) {
             const currentW = media.image_width;
@@ -196,8 +225,7 @@ async function startServer() {
             const isFallback = (currentW === 1080 && currentH === 1080) || !currentH || !currentW;
             
             if (isFallback) {
-              const videoSrc = media.video || media.image || media.url;
-              const dims = await probeVideoDimensions(videoSrc);
+              const dims = await resolveDims(media);
               if (dims) {
                 media.image_width = dims.width;
                 media.image_height = dims.height;
@@ -2371,12 +2399,8 @@ async function startServer() {
 
     try {
       const libraryId = media.libraryId || BUNNY_CONFIG.libraryId;
-      const metaUrl = `https://video.bunnycdn.com/library/${libraryId}/videos/${media.videoId}`;
-      const metaRes = await fetch(metaUrl, {
-        headers: { "AccessKey": BUNNY_CONFIG.apiKey, "Accept": "application/json" }
-      });
-      if (!metaRes.ok) return null;
-      const metadata: any = await metaRes.json();
+      const metadata: any = await fetchBunnyVideoMetadata(libraryId, media.videoId);
+      if (!metadata) return null;
       const thumbFilename = metadata.thumbnailFileName || 'thumbnail.jpg';
 
       // Try iframe.mediadelivery.net first (same domain as embeds, no pull zone needed)
@@ -4603,12 +4627,8 @@ async function startServer() {
       if (!task.videoId || !task.libraryId) continue;
 
       try {
-        const metaUrl = `https://video.bunnycdn.com/library/${task.libraryId}/videos/${task.videoId}`;
-        const metaRes = await fetch(metaUrl, {
-          headers: { "AccessKey": BUNNY_CONFIG.apiKey, "Accept": "application/json" }
-        });
-        if (metaRes.ok) {
-          const meta: any = await metaRes.json();
+        const meta: any = await fetchBunnyVideoMetadata(task.libraryId, task.videoId);
+        if (meta) {
           if (meta.status === 4 || meta.status === 0) {
             const result = {
               success: true, type: 'bunny',
@@ -4617,7 +4637,7 @@ async function startServer() {
               image_original: `https://iframe.mediadelivery.net/embed/${task.libraryId}/${task.videoId}`,
               duration: meta.length || 0,
               image: '', image_thumb: '', image_1k: '', image_2k: '', image_3k: '',
-              image_width: 0, image_height: 0, bunnyThumbUrl: '',
+              image_width: meta.width || 0, image_height: meta.height || 0, bunnyThumbUrl: '',
               previewCloudUploaded: false, bunnyThumbCloudUploaded: false,
             };
             bunnyTasks.set(taskId, { step: 'done', progress: 100, startedAt: task.startedAt, result, videoId: task.videoId, libraryId: task.libraryId, projectId: task.projectId });
@@ -4627,7 +4647,7 @@ async function startServer() {
           }
         } else {
           task.status = 'error';
-          task.error = `Video not found on Bunny (HTTP ${metaRes.status})`;
+          task.error = 'Video not found on Bunny (metadata fetch failed)';
         }
       } catch (e: any) {
         console.warn(`[bunny-recovery] Failed to reconcile task ${taskId}:`, e.message);
@@ -4855,19 +4875,19 @@ async function startServer() {
           // Step C: Poll Bunny for encoding & thumbnail (max 45 seconds)
           let bunnyThumbUrl = '';
           let bunnyDuration = 0;
-          const metaUrl = `https://video.bunnycdn.com/library/${BUNNY_CONFIG.libraryId}/videos/${videoId}`;
+          let bunnyWidth = 0;
+          let bunnyHeight = 0;
 
           for (let attempt = 0; attempt < 15; attempt++) {
             await new Promise(r => setTimeout(r, 3000));
             const pollProgress = 50 + Math.floor((attempt / 15) * 40); // 50%–90%
             bunnyTasks.set(taskId, { step: 'encoding', progress: pollProgress, startedAt: Date.now() });
             try {
-              const metaRes = await fetch(metaUrl, {
-                headers: { "AccessKey": BUNNY_CONFIG.apiKey, "Accept": "application/json" }
-              });
-              if (!metaRes.ok) continue;
-              const meta: any = await metaRes.json();
+              const meta: any = await fetchBunnyVideoMetadata(BUNNY_CONFIG.libraryId, videoId);
+              if (!meta) continue;
               bunnyDuration = meta.length || 0;
+              bunnyWidth = Number(meta.width) || 0;
+              bunnyHeight = Number(meta.height) || 0;
               const thumbFilename = meta.thumbnailFileName;
               if (meta.status === 'finished' && thumbFilename) {
                 // Try iframe.mediadelivery.net first (same domain as embeds)
@@ -4926,8 +4946,8 @@ async function startServer() {
               image_thumb: finalThumb,
               image_1k: final1k, image_2k: final2k, image_3k: final3k,
               image_original: `https://iframe.mediadelivery.net/embed/${BUNNY_CONFIG.libraryId}/${videoId}`,
-              image_width: bunnyVariantSet.sourceWidth || localVariantSet.sourceWidth || 0,
-              image_height: bunnyVariantSet.sourceHeight || localVariantSet.sourceHeight || 0,
+              image_width: bunnyWidth || bunnyVariantSet.sourceWidth || localVariantSet.sourceWidth || 0,
+              image_height: bunnyHeight || bunnyVariantSet.sourceHeight || localVariantSet.sourceHeight || 0,
               duration: bunnyDuration,
               bunnyThumbUrl,
               previewCloudUploaded,
@@ -5260,15 +5280,8 @@ async function startServer() {
         throw new Error("Bunny API key not configured in .env");
       }
 
-      const metaUrl = `https://video.bunnycdn.com/library/${libraryId}/videos/${videoId}`;
-      const metaRes = await fetch(metaUrl, {
-        headers: {
-          "AccessKey": BUNNY_CONFIG.apiKey,
-          "Accept": "application/json"
-        }
-      });
-      if (!metaRes.ok) throw new Error(`Bunny metadata error: ${metaRes.statusText}`);
-      const metadata: any = await metaRes.json();
+      const metadata: any = await fetchBunnyVideoMetadata(libraryId, videoId);
+      if (!metadata) throw new Error("Bunny metadata error: could not fetch video metadata");
 
       const thumbFilename = metadata.thumbnailFileName || 'thumbnail.jpg';
       // Try iframe.mediadelivery.net first, then pull zone CDN as fallback
@@ -5301,6 +5314,8 @@ async function startServer() {
         videoId,
         duration: metadata.length || 0,
         url: thumbUrl,
+        image_width: metadata.width || variantSet.sourceWidth || 0,
+        image_height: metadata.height || variantSet.sourceHeight || 0,
         ... (variantSet.remoteUrls || {})
       });
     } catch (error: any) {

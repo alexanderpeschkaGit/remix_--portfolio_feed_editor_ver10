@@ -503,6 +503,8 @@ export function FeedPostCard({
             image_2k: data.image_2k || '',
             image_3k: data.image_3k || '',
             duration: data.duration || media.duration || 0,
+            image_width: data.image_width || media.image_width || 0,
+            image_height: data.image_height || media.image_height || 0,
           };
           handleUpdatePostMedia(post.id, syncedMedia);
         }
@@ -560,7 +562,9 @@ export function FeedPostCard({
             image_1k: data.image_1k || '',
             image_2k: data.image_2k || '',
             image_3k: data.image_3k || '',
-            duration: data.duration || 0
+            duration: data.duration || 0,
+            image_width: data.image_width || 0,
+            image_height: data.image_height || 0,
           };
           handleUpdatePostMedia(post.id, syncedMedia);
         }
