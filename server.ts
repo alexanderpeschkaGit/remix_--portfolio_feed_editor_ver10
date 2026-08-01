@@ -4679,46 +4679,68 @@ async function startServer() {
     await fs.writeFile(BUNNY_TASKS_FILE, JSON.stringify(data, null, 2), 'utf-8');
   }
 
+  // ── Serialized recovery-file writes (avoid concurrent load/save clobbering) ──
+  let tasksFileWriteQueue: Promise<void> = Promise.resolve();
+  function mutateBunnyTasksFile(mutator: (persisted: Record<string, any>) => void | Promise<void>): Promise<void> {
+    tasksFileWriteQueue = tasksFileWriteQueue.then(async () => {
+      const persisted = await loadBunnyTasksFile();
+      await mutator(persisted);
+      await saveBunnyTasksFile(persisted);
+    });
+    return tasksFileWriteQueue;
+  }
+
   // On startup: reconcile any interrupted Bunny uploads from the recovery file
   (async () => {
     const persisted = await loadBunnyTasksFile();
     const entries = Object.entries(persisted);
     if (entries.length === 0) return;
-    console.log(`[bunny-recovery] Found ${entries.length} persisted Bunny task(s) from previous session.`);
 
-    for (const [taskId, entry] of entries) {
-      const task: any = entry;
-      if (task.status === 'done' || task.status === 'error') continue;
-      if (!task.videoId || !task.libraryId) continue;
+    // Only tasks still 'uploading' (with a video/library ref) are recoverable.
+    const pending = entries.filter(([, t]: any) =>
+      t && t.status !== 'done' && t.status !== 'error' && t.videoId && t.libraryId
+    );
 
-      try {
-        const meta: any = await fetchBunnyVideoMetadata(task.libraryId, task.videoId);
-        if (meta) {
-          if (meta.status === 4 || meta.status === 0) {
-            const result = {
-              success: true, type: 'bunny',
-              libraryId: task.libraryId, videoId: task.videoId,
-              url: `https://iframe.mediadelivery.net/embed/${task.libraryId}/${task.videoId}`,
-              image_original: `https://iframe.mediadelivery.net/embed/${task.libraryId}/${task.videoId}`,
-              duration: meta.length || 0,
-              image: '', image_thumb: '', image_1k: '', image_2k: '', image_3k: '',
-              image_width: meta.width || 0, image_height: meta.height || 0, bunnyThumbUrl: '',
-              previewCloudUploaded: false, bunnyThumbCloudUploaded: false,
-            };
-            bunnyTasks.set(taskId, { step: 'done', progress: 100, startedAt: task.startedAt, result, videoId: task.videoId, libraryId: task.libraryId, projectId: task.projectId });
-            task.status = 'done';
-            task.result = result;
-            console.log(`[bunny-recovery] Reconciled task ${taskId}: video ${task.videoId} (status ${meta.status})`);
-          }
-        } else {
-          task.status = 'error';
-          task.error = 'Video not found on Bunny (metadata fetch failed)';
-        }
-      } catch (e: any) {
-        console.warn(`[bunny-recovery] Failed to reconcile task ${taskId}:`, e.message);
-      }
+    if (pending.length > 0) {
+      console.log(`[bunny-recovery] Reconciling ${pending.length} interrupted Bunny task(s)...`);
     }
-    await saveBunnyTasksFile(persisted);
+
+    // Purge already-resolved entries (they no longer need recovery) + reconcile pending ones.
+    await mutateBunnyTasksFile(async (p) => {
+      for (const id of Object.keys(p)) {
+        const t: any = p[id];
+        if (t && (t.status === 'done' || t.status === 'error')) delete p[id];
+      }
+      for (const [taskId, entry] of pending) {
+        const task: any = entry;
+        try {
+          const meta: any = await fetchBunnyVideoMetadata(task.libraryId, task.videoId);
+          if (meta) {
+            if (meta.status === 4 || meta.status === 0) {
+              const result = {
+                success: true, type: 'bunny',
+                libraryId: task.libraryId, videoId: task.videoId,
+                url: `https://iframe.mediadelivery.net/embed/${task.libraryId}/${task.videoId}`,
+                image_original: `https://iframe.mediadelivery.net/embed/${task.libraryId}/${task.videoId}`,
+                duration: meta.length || 0,
+                image: '', image_thumb: '', image_1k: '', image_2k: '', image_3k: '',
+                image_width: meta.width || 0, image_height: meta.height || 0, bunnyThumbUrl: '',
+                previewCloudUploaded: false, bunnyThumbCloudUploaded: false,
+              };
+              bunnyTasks.set(taskId, { step: 'done', progress: 100, startedAt: task.startedAt, result, videoId: task.videoId, libraryId: task.libraryId, projectId: task.projectId });
+              delete p[taskId]; // resolved → remove from file
+              console.log(`[bunny-recovery] Reconciled task ${taskId}: video ${task.videoId} (status ${meta.status})`);
+            }
+            // else: still encoding on Bunny → keep for next startup
+          } else {
+            delete p[taskId]; // not on Bunny → drop failed entry
+          }
+        } catch (e: any) {
+          console.warn(`[bunny-recovery] Failed to reconcile task ${taskId}:`, e.message);
+          // keep entry so it's retried next startup
+        }
+      }
+    }).catch((e: any) => console.warn('[bunny-recovery] Recovery failed:', e.message));
   })();
 
   const sanitizeProjectName = (name: string) =>
@@ -4864,13 +4886,9 @@ async function startServer() {
       bunnyTasks.set(taskId, taskEntry);
 
       // Persist task to recovery file
-      (async () => {
-        try {
-          const persisted = await loadBunnyTasksFile();
-          persisted[taskId] = { videoId: bunnyVideoId, libraryId: bunnyLibId, projectId: projectId || '', projectName: projectName || '', baseName, status: 'uploading', startedAt: Date.now() };
-          await saveBunnyTasksFile(persisted);
-        } catch (e: any) { console.warn('[bunny-recovery] Failed to persist task:', e.message); }
-      })();
+      mutateBunnyTasksFile((persisted) => {
+        persisted[taskId] = { videoId: bunnyVideoId, libraryId: bunnyLibId, projectId: projectId || '', projectName: projectName || '', baseName, status: 'uploading', startedAt: Date.now() };
+      }).catch((e: any) => console.warn('[bunny-recovery] Failed to persist task:', e.message));
 
       // Launch background task (do NOT await)
       (async () => {
@@ -5019,34 +5037,20 @@ async function startServer() {
               bunnyThumbCloudUploaded,
             }
           });
-          // Update recovery file
-          (async () => {
-            try {
-              const persisted = await loadBunnyTasksFile();
-              if (persisted[taskId]) {
-                persisted[taskId].status = 'done';
-                persisted[taskId].result = bunnyTasks.get(taskId)?.result;
-                await saveBunnyTasksFile(persisted);
-              }
-            } catch (e: any) { console.warn('[bunny-recovery] Failed to persist done:', e.message); }
-          })();
+          // Remove resolved task from recovery file (no longer needs recovery)
+          mutateBunnyTasksFile((persisted) => {
+            if (persisted[taskId]) delete persisted[taskId];
+          }).catch((e: any) => console.warn('[bunny-recovery] Failed to persist done:', e.message));
         } catch (bgError: any) {
           console.error("[bunny-bg] Background upload failed:", bgError.message);
           bunnyTasks.set(taskId, {
             step: 'error', progress: 0, startedAt: Date.now(),
             error: bgError.message || 'Unknown background error'
           });
-          // Update recovery file
-          (async () => {
-            try {
-              const persisted = await loadBunnyTasksFile();
-              if (persisted[taskId]) {
-                persisted[taskId].status = 'error';
-                persisted[taskId].error = bgError.message || 'Unknown';
-                await saveBunnyTasksFile(persisted);
-              }
-            } catch (e: any) { console.warn('[bunny-recovery] Failed to persist error:', e.message); }
-          })();
+          // Remove failed task from recovery file (no longer needs recovery)
+          mutateBunnyTasksFile((persisted) => {
+            if (persisted[taskId]) delete persisted[taskId];
+          }).catch((e: any) => console.warn('[bunny-recovery] Failed to persist error:', e.message));
         }
       })();
 
