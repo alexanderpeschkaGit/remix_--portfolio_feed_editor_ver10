@@ -284,11 +284,11 @@ export function AdminHeader({
         <AdminButton 
           onClick={handleSyncFromCloudflare} 
           disabled={isEditing || loading} 
-          tooltip="Aktuellen Stand von Cloudflare R2 laden (überschreibt lokale Änderungen)"
+          tooltip="Cloud-Änderungen übernehmen (Merge: Cloud-Texte/Kategorien, lokale Medien bleiben erhalten)"
           active={hasCloudChanges}
         >
           <Download className={`w-3 h-3 sm:w-4 sm:h-4 ${loading ? 'animate-spin text-blue-500' : ''}`} />
-          <span className="text-center">Load Cloud</span>
+          <span className="text-center">Merge Cloud</span>
         </AdminButton>
 
         <div className="col-span-1 flex gap-1">

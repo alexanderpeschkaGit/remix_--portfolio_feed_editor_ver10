@@ -36,7 +36,7 @@ import { MediaVariantsModal } from './components/modals/MediaVariantsModal';
 import { FeedPostCard } from './components/feed/FeedPostCard';
 import { ThumbnailGalleryGrid } from './components/gallery/ThumbnailGalleryGrid';
 import { AdminHeader } from './components/header/AdminHeader';
-import { mergeIncomingPostsPreservingExisting } from './utils/mergePosts';
+import { mergeIncomingPostsPreservingExisting, mergeCloudIntoLocal } from './utils/mergePosts';
 
 const formatDescription = (description: any, title: string) => {
   if (!description) return "";
@@ -155,6 +155,24 @@ const getImageSrc = (media: any, preferLarge = false) => {
         : (media?.custom_thumb || media?.image_thumb || media?.image_preview || media?.image_original || media?.image);
       if (isValidImageCandidate(stored)) return stored;
       return `https://img.youtube.com/vi/${id}/maxresdefault.jpg`;
+    }
+  }
+
+  // If it's a Bunny video, check valid image fields (excluding embed URLs) or fall back to default CDN thumbnail
+  if (media?.type === 'bunny' || media?.videoId) {
+    const libId = media.libraryId;
+    const vidId = media.videoId;
+    const storedCandidates = preferLarge
+      ? [media?.image_3k, media?.image_2k, media?.image_original, media?.image_1k, media?.bunnyThumbUrl, media?.image_large, media?.imageLarge, media?.largeUrl, media?.image, media?.image_preview, media?.custom_thumb, media?.image_thumb]
+      : [media?.custom_thumb, media?.image_thumb, media?.image_preview, media?.image, media?.image_original, media?.image_1k, media?.bunnyThumbUrl, media?.image_2k, media?.image_3k, media?.image_large, media?.imageLarge, media?.largeUrl];
+    
+    for (const candidate of storedCandidates) {
+      if (isValidImageCandidate(candidate) && typeof candidate === 'string' && !candidate.includes('/embed/')) {
+        return candidate;
+      }
+    }
+    if (libId && vidId) {
+      return `https://iframe.mediadelivery.net/${libId}/${vidId}/thumbnail.jpg`;
     }
   }
 
@@ -2362,6 +2380,7 @@ export default function App() {
           type: 'bunny',
           videoId: bunnyVideoId,
           libraryId: bunnyLibraryId,
+          bunnyThumbUrl: `https://iframe.mediadelivery.net/${bunnyLibraryId}/${bunnyVideoId}/thumbnail.jpg`,
           url: url
         } : post
       ), 'Bunny Video wird verarbeitetâ€¦');
@@ -2792,6 +2811,109 @@ export default function App() {
           return undefined;
         }
 
+        // Client-side mirror of src/server/mediaNormalization.ts (pure parts only; no disk lookup).
+        // Strips video URLs from image fields, consolidates single video posts, syncs
+        // url/video_url/video, and propagates post-level thumbnails + type before export.
+        function normalizePortfolioState(data) {
+          if (!data || typeof data !== 'object') return data;
+          const imageFields = ['image_thumb', 'image_thumb400', 'image_1k', 'image_2k', 'image_3k', 'image_original', 'image_large', 'image', 'thumbnail'];
+          const videoExtRe = /\\.(mp4|mov|webm|mkv|avi)(\\?.*)?$/i;
+          const isVideoUrl = (v) => typeof v === 'string' && videoExtRe.test(v.trim());
+          const isBunnyOrYoutube = (m) => m && (m.type === 'bunny' || m.type === 'youtube' || m.youtubeId || m.videoId || /youtu(?:be\\.com|\\.be)/i.test(String(m.url || m.link || '')));
+          const isVideoMedia = (m) => {
+            if (!m) return false;
+            if (isBunnyOrYoutube(m)) return false;
+            if (String(m.type || '').toLowerCase() === 'video') return true;
+            return ['video', 'video_url', 'url'].some((f) => isVideoUrl(m[f]));
+          };
+          const cleanImage = (v) => (isVideoUrl(v) ? '' : (typeof v === 'string' ? v.trim() : v));
+          const fileStem = (p) => {
+            if (!p) return '';
+            const clean = String(p).split('#')[0].split('?')[0];
+            const base = clean.split('/').pop() || '';
+            return base.replace(/\\.\\w+$/, '');
+          };
+          const normalizeList = (mergedMedia) => {
+            if (!Array.isArray(mergedMedia) || mergedMedia.length === 0) return [];
+            const items = mergedMedia.filter(Boolean);
+            if (items.length > 1) {
+              const imageItems = items.filter((m) => !isVideoMedia(m) && !isBunnyOrYoutube(m));
+              const videoItems = items.filter((m) => isVideoMedia(m));
+              if (imageItems.length === 1 && videoItems.length === 1) {
+                const imgStem = fileStem(imageItems[0].image || imageItems[0].image_thumb || imageItems[0].url || '');
+                const vidStem = fileStem(videoItems[0].url || videoItems[0].video || videoItems[0].video_url || '');
+                const baseImg = imgStem.replace(/_\\d+$/, '');
+                const baseVid = vidStem.replace(/_\\d+$/, '');
+                if (baseImg && baseVid && baseImg === baseVid) {
+                  const stream = videoItems[0].url || videoItems[0].video || videoItems[0].video_url || imageItems[0].url;
+                  const thumb = imageItems[0].image_thumb || imageItems[0].image_1k || imageItems[0].image;
+                  return [{ type: 'video', url: stream, video_url: stream, video: stream, image_thumb: thumb, image_1k: thumb, image: thumb }];
+                }
+              }
+            }
+            return items;
+          };
+          const normalizePost = (post) => {
+            if (!post || typeof post !== 'object') return post;
+            const n = Object.assign({}, post);
+            for (const f of imageFields) {
+              if (n[f]) {
+                const c = cleanImage(n[f]);
+                if (c !== n[f]) n[f] = c;
+              }
+            }
+            let mediaList = Array.isArray(n.mergedMedia) && n.mergedMedia.length > 0 ? n.mergedMedia.slice() : [];
+            if (mediaList.length > 0) mediaList = normalizeList(mediaList);
+            const hasMerged = mediaList.length > 0;
+            const itemsToProcess = hasMerged ? mediaList : [n];
+            const processed = [];
+            let primaryImage = '';
+            for (const item of itemsToProcess) {
+              if (isBunnyOrYoutube(item)) { processed.push(item); continue; }
+              const isVid = isVideoMedia(item);
+              const ni = Object.assign({}, item);
+              for (const f of imageFields) {
+                if (ni[f]) {
+                  const c = cleanImage(ni[f]);
+                  if (c !== ni[f]) ni[f] = c;
+                }
+              }
+              if (isVid) {
+                ni.type = 'video';
+                const stream = ni.url || ni.video_url || ni.video;
+                if (stream) { ni.url = stream; ni.video_url = stream; ni.video = stream; }
+                const existingThumb = ni.image_thumb || ni.image_1k || ni.image;
+                if (existingThumb && !primaryImage) primaryImage = existingThumb;
+              } else {
+                ni.type = 'image';
+                const img = ni.image_thumb || ni.image_1k || ni.image;
+                if (img && !primaryImage) primaryImage = img;
+              }
+              processed.push(ni);
+            }
+            for (const item of processed) {
+              if (isVideoMedia(item) && !item.image_thumb && primaryImage) {
+                item.image_thumb = primaryImage;
+                item.image_1k = primaryImage;
+                item.image = primaryImage;
+              }
+            }
+            if (hasMerged) n.mergedMedia = processed;
+            const first = processed[0];
+            if (first) {
+              const topThumb = first.image_thumb || first.image_1k || first.image || primaryImage;
+              if (topThumb) { n.image_thumb = topThumb; n.image_1k = topThumb; n.image = topThumb; }
+              const newType = processed.length > 1 ? 'carousel' : (isVideoMedia(first) ? 'video' : (isBunnyOrYoutube(first) ? (first.type || 'video') : 'image'));
+              n.type = newType;
+            }
+            return n;
+          };
+          const out = Object.assign({}, data);
+          if (Array.isArray(data.posts)) out.posts = data.posts.map(normalizePost);
+          if (Array.isArray(data.items)) out.items = data.items.map(normalizePost);
+          return out;
+        }
+
         function getProxiedUrl(url) {
           if (!url) return '';
           if (url.startsWith('http') || url.startsWith('blob:') || url.startsWith('data:')) return url;
@@ -3186,6 +3308,9 @@ export default function App() {
         }
 
         btnSaveOrder.addEventListener('click', () => {
+          // Normalize media state before embedding into the exported HTML
+          window.portfolioData = normalizePortfolioState(window.portfolioData);
+
           // Update the script tag content
           const scriptTag = document.getElementById('portfolio-data');
           scriptTag.textContent = JSON.stringify(window.portfolioData);
@@ -3359,6 +3484,7 @@ export default function App() {
       if (items.length > 0) {
         const changes: string[] = [];
         
+        changes.push("Merge mode: cloud edits apply to curated fields (title/description/categories/visibility); local media and local-only posts are kept.");
         if (r2Data.title && portfolioTitle !== r2Data.title) changes.push(`~ Portfolio title [changed]`);
         if (r2Data.subtitle && portfolioSubtitle !== r2Data.subtitle) changes.push(`~ Portfolio subtitle [changed]`);
         if (r2Data.bio && portfolioBio !== r2Data.bio) changes.push(`~ Portfolio bio [changed]`);
@@ -3371,7 +3497,7 @@ export default function App() {
         
         const deletedItems = flickrPosts.filter((p: any) => !items.find((item: any) => String(item.id) === String(p.id)));
         if (deletedItems.length > 0) {
-          changes.push(`Deleted (${deletedItems.length}):`);
+          changes.push(`Deleted in cloud - NOT applied (kept locally) (${deletedItems.length}):`);
           deletedItems.forEach((item: any) => changes.push(`- ${item.title || 'Untitled'}`));
         }
 
@@ -3446,7 +3572,7 @@ export default function App() {
     if (!cloudSyncState) return;
     const { items, r2Data } = cloudSyncState;
 
-    console.log('[Sync] User confirmed. Applying cloud data to state:', items.length, 'items');
+    console.log('[Sync] User confirmed. Merging cloud data into state:', items.length, 'items');
     setIsR2Fallback(true);
     setIsFlickrFallback(false);
     setPortfolioTitle(r2Data.title || portfolioTitle);
@@ -3461,8 +3587,12 @@ export default function App() {
     const oldPosts = flickrPostsRef.current;
     const oldPostMap = new Map(oldPosts.map((p: any) => [String(p.id), p]));
 
-    updatePosts(items, 'Aus Cloud geladen');
+    // Merge: cloud wins on curated fields (title/description/states/hidden),
+    // local wins on media/local fields and local-only posts.
+    const { posts: mergedPosts, stats } = mergeCloudIntoLocal(oldPosts, items);
+    updatePosts(mergedPosts, `Cloud gemerged (+${stats.added} neu, ~${stats.merged} geändert)`);
 
+    // Absorb the cloud timestamp so polling doesn't re-flag the same change.
     if (r2Data.lastUpdated) setLocalLastUpdated(r2Data.lastUpdated);
     setHasCloudChanges(false);
     setHasUnpublishedChanges(false);
@@ -3512,13 +3642,19 @@ export default function App() {
     }, 500);
 
     try {
+      // Persist the merged result locally (NOT the raw R2 payload)
+      const mergedState = {
+        ...r2Data,
+        items: mergedPosts,
+        lastUpdated: r2Data.lastUpdated || new Date().toISOString(),
+      };
       await fetch('/api/state', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(r2Data)
+        body: JSON.stringify(mergedState)
       });
     } catch (saveErr) {
-      console.error("Could not save R2 state locally:", saveErr);
+      console.error("Could not save merged state locally:", saveErr);
     }
 
     setCloudSyncState(null);

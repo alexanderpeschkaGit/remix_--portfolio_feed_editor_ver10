@@ -3,7 +3,7 @@ import React, { useState, useRef, useLayoutEffect, useEffect, useMemo, useCallba
 import { createPortal } from 'react-dom';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Loader2, Eye, GripVertical, ImageIcon, Youtube, Film, X, Maximize2, FoldVertical, Trash2, ExternalLink, Check, Upload, CheckCircle2, AlertCircle, Camera } from 'lucide-react';
+import { Loader2, Eye, GripVertical, ImageIcon, Youtube, Film, X, Maximize2, FoldVertical, Trash2, ExternalLink, Check, Upload, CheckCircle2, AlertCircle, Camera, ImageUp } from 'lucide-react';
 import { PROJECT_STATES } from '../../constants';
 import { CustomThumbnailModal } from '../modals/CustomThumbnailModal';
 
@@ -114,6 +114,10 @@ export function FeedPostCard({
   };
 
   const mediaItems = isEditing ? rawMediaItems : rawMediaItems.filter(isRenderableMedia);
+  // Keep a ref that always holds the latest mediaItems so async callbacks (e.g. bunny sync)
+  // never read a stale closure and clobber concurrent edits (add/remove/reorder).
+  const mediaItemsRef = useRef(mediaItems);
+  mediaItemsRef.current = mediaItems;
   const renderedMediaCount = mediaItems.length;
   const displayMedia = mediaItems[0] || post;
   const feedDimensionsKey = post.id ? `${post.id}-0` : '';
@@ -235,13 +239,16 @@ export function FeedPostCard({
     const candidates = [
       media.custom_thumb,
       media.image_thumb,
-      media.image,
+      isBildUrl(media.image) ? media.image : undefined,
       media.image_1k,
       media.bunnyThumbUrl,
       isBildUrl(media.image_original) ? media.image_original : undefined,
     ];
     for (const c of candidates) {
       if (c) return getDisplayImage(c, isR2Fallback, isEmbeddedData);
+    }
+    if (media.libraryId && media.videoId) {
+      return getDisplayImage(`https://iframe.mediadelivery.net/${media.libraryId}/${media.videoId}/thumbnail.jpg`, isR2Fallback, isEmbeddedData);
     }
     return undefined;
   };
@@ -348,6 +355,8 @@ export function FeedPostCard({
   const [customThumbnailMedia, setCustomThumbnailMedia] = useState<{ media: any; index: number } | null>(null);
   const [customThumbnailVideoUrl, setCustomThumbnailVideoUrl] = useState<string>('');
   const [customThumbnailLoading, setCustomThumbnailLoading] = useState(false);
+  // Per-media custom thumbnail file upload (JPG/PNG) status
+  const [thumbFileState, setThumbFileState] = useState<Record<number, 'idle' | 'uploading' | 'done' | 'error'>>({});
   // Hover preview (thumbnail + resolutions) popover state
   const [hoverPreview, setHoverPreview] = useState<{ media: any; index: number } | null>(null);
   const [hoverPreviewLoading, setHoverPreviewLoading] = useState(false);
@@ -638,6 +647,71 @@ export function FeedPostCard({
     e.target.value = '';
   };
 
+  // Upload a user-selected JPG/PNG as custom thumbnail for a media item (standard + bunny videos).
+  const handleThumbFileUpload = (e: React.ChangeEvent<HTMLInputElement>, mediaIndex: number) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    const isJpgPng = /\.(jpe?g|png)$/i.test(file.name) || file.type === 'image/jpeg' || file.type === 'image/png';
+    if (!isJpgPng) {
+      alert('Bitte eine JPG- oder PNG-Datei als Thumbnail auswählen.');
+      return;
+    }
+
+    setThumbFileState(prev => ({ ...prev, [mediaIndex]: 'uploading' }));
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const res = await fetch('/api/upload-custom-thumb', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageData: reader.result, postId: post.id, mediaIndex }),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Upload fehlgeschlagen');
+
+        const newMedia = [...mediaItems];
+        const current = newMedia[mediaIndex] || {};
+        const isBunny = current.type === 'bunny' || (!!current.videoId && !!current.libraryId);
+        newMedia[mediaIndex] = {
+          ...current,
+          custom_thumb: data.image_thumb,
+          image_thumb: data.image_thumb,
+          image_1k: data.image_1k,
+          image_2k: data.image_2k,
+          image_3k: data.image_3k,
+          // For bunny videos image_original MUST stay the embed URL (contract), never the custom image
+          image_original: isBunny
+            ? `https://iframe.mediadelivery.net/embed/${current.libraryId}/${current.videoId}`
+            : data.image_original,
+          image_width: data.image_width,
+          image_height: data.image_height,
+        };
+        handleUpdatePostMedia(post.id, newMedia);
+
+        // Short success indicator (~1.5s), then reset to idle
+        setThumbFileState(prev => ({ ...prev, [mediaIndex]: 'done' }));
+        window.setTimeout(() => {
+          setThumbFileState(prev => ({ ...prev, [mediaIndex]: 'idle' }));
+        }, 1500);
+      } catch (err: any) {
+        console.error('Custom-Thumbnail-Upload fehlgeschlagen:', err);
+        alert(err.message || 'Custom-Thumbnail-Upload fehlgeschlagen.');
+        setThumbFileState(prev => ({ ...prev, [mediaIndex]: 'error' }));
+        window.setTimeout(() => {
+          setThumbFileState(prev => ({ ...prev, [mediaIndex]: 'idle' }));
+        }, 2500);
+      }
+    };
+    reader.onerror = () => {
+      alert('Die Datei konnte nicht gelesen werden.');
+      setThumbFileState(prev => ({ ...prev, [mediaIndex]: 'idle' }));
+    };
+    reader.readAsDataURL(file);
+  };
+
   const updateMediaItem = (i: number, field: string, value: any) => {
     const newMedia = [...mediaItems];
     newMedia[i] = { ...newMedia[i], [field]: value };
@@ -673,11 +747,13 @@ export function FeedPostCard({
       }).then(res => res.json()).then(data => {
         setApplyLoading(prev => ({ ...prev, [i]: false }));
         if (data.success) {
-          // NOTE: mediaItems is stale here (closure from render when fetch started).
-          // Explicitly preserve videoId/libraryId/type/url instead of spreading stale item.
-          const syncedMedia = [...mediaItems];
-          syncedMedia[i] = {
-            ...syncedMedia[i],
+          // Use the latest mediaItems via ref to avoid clobbering concurrent edits,
+          // and re-locate this item by videoId in case items were reordered mid-sync.
+          const syncedMedia = [...mediaItemsRef.current];
+          const targetIdx = syncedMedia.findIndex(m => m && m.videoId === existingVidId);
+          const idx = targetIdx !== -1 ? targetIdx : i;
+          syncedMedia[idx] = {
+            ...syncedMedia[idx],
             type: 'bunny',
             videoId: existingVidId,
             libraryId: existingLibId,
@@ -722,9 +798,10 @@ export function FeedPostCard({
 
     if (bunnyLibraryId && bunnyVideoId) {
       const embedUrl = `https://iframe.mediadelivery.net/embed/${bunnyLibraryId}/${bunnyVideoId}`;
-      // Bunny video: optimistic update (set proper embed URL) + background sync
-      const newMedia = [...mediaItems];
-      newMedia[i] = { ...media, type: 'bunny', libraryId: bunnyLibraryId, videoId: bunnyVideoId, url: embedUrl, image_original: embedUrl };
+      const bunnyThumbUrl = `https://iframe.mediadelivery.net/${bunnyLibraryId}/${bunnyVideoId}/thumbnail.jpg`;
+      // Bunny video: optimistic update (set proper embed URL + CDN thumb) + background sync
+      const newMedia = [...mediaItemsRef.current];
+      newMedia[i] = { ...media, type: 'bunny', libraryId: bunnyLibraryId, videoId: bunnyVideoId, url: embedUrl, image_original: embedUrl, bunnyThumbUrl };
       handleUpdatePostMedia(post.id, newMedia);
 
       fetch('/api/bunny/sync-video', {
@@ -734,11 +811,13 @@ export function FeedPostCard({
       }).then(res => res.json()).then(data => {
         setApplyLoading(prev => ({ ...prev, [i]: false }));
         if (data.success) {
-          // NOTE: mediaItems is stale here (closure from render when fetch started).
-          // Explicitly preserve videoId/libraryId/type/url instead of spreading stale item.
-          const syncedMedia = [...mediaItems];
-          syncedMedia[i] = {
-            ...syncedMedia[i],
+          // Use the latest mediaItems via ref to avoid clobbering concurrent edits,
+          // and re-locate this item by videoId in case items were reordered mid-sync.
+          const syncedMedia = [...mediaItemsRef.current];
+          const targetIdx = syncedMedia.findIndex(m => m && m.videoId === bunnyVideoId);
+          const idx = targetIdx !== -1 ? targetIdx : i;
+          syncedMedia[idx] = {
+            ...syncedMedia[idx],
             type: 'bunny',
             videoId: bunnyVideoId,
             libraryId: bunnyLibraryId,
@@ -1106,6 +1185,28 @@ export function FeedPostCard({
                     >
                       <Eye className="w-2.5 h-2.5" />
                     </button>
+                  )}
+                  {/* Custom thumbnail file upload (JPG/PNG) — standard + bunny videos */}
+                  {(isInstagramVideoCandidate(media, mediaItems)) && (
+                    <label
+                      className={`w-5 h-5 rounded-md bg-white/30 hover:bg-white/40 text-white flex items-center justify-center transition-colors border border-white/20 cursor-pointer ${thumbFileState[i] === 'uploading' ? 'opacity-60 pointer-events-none' : ''}`}
+                      onClick={(e) => e.stopPropagation()}
+                      title="Eigenes Thumbnail (JPG/PNG) hochladen"
+                    >
+                      {thumbFileState[i] === 'uploading' ? (
+                        <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                      ) : thumbFileState[i] === 'done' ? (
+                        <Check className="w-2.5 h-2.5 text-green-400" />
+                      ) : (
+                        <ImageUp className="w-2.5 h-2.5" />
+                      )}
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,.jpg,.jpeg,.png"
+                        className="hidden"
+                        onChange={(e) => handleThumbFileUpload(e, i)}
+                      />
+                    </label>
                   )}
                 </div>
                 {media.type === 'youtube' || media.type === 'bunny' ? (

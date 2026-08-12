@@ -61,6 +61,11 @@ const resolveThumbState = (mediaList: any[], getVideoSrc: (media: any, preferLar
       const youtubeThumb = `https://img.youtube.com/vi/${media.youtubeId}/maxresdefault.jpg`;
       addCandidate(youtubeThumb, 30, 'image');
     }
+
+    if (!bestDescriptor && (media.type === 'bunny' || media.videoId) && media.libraryId && media.videoId) {
+      const bunnyThumb = `https://iframe.mediadelivery.net/${media.libraryId}/${media.videoId}/thumbnail.jpg`;
+      addCandidate(bunnyThumb, 30, 'image');
+    }
   }
 
   if (!bestDescriptor) {

@@ -5,7 +5,7 @@
  * Funktionalität von App.tsx extrahiert
  */
 import React from 'react';
-import { X, ArrowLeft, GripVertical, Youtube, ExternalLink, Image as ImageIcon, Play, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, ArrowLeft, GripVertical, Youtube, ExternalLink, Image as ImageIcon, Play, ChevronLeft, ChevronRight, Film } from 'lucide-react';
 import { PROJECT_STATES } from '../../constants';
 
 interface Media {
@@ -258,22 +258,22 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
                 </div>
               )}
               {media.type === 'bunny' && media.videoId && media.libraryId ? (
-                <div className="w-full max-w-5xl aspect-video rounded-lg overflow-hidden shadow-2xl shrink-0 pointer-events-none">
+                <div className={`w-full max-w-5xl aspect-video rounded-lg overflow-hidden shadow-2xl shrink-0 ${lightboxDraggedIdx !== null ? 'pointer-events-none' : ''}`}>
                   <iframe 
-                    src={`https://player.mediadelivery.net/embed/${media.libraryId}/${media.videoId}?autoplay=false&loop=false&muted=true&playsinline=true&preload=true&responsive=true`}
+                    src={`https://player.mediadelivery.net/embed/${media.libraryId}/${media.videoId}?autoplay=false&loop=false&muted=false&playsinline=true&preload=true&responsive=true`}
                     loading="lazy"
                     className="w-full h-full border-0"
-                    allow="accelerometer; gyroscope; encrypted-media; picture-in-picture;"
+                    allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
                     allowFullScreen
                   ></iframe>
                 </div>
               ) : media.type === 'youtube' && media.youtubeId ? (
-                <div className="w-full max-w-5xl aspect-video rounded-lg overflow-hidden shadow-2xl shrink-0 pointer-events-none">
+                <div className={`w-full max-w-5xl aspect-video rounded-lg overflow-hidden shadow-2xl shrink-0 ${lightboxDraggedIdx !== null ? 'pointer-events-none' : ''}`}>
                   <iframe 
-                    src={`https://www.youtube.com/embed/${media.youtubeId}?autoplay=0&mute=1`} 
+                    src={`https://www.youtube.com/embed/${media.youtubeId}?autoplay=0&mute=0`} 
                     className="w-full h-full"
                     frameBorder="0" 
-                    allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
                     allowFullScreen
                   ></iframe>
                 </div>
@@ -541,12 +541,23 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
                   }}
                   className={`aspect-square rounded bg-white/5 border overflow-hidden transition-colors ${isEditing ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} ${activeMediaIndex === i ? 'border-blue-500 ring-1 ring-blue-400/60' : lightboxDraggedIdx === i ? 'opacity-50 border-blue-500' : 'border-white/10 hover:border-white/30'}`}
                 >
-                  {media.type === 'bunny' && media.videoId ? (
+                  {media.type === 'bunny' ? (
                     <div className="w-full h-full relative">
-                      <img src={getDisplayImage(getImageSrc(media), isR2Fallback, isEmbeddedData) || ''} className="w-full h-full object-cover" />
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-                        <Youtube className="w-4 h-4 text-white" />
-                      </div>
+                      {(() => {
+                        const src = getDisplayImage(getImageSrc(media), isR2Fallback, isEmbeddedData);
+                        return src ? (
+                          <>
+                            <img src={src} className="w-full h-full object-cover" />
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                              <Play className="w-3.5 h-3.5 text-white fill-white" />
+                            </div>
+                          </>
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center bg-blue-900/20">
+                            <Film className="w-4 h-4 text-blue-400" />
+                          </div>
+                        );
+                      })()}
                     </div>
                   ) : media.type === 'youtube' && media.youtubeId ? (
                     <div className="w-full h-full flex items-center justify-center bg-red-900/20">

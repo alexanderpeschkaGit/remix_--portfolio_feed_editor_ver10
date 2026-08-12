@@ -105,7 +105,16 @@ export const resolveVideoThumbnailOnDisk = (videoPath: string, rootDir = process
   }
 
   // Tier 2: Check designated thumbs400 folders
-  const thumbsFolders = ['/data/uploads/thumbs400', '/data/instagram/thumbs400', '/data/thumbs400'];
+  const thumbsFolders = [
+    '/data_v2/uploads/thumbs400',
+    '/data_v2/instagram/thumbs400',
+    '/data_v2/flickr/thumbs400',
+    '/data_v2/highres/thumbs400',
+    '/data_v2/previews/thumbs400',
+    '/data/uploads/thumbs400',
+    '/data/instagram/thumbs400',
+    '/data/thumbs400'
+  ];
   const thumbFilenames = [`${stem}_thumb.jpg`, `${stem}.jpg`, `${stem}_thumb.webp`, `${stem}.webp`];
 
   for (const thumbDir of thumbsFolders) {
