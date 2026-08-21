@@ -163,7 +163,7 @@ const getImageSrc = (media: any, preferLarge = false) => {
     const libId = media.libraryId;
     const vidId = media.videoId;
     const storedCandidates = preferLarge
-      ? [media?.image_3k, media?.image_2k, media?.image_original, media?.image_1k, media?.bunnyThumbUrl, media?.image_large, media?.imageLarge, media?.largeUrl, media?.image, media?.image_preview, media?.custom_thumb, media?.image_thumb]
+      ? [media?.custom_thumb, media?.image_3k, media?.image_2k, media?.image_original, media?.image_1k, media?.bunnyThumbUrl, media?.image_large, media?.imageLarge, media?.largeUrl, media?.image, media?.image_preview, media?.image_thumb]
       : [media?.custom_thumb, media?.image_thumb, media?.image_preview, media?.image, media?.image_original, media?.image_1k, media?.bunnyThumbUrl, media?.image_2k, media?.image_3k, media?.image_large, media?.imageLarge, media?.largeUrl];
     
     for (const candidate of storedCandidates) {
@@ -2450,9 +2450,11 @@ export default function App() {
         mediaHtml = `<div class="media-stack">` + sortedMedia.map((m: any) => {
           const yid = m.youtubeId || getYoutubeId(m.url || m.link);
           if (yid) {
-            return `<div class="video-container mb-2" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'><iframe class="feed-video-preview" src="${getYoutubeFeedEmbedUrl(yid)}" frameborder="0" allow="autoplay; encrypted-media" tabindex="-1" aria-hidden="true"></iframe></div>`;
+            const thumbUrl = getProxiedUrl(getImageSrc(m, true) || getImageSrc(m));
+            return `<div class="video-container mb-2 video-thumb" data-embed-url="${getYoutubeFeedEmbedUrl(yid)}" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'><img src="${thumbUrl}" alt="" loading="lazy" onerror="if(this.src.includes('maxresdefault.jpg')) this.src=this.src.replace('maxresdefault.jpg', 'hqdefault.jpg')" /><div class="play-overlay"></div></div>`;
           } else if (m.type === 'bunny' && m.videoId && m.libraryId) {
-            return `<div class="video-container mb-2" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'><iframe class="feed-video-preview" src="${getBunnyFeedEmbedUrl(String(m.libraryId), String(m.videoId))}" frameborder="0" allow="autoplay; encrypted-media" tabindex="-1" aria-hidden="true"></iframe></div>`;
+            const thumbUrl = getProxiedUrl(getImageSrc(m, true) || getImageSrc(m));
+            return `<div class="video-container mb-2 video-thumb" data-embed-url="${getBunnyFeedEmbedUrl(String(m.libraryId), String(m.videoId))}" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'><img src="${thumbUrl}" alt="" loading="lazy" /><div class="play-overlay"></div></div>`;
           } else if (m.type === 'video' || (m.image && m.image.endsWith('.mp4')) || ((m.url || m.link) && (m.url || m.link).endsWith('.mp4'))) {
             const videoUrl = getProxiedUrl(getVideoSrc(m, true) || getVideoSrc(m));
             if (!videoUrl) {
@@ -2472,15 +2474,19 @@ export default function App() {
       } else {
         const yid = post.youtubeId || getYoutubeId(post.url || post.link);
         if (yid) {
+          const thumbUrl = getProxiedUrl(getImageSrc(post, true) || getImageSrc(post));
           mediaHtml = `
-            <div class="video-container" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'>
-              <iframe class="feed-video-preview" src="${getYoutubeFeedEmbedUrl(yid)}" frameborder="0" allow="autoplay; encrypted-media" tabindex="-1" aria-hidden="true"></iframe>
+            <div class="video-container video-thumb" data-embed-url="${getYoutubeFeedEmbedUrl(yid)}" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'>
+              <img src="${thumbUrl}" alt="${post.title.replace(/"/g, '&quot;')}" loading="lazy" onerror="if(this.src.includes('maxresdefault.jpg')) this.src=this.src.replace('maxresdefault.jpg', 'hqdefault.jpg')" />
+              <div class="play-overlay"></div>
             </div>
           `;
         } else if (post.type === 'bunny' && post.videoId && post.libraryId) {
+          const thumbUrl = getProxiedUrl(getImageSrc(post, true) || getImageSrc(post));
           mediaHtml = `
-            <div class="video-container" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'>
-              <iframe class="feed-video-preview" src="${getBunnyFeedEmbedUrl(String(post.libraryId), String(post.videoId))}" frameborder="0" allow="autoplay; encrypted-media" tabindex="-1" aria-hidden="true"></iframe>
+            <div class="video-container video-thumb" data-embed-url="${getBunnyFeedEmbedUrl(String(post.libraryId), String(post.videoId))}" onclick='window.openLightboxPost && window.openLightboxPost(${JSON.stringify(String(post.id))})'>
+              <img src="${thumbUrl}" alt="${post.title.replace(/"/g, '&quot;')}" loading="lazy" />
+              <div class="play-overlay"></div>
             </div>
           `;
         } else if (post.type === 'video' || (post.image && post.image.endsWith('.mp4')) || ((post.url || post.link) && (post.url || post.link).endsWith('.mp4'))) {
@@ -2541,6 +2547,11 @@ export default function App() {
         .media-stack img { aspect-ratio: auto; max-height: 400px; }
         .video-container { position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; background: #000; }
         .video-container iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        .video-thumb img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; display: block; cursor: pointer; }
+        .video-thumb iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0; }
+        .play-overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 56px; height: 56px; background: rgba(0,0,0,0.65); border-radius: 50%; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+        .play-overlay::after { content: ''; width: 0; height: 0; border-left: 18px solid #fff; border-top: 11px solid transparent; border-bottom: 11px solid transparent; margin-left: 4px; }
+        .video-thumb.playing .play-overlay { display: none; }
         .mb-2 { margin-bottom: 0.5rem; }
         .block { display: block; }
         .content { padding: 1rem; }
@@ -2572,6 +2583,9 @@ export default function App() {
         .lightbox-media-item { width: min(100%, 980px); min-height: min(72vh, 720px); display: flex; align-items: center; justify-content: center; position: relative; }
         .lightbox-content img, .lightbox-content video, .lightbox-content iframe { max-width: 100%; max-height: 68vh; object-fit: contain; box-shadow: 0 20px 50px rgba(0,0,0,0.5); border-radius: 4px; }
         .lightbox-content iframe { width: 100%; aspect-ratio: 16 / 9; border: 0; }
+        .lightbox-video-thumb { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 4px; cursor: pointer; background: #000; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+        .lightbox-video-thumb img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+        .lightbox-video-thumb iframe { width: 100%; height: 100%; border: 0; }
         .lightbox-nav { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,0.3); color: white; border: none; padding: 15px; cursor: pointer; font-size: 20px; border-radius: 50%; transition: all 0.3s; z-index: 5; }
         .lightbox-nav:hover { background: rgba(255,255,255,0.4); }
         .lightbox-prev { left: 20px; }
@@ -2739,9 +2753,22 @@ export default function App() {
               return 'https://img.youtube.com/vi/' + id + '/maxresdefault.jpg';
             }
           }
+          if (media.type === 'bunny' || media.videoId) {
+            const storedCandidates = preferLarge
+              ? [media.custom_thumb, media.image_3k, media.image_2k, media.image_original, media.image_1k, media.bunnyThumbUrl, media.image_large, media.imageLarge, media.largeUrl, media.image, media.image_preview, media.image_thumb]
+              : [media.custom_thumb, media.image_thumb, media.image_preview, media.image, media.image_1k, media.image_2k, media.image_3k, media.bunnyThumbUrl, media.image_original, media.image_large, media.imageLarge, media.largeUrl];
+            for (var j = 0; j < storedCandidates.length; j++) {
+              if (isValidImageCandidate(storedCandidates[j]) && typeof storedCandidates[j] === 'string' && storedCandidates[j].indexOf('/embed/') === -1) {
+                return storedCandidates[j];
+              }
+            }
+            if (media.libraryId && media.videoId) {
+              return 'https://iframe.mediadelivery.net/' + media.libraryId + '/' + media.videoId + '/thumbnail.jpg';
+            }
+          }
           const primary = preferLarge
-            ? [media.image_3k, media.image_2k, media.image_original, media.image_1k, media.bunnyThumbUrl, media.image_large, media.imageLarge, media.largeUrl, media.image, media.image_preview, media.image_thumb, media.url, media.link]
-            : [media.image_thumb, media.image_preview, media.image, media.image_original, media.image_1k, media.bunnyThumbUrl, media.image_2k, media.image_3k, media.image_large, media.imageLarge, media.largeUrl, media.url, media.link];
+            ? [media.custom_thumb, media.image_3k, media.image_2k, media.image_original, media.image_1k, media.bunnyThumbUrl, media.image_large, media.imageLarge, media.largeUrl, media.image, media.image_preview, media.image_thumb, media.url, media.link]
+            : [media.custom_thumb, media.image_thumb, media.image_preview, media.image, media.image_original, media.image_1k, media.bunnyThumbUrl, media.image_2k, media.image_3k, media.image_large, media.imageLarge, media.largeUrl, media.url, media.link];
           for (var i = 0; i < primary.length; i++) {
             if (isValidImageCandidate(primary[i])) return primary[i];
           }
@@ -2960,9 +2987,11 @@ export default function App() {
             mediaHtml = '<div class="media-stack">' + sortedMedia.map((m) => {
               const yid = m.youtubeId || getYoutubeId(m.url || m.link);
               if (yid) {
-                return '<div class="video-container mb-2"><iframe class="feed-video-preview" src="' + getYoutubeFeedEmbedUrl(yid) + '" frameborder="0" allow="autoplay; encrypted-media" tabindex="-1" aria-hidden="true"></iframe></div>';
+                const thumbUrl = getProxiedUrl(getImageSrc(m, true) || getImageSrc(m));
+                return '<div class="video-container mb-2 video-thumb" data-embed-url="' + getYoutubeFeedEmbedUrl(yid) + '"><img src="' + thumbUrl + '" alt="" loading="lazy" onerror="if(this.src.includes(\\\'maxresdefault.jpg\\\')) this.src=this.src.replace(\\\'maxresdefault.jpg\\\', \\\'hqdefault.jpg\\\')" /><div class="play-overlay"></div></div>';
               } else if (m.type === 'bunny' && m.videoId && m.libraryId) {
-                return '<div class="video-container mb-2"><iframe class="feed-video-preview" src="' + getBunnyFeedEmbedUrl(m.libraryId, m.videoId) + '" frameborder="0" allow="autoplay; encrypted-media" tabindex="-1" aria-hidden="true"></iframe></div>';
+                const thumbUrl = getProxiedUrl(getImageSrc(m, true) || getImageSrc(m));
+                return '<div class="video-container mb-2 video-thumb" data-embed-url="' + getBunnyFeedEmbedUrl(m.libraryId, m.videoId) + '"><img src="' + thumbUrl + '" alt="" loading="lazy" /><div class="play-overlay"></div></div>';
               } else if (m.type === 'video' || (m.image && m.image.endsWith('.mp4')) || ((m.url || m.link) && (m.url || m.link).endsWith('.mp4'))) {
                 const videoUrl = getProxiedUrl(getVideoSrc(m, true) || getVideoSrc(m));
                 if (!videoUrl) return '';
@@ -2978,9 +3007,11 @@ export default function App() {
           } else {
             const yid = post.youtubeId || getYoutubeId(post.url || post.link);
             if (yid) {
-              mediaHtml = '<div class="video-container"><iframe class="feed-video-preview" src="' + getYoutubeFeedEmbedUrl(yid) + '" frameborder="0" allow="autoplay; encrypted-media" tabindex="-1" aria-hidden="true"></iframe></div>';
+              const thumbUrl = getProxiedUrl(getImageSrc(post, true) || getImageSrc(post));
+              mediaHtml = '<div class="video-container video-thumb" data-embed-url="' + getYoutubeFeedEmbedUrl(yid) + '"><img src="' + thumbUrl + '" alt="" loading="lazy" onerror="if(this.src.includes(\\\'maxresdefault.jpg\\\')) this.src=this.src.replace(\\\'maxresdefault.jpg\\\', \\\'hqdefault.jpg\\\')" /><div class="play-overlay"></div></div>';
             } else if (post.type === 'bunny' && post.videoId && post.libraryId) {
-              mediaHtml = '<div class="video-container"><iframe class="feed-video-preview" src="' + getBunnyFeedEmbedUrl(post.libraryId, post.videoId) + '" frameborder="0" allow="autoplay; encrypted-media" tabindex="-1" aria-hidden="true"></iframe></div>';
+              const thumbUrl = getProxiedUrl(getImageSrc(post, true) || getImageSrc(post));
+              mediaHtml = '<div class="video-container video-thumb" data-embed-url="' + getBunnyFeedEmbedUrl(post.libraryId, post.videoId) + '"><img src="' + thumbUrl + '" alt="" loading="lazy" /><div class="play-overlay"></div></div>';
             } else if (post.type === 'video' || (post.image && post.image.endsWith('.mp4')) || ((post.url || post.link) && (post.url || post.link).endsWith('.mp4'))) {
               const videoUrl = getProxiedUrl(getVideoSrc(post, true) || getVideoSrc(post));
               if (videoUrl) {
@@ -3158,6 +3189,38 @@ export default function App() {
         window.openLightboxPost = (postId) => openLightboxForPostId(String(postId));
         window.openLightboxCard = (card) => openLightboxForCard(card);
 
+        // Feed-Play-Button: Thumbnail durch echten (inline) Player ersetzen.
+        // Läuft im Capture-Pfad VOR dem Card-Klick-Handler und verhindert per
+        // stopImmediatePropagation, dass beim Play-Klick zusätzlich die Lightbox öffnet.
+        document.addEventListener('click', function (e) {
+          if (!(e.target instanceof Element)) return;
+          const thumb = e.target.closest('.video-thumb');
+          if (!thumb) return;
+          if (thumb.getAttribute('data-played') === 'true') return;
+          const embedUrl = thumb.getAttribute('data-embed-url');
+          if (!embedUrl) return;
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          thumb.setAttribute('data-played', 'true');
+          thumb.classList.add('playing');
+          thumb.innerHTML = '<iframe class="feed-video-preview" src="' + embedUrl + '" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen tabindex="-1" aria-hidden="true"></iframe>';
+        }, true);
+
+        // Lightbox-Play-Button: Thumbnail-Artikel durch den echten Player ersetzen.
+        lightboxContent.addEventListener('click', function (e) {
+          if (!(e.target instanceof Element)) return;
+          const thumb = e.target.closest('.lightbox-video-thumb');
+          if (!thumb) return;
+          if (thumb.getAttribute('data-played') === 'true') return;
+          const embedUrl = thumb.getAttribute('data-embed-url');
+          if (!embedUrl) return;
+          e.preventDefault();
+          e.stopPropagation();
+          thumb.setAttribute('data-played', 'true');
+          thumb.classList.add('playing');
+          thumb.innerHTML = '<iframe src="' + embedUrl + '" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen title="Video"></iframe>';
+        }, true);
+
         document.addEventListener('click', (e) => {
           if (!(e.target instanceof Element)) return;
           if (e.target.closest('a')) return;
@@ -3178,9 +3241,13 @@ export default function App() {
             const yid = media.youtubeId || getYoutubeId(media.url || media.link);
             let html = '';
             if (yid) {
-              html = '<iframe src="https://www.youtube.com/embed/' + yid + '?autoplay=0&mute=0&playsinline=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen title="YouTube video"></iframe>';
+              const poster = getProxiedUrl(getImageSrc(media, true) || getImageSrc(media));
+              const embedUrl = 'https://www.youtube.com/embed/' + yid + '?autoplay=1&mute=0&playsinline=1';
+              html = '<div class="lightbox-video-thumb" data-embed-url="' + embedUrl + '"><img src="' + poster + '" alt="" loading="lazy" onerror="if(this.src.includes(\\\'maxresdefault.jpg\\\')) this.src=this.src.replace(\\\'maxresdefault.jpg\\\', \\\'hqdefault.jpg\\\')" /><div class="play-overlay"></div></div>';
             } else if (media.type === 'bunny' && media.videoId && media.libraryId) {
-              html = '<iframe src="https://player.mediadelivery.net/embed/' + media.libraryId + '/' + media.videoId + '?autoplay=false&loop=false&muted=false&playsinline=true&preload=true&responsive=true" frameborder="0" allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowfullscreen title="Bunny video"></iframe>';
+              const poster = getProxiedUrl(getImageSrc(media, true) || getImageSrc(media));
+              const embedUrl = 'https://iframe.mediadelivery.net/embed/' + media.libraryId + '/' + media.videoId + '?autoplay=1&loop=false&muted=false&playsinline=true&preload=true&responsive=true';
+              html = '<div class="lightbox-video-thumb" data-embed-url="' + embedUrl + '"><img src="' + poster + '" alt="" loading="lazy" /><div class="play-overlay"></div></div>';
             } else if (media.type === 'video' || (media.image && media.image.endsWith('.mp4')) || ((media.url || media.link) && (media.url || media.link).endsWith('.mp4'))) {
               const videoUrl = getProxiedUrl(getVideoSrc(media, true) || getVideoSrc(media));
               if (videoUrl) {
