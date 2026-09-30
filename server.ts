@@ -16,6 +16,7 @@ import { validateMediaState } from "./src/server/mediaValidation.ts";
 import { normalizeState } from "./src/server/mediaNormalization.ts";
 import { assertStateAcceptable, stateValidationHttpPayload } from "./src/server/statePublishing.ts";
 import { firstExistingLocalMediaPath, resolveMediaAssetLocation } from "./src/server/mediaAssets.ts";
+import { describeOrientationChange, orientMediaSource } from "./src/server/mediaOrientation.ts";
 import { moveFileToBak, enumerateLocalFilesForMedia, enumerateR2KeysForMedia, toPossibleR2Key, BAK_DIR_NAME } from "./src/server/mediaDeletion.ts";
 const execAsync = promisify(exec);
 
@@ -404,11 +405,16 @@ async function startServer() {
     const convertToJpeg = inputFormat === 'png' || inputFormat === 'tiff' || originalExt === 'tif' || originalExt === 'tiff';
 
     if (!convertToJpeg) {
+      // JPEG/WebP pass through untouched. EXIF orientation is intentionally NOT
+      // applied here: materializeVariantSet derives every variant (and the reported
+      // sourceWidth/sourceHeight) from a single auto-oriented buffer, so rotating at
+      // this stage too would double-rotate and the original would be re-compressed.
       return { buffer: file.buffer, ext: originalExt, inputFormat, convertedToJpeg: false };
     }
 
+    // PNG/TIFF -> JPEG. Flattening alpha onto white is required before JPEG encoding.
+    // No .rotate(): orientation is handled once, centrally, in materializeVariantSet.
     const buffer = await sharp(file.buffer, { failOn: 'none' })
-      .rotate()
       .flatten({ background: { r: 255, g: 255, b: 255 } })
       .jpeg({ quality: 92, chromaSubsampling: '4:4:4' })
       .toBuffer();
@@ -423,6 +429,11 @@ async function startServer() {
   const getVariantR2Key = (group: keyof typeof V2_MEDIA_GROUPS, dir: string, filename: string) =>
     `${V2_PREFIX}/${group}/${dir}/${filename}`;
 
+  // Materialize a variant set. The source may arrive as a Buffer, a file path or an
+  // existing sharp instance; orientMediaSource resolves all three to bytes and bakes
+  // in the EXIF orientation. That single oriented buffer is then the source of truth
+  // for BOTH the reported sourceWidth/sourceHeight and every generated variant, so a
+  // transposed variant (and a 90-degree aspect-ratio validation failure) cannot occur.
   const materializeVariantSet = async (
     input: sharp.Sharp | Buffer | string,
     options: {
@@ -434,10 +445,13 @@ async function startServer() {
       writeFiles?: boolean;
     }
   ) => {
-    const source = sharp(input as any, { failOn: 'none' });
-    const metadata = await source.metadata();
-    const sourceWidth = metadata.width || 0;
-    const sourceHeight = metadata.height || 0;
+    const oriented = await orientMediaSource(input);
+    if (oriented.rotated) {
+      console.log(describeOrientationChange(options.baseName, oriented));
+    }
+    const orientedBuffer = oriented.buffer;
+    const sourceWidth = oriented.width;
+    const sourceHeight = oriented.height;
     const sourceMaxSide = Math.max(sourceWidth, sourceHeight);
     const localUrls: Record<string, string> = {};
     const remoteUrls: Record<string, string> = {};
@@ -468,7 +482,7 @@ async function startServer() {
       }
 
       const filename = `${options.baseName}_${variant.suffix}.jpg`;
-      const buffer = await sharp(input as any, { failOn: 'none' })
+      const buffer = await sharp(orientedBuffer, { failOn: 'none' })
         .resize(variant.maxSide, variant.maxSide, { fit: 'inside', withoutEnlargement: true })
         .jpeg({ quality: variant.quality })
         .toBuffer();
