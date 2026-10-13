@@ -207,3 +207,26 @@ Scale 1–10:
 - **Do not combine** batches 5, 6, 13 with anything — their individual complexity is ≥ 7; combination would exceed manageable risk.
 - If the user wants fewer pauses: batches 3+4 (pure utils + leaf components, joint complexity ≈ 5) and batches 7+9 (scrape + trash, joint ≈ 6) are safe to merge, but each merge exceeds the 3-file default and needs an explicitly approved exception (4 files each).
 - Batch order is dependency-aware: utils/leaf components before the hooks that consume them; the two init/persistence hooks go last because they gate everything.
+
+---
+
+## 5. Docs Delta (Phase 6 record, 2026-10-13)
+
+Documentation-relevant changes produced by batches 1–15b, routed as required by `.agents/skills/deep-refactor/SKILL.md` Phase 6.2 (`AGENTS.md` = durable facts only; `.agents/rules/*.md` = ownership maps, per-flow architecture, parity rules, watch lists).
+
+| Change (source) | Routing target | Status |
+|---|---|---|
+| React 18 → React 19 stack fact | `AGENTS.md` → Architecture & Constraints | applied |
+| `App.tsx` is orchestrator-only; hooks own one state/effect/handler cluster per file; `updatePosts` (in `src/hooks/useUndoHistory.ts`) is the single central mutation point | `.agents/rules/app-architecture.md` → Canonical Paths & Ownership | applied |
+| Late-declared dependency conventions: closure adapters `(v) => setX(v)`, getters `() => value`, refs (`flickrPostsRef`, `shouldPushStateToR2Ref`, `keyHandlersRef`), `deps`-object injection for non-hook flows | `.agents/rules/app-architecture.md` → Wiring Conventions | applied |
+| Batches 1–15a ownership map: 4 pure utils, 5 leaf components, 16 hooks (incl. `uploadImageFlow` / `uploadVideoFlow`) | `.agents/rules/app-architecture.md` → Ownership Map | applied 2026-10-13 (completed after the initial 15b-only routing) |
+| Published-HTML split into `portfolioHtmlParts` + `portfolioHtmlRuntimeCore` / `portfolioHtmlRuntimeLightbox`, byte-identity parity rule + `npx tsx scripts/html-parity-fixture.ts` gate | `.agents/rules/app-architecture.md` → Published-HTML Generation | applied |
+| Upload pipelines: `useMediaUploads` as thin orchestrator over `uploadImageFlow` / `uploadVideoFlow` | `.agents/rules/app-architecture.md` → Upload Flows | applied |
+| Status-notice cluster: `useStatusNotice` + `StatusNotice` / `FallbackBanner` / `ResolutionToast` | `.agents/rules/app-architecture.md` → Status Notices | applied |
+| Deletions (decision D2): `src/hooks/usePortfolioSync.ts`, `src/hooks/index.ts`, dead `AdminButton` / `SortableThumbnail` / `FeedPostCard` import; convention "no barrel files" | `.agents/rules/app-architecture.md` → Removed in the Refactor | applied |
+| File-size watch list: 7 refactor files in the 300–499 band, plus the 4 pre-existing >500 files named as the next candidates | `.agents/rules/app-architecture.md` → File-Size Watch List | applied |
+| Shortcut-tag routing: `.agents/WORKFLOWS.md` + `.agents/skills/<name>.md`; the referenced `workflow.md` never existed | `README.md`, `.github/copilot-instructions.md`, `.cursor/rules/agents.mdc` | applied |
+| Item D1: 4 of the 5 mojibake lines repaired; the `// ===== Übrige States =====` comment in `src/App.tsx` (L115) is still corrupted. Pre-existing mojibake comments in `src/hooks/useRearrangeState.ts` are outside the D1 list | not yet routed | **pending** |
+| Parity checklist §1.7 items 5, 9, 10, 12, 13 left as `unverified` / `N/A` (manual, network or destructive paths) | carried forward per the AGENTS.md "Parity caveat" | **pending** |
+
+Note: `scripts/splice-block.cjs` was the one-off verbatim block splicer used by batches 1–15a; `scripts/html-parity-fixture.ts` is the kept parity gate.
