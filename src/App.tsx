@@ -34,7 +34,6 @@ import { PostCommitModal } from './components/modals/PostCommitModal';
 import { CloudSyncChangesModal } from './components/modals/CloudSyncChangesModal';
 import { TrashModal } from './components/modals/TrashModal';
 import { MediaVariantsModal } from './components/modals/MediaVariantsModal';
-import { FeedPostCard } from './components/feed/FeedPostCard';
 import { ThumbnailGalleryGrid } from './components/gallery/ThumbnailGalleryGrid';
 import { AdminHeader } from './components/header/AdminHeader';
 import { CloudflareUsageDisplay } from './components/header/CloudflareUsageDisplay';
@@ -3183,116 +3182,6 @@ export default function App() {
       console.error(err);
       alert('Ein Fehler ist aufgetreten.');
     }
-  };
-
-  const AdminButton = ({ onClick, disabled, id, children, className = "", color = "bg-white/30 text-white hover:bg-white/40 border-white/20", tooltip, active }: any) => (
-    <div className="relative group w-full h-full">
-      <button
-        id={id}
-        onClick={onClick}
-        disabled={disabled}
-        className={`flex flex-col items-center justify-center gap-1 px-4 py-2 rounded-lg text-[10px] sm:text-xs font-medium border transition-all duration-300 hover:scale-[1.02] active:scale-95 disabled:opacity-30 disabled:hover:scale-100 disabled:grayscale w-full h-full ${active ? 'bg-white text-black border-white shadow-[0_0_15px_rgba(255,255,255,0.3)]' : color} ${className}`}
-      >
-        {children}
-      </button>
-      {tooltip && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-[8px] rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 shadow-lg">
-          {tooltip}
-        </div>
-      )}
-    </div>
-  );
-
-  const SortableThumbnail = ({ post, isSelected, onSelect, index, isMoving, onMoveToTarget }: any) => {
-    const {
-      attributes,
-      listeners,
-      setNodeRef,
-      transform,
-      transition,
-      isDragging
-    } = useSortable({ id: post.id });
-
-    const style = {
-      transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
-      transition,
-      zIndex: isDragging ? 100 : 1,
-      opacity: isDragging ? 0.5 : 1,
-    };
-
-    const thumbMedia = (post.mergedMedia && post.mergedMedia.length > 0)
-      ? (getPrimaryMergedMedia(post.mergedMedia) || post.mergedMedia.find(Boolean))
-      : post;
-
-    // IMPORTANT: Do not fall back to post.url/link as an image source.
-    // Some scraped entries contain normal page URLs in `url`, which causes broken/brown thumbs.
-    const src = getImageSrc(thumbMedia, false);
-    const displaySrc = src ? getDisplayImage(src, isR2Fallback, isEmbeddedData) : undefined;
-
-    return (
-      <div
-        ref={setNodeRef}
-        style={style}
-        className={`aspect-square relative rounded-lg overflow-hidden group ${isSelected ? 'ring-2 ring-blue-500' : 'ring-1 ring-white/10'} ${isMoving ? 'cursor-crosshair' : 'cursor-pointer'} ${post.hidden ? 'grayscale brightness-50' : ''}`}
-        onClick={isMoving ? () => onMoveToTarget(post.id) : onSelect}
-      >
-        {displaySrc ? (
-          <img 
-            src={displaySrc} 
-            alt="" 
-            className="w-full h-full object-cover" 
-            onError={(e) => {
-              // Final fallback: only retry with preview image if we actually have it.
-              if (thumbMedia?.image_preview && e.currentTarget.src !== getDisplayImage(thumbMedia.image_preview, isR2Fallback, isEmbeddedData)) {
-                e.currentTarget.src = getDisplayImage(thumbMedia.image_preview, isR2Fallback, isEmbeddedData) || '';
-              }
-            }}
-          />
-        ) : (
-          <div className="w-full h-full bg-[#111] flex items-center justify-center text-white/40">
-            <ImageIcon className="w-8 h-8" />
-          </div>
-        )}
-        {displaySrc && (
-          <>
-            <div 
-              {...attributes} 
-              {...listeners}
-              className="absolute top-1 right-1 p-1 bg-black/50 rounded opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing z-10"
-            >
-              <GripVertical className="w-3 h-3 text-white/50" />
-            </div>
-            
-            {/* Lightbox Trigger in Rearrange View */}
-            {!isMoving && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedImage(post);
-                }}
-                className="absolute top-1 left-1 p-1 bg-black/50 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80 z-10"
-                title="Lightbox ööffnen"
-              >
-                <Maximize2 className="w-3 h-3 text-white/70" />
-              </button>
-            )}
-          </>
-        )}
-
-        {isSelected && (
-          <div className="absolute inset-0 bg-white/10 flex items-center justify-center">
-            <span className="bg-white/30 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-bold">
-              {index + 1}
-            </span>
-          </div>
-        )}
-        {post.mergedMedia && post.mergedMedia.length > 1 && (
-          <div className="absolute bottom-1 right-1 bg-black/70 text-white text-[9px] px-1.5 py-0.5 rounded-full z-10">
-            +{post.mergedMedia.length - 1}
-          </div>
-        )}
-      </div>
-    );
   };
 
   return (
