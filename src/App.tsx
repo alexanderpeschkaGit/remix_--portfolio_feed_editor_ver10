@@ -39,6 +39,8 @@ import { AdminHeader } from './components/header/AdminHeader';
 import { mergeIncomingPostsPreservingExisting, mergeCloudIntoLocal } from './utils/mergePosts';
 import { formatDescription, isDirectMediaFile, isValidImageCandidate, getImageSrc, getVideoSrc, hasRenderableMedia, getMediaDedupeKey, getMediaPriorityScore, getPrimaryMergedMedia, syncMediaFieldsFromPrimary, clearPostMediaFields, formatBytes, createGetDisplayImage } from './utils/mediaHelpers';
 import { generateHTML } from './utils/generatePortfolioHtml';
+import { getPostSignature } from './utils/cloudCompare';
+import { cleanPostsForServer } from './utils/cleanPosts';
 import type { PostHistoryEntry, TrashHistoryEntry, MediaDeleteHistoryEntry, UndoHistoryEntry } from './types';
 
 const MergeConfirmationModal = ({ isOpen, group, onConfirm, onSkip }: any) => {
@@ -508,70 +510,6 @@ export default function App() {
   useEffect(() => {
     if (!isInitialized) return; // Wait for initialization, but poll even if localLastUpdated is missing
     
-    const toStableJson = (value: any): string => {
-      const normalize = (v: any): any => {
-        if (v === null || v === undefined) return v;
-        if (Array.isArray(v)) return v.map(normalize);
-        if (typeof v !== 'object') return v;
-        const out: Record<string, any> = {};
-        for (const key of Object.keys(v).sort()) {
-          const next = normalize(v[key]);
-          if (next !== undefined) out[key] = next;
-        }
-        return out;
-      };
-      return JSON.stringify(normalize(value));
-    };
-
-    const normalizeMediaForCloudCompare = (media: any) => {
-      if (!media || typeof media !== 'object') return media;
-      const m: any = { ...media };
-      delete m.image_preview;
-      delete m.uploadId;
-      delete m.largeUrl;
-      delete m.url_o;
-      delete m.url_l;
-      delete m.url_q;
-      delete m.url_sq;
-      delete m.url_m;
-      delete m.local_highres;
-      delete m.localUrl;
-      delete m.local_large_variant;
-      if (m.link && !m.url) m.url = m.link;
-      delete m.link;
-      for (const k of Object.keys(m)) {
-        if (m[k] === '') delete m[k];
-      }
-      return m;
-    };
-
-    const normalizePostForCloudCompare = (post: any) => {
-      if (!post || typeof post !== 'object') return post;
-      const p: any = { ...post };
-      delete p.image_preview;
-      delete p.uploadId;
-      delete p.largeUrl;
-      delete p.url_o;
-      delete p.url_l;
-      delete p.url_q;
-      delete p.url_sq;
-      delete p.url_m;
-      delete p.local_highres;
-      delete p.localUrl;
-      delete p.local_large_variant;
-      if (p.link && !p.url) p.url = p.link;
-      delete p.link;
-      for (const k of Object.keys(p)) {
-        if (p[k] === '') delete p[k];
-      }
-      if (Array.isArray(p.mergedMedia)) {
-        p.mergedMedia = p.mergedMedia.map(normalizeMediaForCloudCompare);
-      }
-      return p;
-    };
-
-    const getPostSignature = (post: any) => toStableJson(normalizePostForCloudCompare(post));
-
     const checkCloudChanges = async () => {
       try {
         const res = await fetch(`/api/r2-state?t=${Date.now()}`);
@@ -1026,51 +964,7 @@ export default function App() {
   useEffect(() => {
     if (isInitialized && flickrPosts.length > 0 && uploadingCount === 0) {
       // Clean state for server: remove blob URLs and image_preview
-      const stripBlobUrls = (obj: any, fields: string[]) => {
-        for (const field of fields) {
-          if (typeof obj?.[field] === 'string' && obj[field].startsWith('blob:')) {
-            delete obj[field];
-          }
-        }
-      };
-      const cleanPosts = flickrPosts.map(post => {
-        const cleanPost = { ...post };
-        // Remove temporary fields before saving
-        if (cleanPost.image_preview) delete cleanPost.image_preview;
-        stripBlobUrls(cleanPost, [
-          'image',
-          'image_thumb',
-          'image_1k',
-          'image_2k',
-          'image_3k',
-          'image_large',
-          'image_original',
-          'url',
-        ]);
-        
-        if (cleanPost.mergedMedia) {
-          cleanPost.mergedMedia = cleanPost.mergedMedia.map((m: any) => {
-            const cleanM = { ...m };
-            if (cleanM.image_preview) delete cleanM.image_preview;
-            stripBlobUrls(cleanM, [
-              'image',
-              'image_thumb',
-              'image_1k',
-              'image_2k',
-              'image_3k',
-              'image_large',
-              'image_original',
-              'url',
-            ]);
-            if (cleanM.uploadId) delete cleanM.uploadId;
-            return cleanM;
-          }).filter(hasRenderableMedia);
-          if (cleanPost.mergedMedia.length === 0) {
-            delete cleanPost.mergedMedia;
-          }
-        }
-        return cleanPost;
-      });
+      const cleanPosts = cleanPostsForServer(flickrPosts);
 
       const pushToR2 = shouldPushStateToR2Ref.current;
       if (pushToR2) {
