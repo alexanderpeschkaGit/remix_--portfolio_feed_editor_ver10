@@ -37,3 +37,10 @@ export interface GeminiMessage {
   role: 'user' | 'model';
   text: string;
 }
+
+// History entries for undo/redo (extracted from App.tsx, deep-refactor batch 1)
+export type PostHistoryEntry = { posts: any[]; action: string };
+export type TrashHistoryEntry = { trashKeys: string[]; action: string };
+export type MediaDeleteHistoryEntry = { posts: any[]; bakFiles: Array<{ from: string; to: string }>; action: string };
+export type UndoHistoryEntry = PostHistoryEntry | TrashHistoryEntry | MediaDeleteHistoryEntry;
+
