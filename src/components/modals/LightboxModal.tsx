@@ -5,7 +5,7 @@
  * Funktionalität von App.tsx extrahiert
  */
 import React from 'react';
-import { X, ArrowLeft, GripVertical, Youtube, ExternalLink, Image as ImageIcon, Play, ChevronLeft, ChevronRight, Film } from 'lucide-react';
+import { X, ArrowLeft, GripVertical, Youtube, ExternalLink, Image as ImageIcon, Play, ChevronLeft, ChevronRight, Film, Loader2, Sparkles, Undo2 } from 'lucide-react';
 import { PROJECT_STATES } from '../../constants';
 
 interface Media {
@@ -120,13 +120,105 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
   const [activeMediaIndex, setActiveMediaIndex] = React.useState(0);
   const [shouldPlayActiveMedia, setShouldPlayActiveMedia] = React.useState(false);
   const [loadedPlayers, setLoadedPlayers] = React.useState<Set<number>>(new Set());
+  const [isGenerating, setIsGenerating] = React.useState(false);
+  const [undoText, setUndoText] = React.useState<string | null>(null);
   const activeVideoRef = React.useRef<HTMLVideoElement | null>(null);
 
   React.useEffect(() => {
     setActiveMediaIndex(0);
     setShouldPlayActiveMedia(false);
     setLoadedPlayers(new Set());
+    setUndoText(null);
+    setIsGenerating(false);
   }, [currentLightboxPost.id]);
+
+  const handleUndo = () => {
+    if (undoText !== null) {
+      handlePostChange(currentLightboxPost.id, 'description', undoText);
+      setUndoText(null);
+    }
+  };
+
+  const handleKiEdit = async () => {
+    if (isGenerating) return;
+    setIsGenerating(true);
+    try {
+      const currentDesc = getAsString(currentLightboxPost.description);
+      const currentTitle = getAsString(currentLightboxPost.title);
+
+      if (undoText === null) {
+        setUndoText(currentDesc);
+      }
+
+      // Gather candidate thumbnails from mediaList
+      const imageCandidates: string[] = [];
+      for (const m of mediaList) {
+        const thumb = m.image_thumb || m.custom_thumb || m.image_preview || m.image || getImageSrc(m, false);
+        if (thumb && typeof thumb === 'string') {
+          imageCandidates.push(thumb);
+        }
+      }
+      const selectedThumbs = imageCandidates.slice(0, 5);
+
+      // Attempt to convert thumbnails to base64
+      const base64Images: Array<{ data: string; mimeType: string }> = [];
+      for (const rawUrl of selectedThumbs) {
+        try {
+          const resolvedUrl = getDisplayImage(rawUrl, isR2Fallback, isEmbeddedData) || rawUrl;
+          if (resolvedUrl.startsWith('data:')) {
+            const match = resolvedUrl.match(/^data:([^;]+);base64,(.+)$/);
+            if (match) {
+              base64Images.push({ mimeType: match[1], data: match[2] });
+              continue;
+            }
+          }
+          const resp = await fetch(resolvedUrl);
+          if (resp.ok) {
+            const blob = await resp.blob();
+            const b64 = await new Promise<{ data: string; mimeType: string } | null>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const resStr = reader.result as string;
+                const match = resStr.match(/^data:([^;]+);base64,(.+)$/);
+                if (match) resolve({ mimeType: match[1], data: match[2] });
+                else resolve(null);
+              };
+              reader.onerror = () => resolve(null);
+              reader.readAsDataURL(blob);
+            });
+            if (b64) base64Images.push(b64);
+          }
+        } catch (err) {
+          console.warn('Could not convert thumb to base64 in browser:', rawUrl, err);
+        }
+      }
+
+      const response = await fetch('/api/ki-edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: currentTitle,
+          description: currentDesc,
+          images: base64Images,
+          imageUrls: selectedThumbs,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Fehler beim KI-Edit');
+      }
+
+      if (data.text) {
+        handlePostChange(currentLightboxPost.id, 'description', data.text);
+      }
+    } catch (error: any) {
+      console.error('KI-Edit fehlgeschlagen:', error);
+      alert(`KI-Edit fehlgeschlagen: ${error.message || 'Unbekannter Fehler'}`);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   React.useEffect(() => {
     if (activeMediaIndex >= mediaList.length) {
@@ -225,7 +317,7 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
       </button>
       
       <div 
-        className="max-w-7xl w-full max-h-full flex flex-col md:flex-row gap-6 items-center justify-center" 
+        className={`w-full ${isEditing ? 'max-w-[1500px]' : 'max-w-7xl'} max-h-full flex flex-col md:flex-row gap-6 items-center justify-center`} 
         onClick={(e) => e.stopPropagation()}
         onMouseEnter={() => setIsHoveringLightboxBg(false)}
       >
@@ -520,7 +612,7 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
           ) : null}
         </div>
         
-        <div className="w-full md:w-80 bg-[#111] p-6 rounded-xl border border-white/10 shrink-0 max-h-[80vh] overflow-y-auto custom-scrollbar">
+        <div className={`w-full ${isEditing ? 'md:w-[600px]' : 'md:w-80'} bg-[#111] p-6 rounded-xl border border-white/10 shrink-0 max-h-[80vh] overflow-y-auto custom-scrollbar transition-all duration-200`}>
           {isEditing ? (
             <input 
               className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-lg font-medium text-white mb-4 focus:border-blue-500 focus:outline-none"
@@ -550,12 +642,47 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
           )}
           
           {isEditing ? (
-            <textarea 
-              className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-sm text-white/70 mb-6 focus:border-blue-500 focus:outline-none min-h-[120px] custom-scrollbar resize-none"
-              value={getAsString(currentLightboxPost.description)}
-              onChange={(e) => handlePostChange(currentLightboxPost.id, 'description', e.target.value)}
-              placeholder="Beschreibung..."
-            />
+            <>
+              <textarea 
+                className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white/80 mb-3 focus:border-blue-500 focus:outline-none min-h-[360px] custom-scrollbar resize-y leading-relaxed"
+                value={getAsString(currentLightboxPost.description)}
+                onChange={(e) => handlePostChange(currentLightboxPost.id, 'description', e.target.value)}
+                placeholder="Beschreibung..."
+              />
+              <div className="flex items-center gap-2 mb-6">
+                <button
+                  type="button"
+                  onClick={handleKiEdit}
+                  disabled={isGenerating}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  title="Generiert eine strukturierte, SEO-optimierte Case Study mit KI"
+                >
+                  {isGenerating ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>KI generiert...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>✨ KI-Edit</span>
+                    </>
+                  )}
+                </button>
+                {undoText !== null && (
+                  <button
+                    type="button"
+                    onClick={handleUndo}
+                    disabled={isGenerating}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white/10 hover:bg-white/20 text-white/90 border border-white/10 transition-colors disabled:opacity-50 cursor-pointer"
+                    title="Originaltext wiederherstellen"
+                  >
+                    <Undo2 className="w-3.5 h-3.5" />
+                    <span>↩️ Undo</span>
+                  </button>
+                )}
+              </div>
+            </>
           ) : currentLightboxPost.description && (
             <div 
               className="text-sm text-white/70 space-y-2 mb-6"

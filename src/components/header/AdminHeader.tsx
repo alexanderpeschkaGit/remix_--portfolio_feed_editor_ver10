@@ -1,5 +1,5 @@
 import React from 'react';
-import { Loader2, ExternalLink, Maximize2, X, Edit3, Save, UploadCloud, CheckCircle, Plus, Image as ImageIcon, Youtube, Trash2, GripVertical, Undo2, Redo2, FoldVertical, History, Download, RefreshCw, Instagram, ChevronUp, ChevronDown, FileCode, Layers, ArrowLeft, Eye, FileText, Camera } from 'lucide-react';
+import { Loader2, ExternalLink, Maximize2, X, Edit3, Save, UploadCloud, CheckCircle, Plus, Image as ImageIcon, Youtube, Trash2, GripVertical, Undo2, Redo2, FoldVertical, History, Download, RefreshCw, Instagram, ChevronUp, ChevronDown, FileCode, Layers, ArrowLeft, Eye, FileText, Camera, Copy } from 'lucide-react';
 
 interface AdminHeaderProps {
   isEditing: boolean;
@@ -39,6 +39,9 @@ interface AdminHeaderProps {
   handleRestoreLatestPublish: () => void;
   handleR2Cleanup: () => void;
   handleLegacyDuplicateCleanup: () => void;
+  handleRedundancyCleanup: () => void;
+  handlePurgeBak: () => void;
+  redundancyCleanupRunning: boolean;
   handleOpenTrash: () => void;
   handleAddNewPost: () => void;
   handleUndo: () => void;
@@ -128,6 +131,9 @@ export function AdminHeader({
   handleRestoreLatestPublish,
   handleR2Cleanup,
   handleLegacyDuplicateCleanup,
+  handleRedundancyCleanup,
+  handlePurgeBak,
+  redundancyCleanupRunning,
   handleOpenTrash,
   handleAddNewPost,
   handleUndo,
@@ -315,13 +321,34 @@ export function AdminHeader({
             </div>
           </button>
           <button
+            onClick={handleRedundancyCleanup}
+            disabled={redundancyCleanupRunning}
+            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[9px] font-medium border border-[#6a6a6a] bg-[#4d4d4d] text-white transition-all hover:bg-[#5e5e5e] active:scale-95 disabled:opacity-30 relative group"
+          >
+            <Copy className={`w-3 h-3 ${redundancyCleanupRunning ? 'animate-pulse text-white' : 'text-white'}`} />
+            <span>Redundant</span>
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-white text-black text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-[60] shadow-xl max-w-[280px] text-center leading-relaxed whitespace-normal">
+              Hash R2 + local media (SHA-1) and remove byte-identical copies. Referenced files are always kept.
+            </div>
+          </button>
+          <button
             onClick={handleOpenTrash}
-            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[9px] font-medium border border-[#6a6a6a] bg-[#4d4d4d] text-white transition-all hover:bg-[#5e5e5e] active:scale-95 relative group"
+            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[9px] font-medium border border-[#6a6a6a] bg-[#4d4d4d] text-white transition-all hover:bg-[#5e5e5e] active:scale-95 disabled:opacity-30 relative group"
           >
             <Trash2 className="w-3 h-3 text-white" />
             <span>Trash{trashCount > 0 ? ` (${trashCount})` : ''}</span>
             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-white text-black text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-[60] shadow-xl max-w-[280px] text-center leading-relaxed whitespace-normal">
-              Browse and restore deleted files from the R2 trash.
+              Browse and restore deleted files from the R2 trash. Emptying archives to bak/.
+            </div>
+          </button>
+          <button
+            onClick={handlePurgeBak}
+            className="flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg text-[9px] font-medium border border-red-900 bg-[#4d2020] text-white transition-all hover:bg-[#5e2828] active:scale-95 disabled:opacity-30 relative group"
+          >
+            <Trash2 className="w-3 h-3 text-white" />
+            <span>Purge bak/</span>
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-white text-black text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-[60] shadow-xl max-w-[280px] text-center leading-relaxed whitespace-normal">
+              Irreversibly delete the local bak/ archive (the last local safety net).
             </div>
           </button>
         </div>

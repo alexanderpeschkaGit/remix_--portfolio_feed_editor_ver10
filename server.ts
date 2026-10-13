@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express from "express";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createServer as createViteServer } from "vite";
 import fetch from "node-fetch";
 import { S3Client, PutObjectCommand, HeadObjectCommand, ListObjectsV2Command, DeleteObjectsCommand, DeleteObjectCommand, CopyObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
@@ -17,8 +18,16 @@ import { normalizeState } from "./src/server/mediaNormalization.ts";
 import { assertStateAcceptable, stateValidationHttpPayload } from "./src/server/statePublishing.ts";
 import { firstExistingLocalMediaPath, resolveMediaAssetLocation } from "./src/server/mediaAssets.ts";
 import { describeOrientationChange, orientMediaSource } from "./src/server/mediaOrientation.ts";
-import { moveFileToBak, enumerateLocalFilesForMedia, enumerateR2KeysForMedia, toPossibleR2Key, BAK_DIR_NAME } from "./src/server/mediaDeletion.ts";
+import { moveFileToBak, enumerateLocalFilesForMedia, enumerateR2KeysForMedia, toPossibleR2Key, BAK_DIR_NAME, resolveBakArchiveTarget, writeR2BodyToFile, listBakFiles, r2KeyToLocalPath, extractFallbackOriginalKey } from "./src/server/mediaDeletion.ts";
+import { buildRedundancyReport, listLocalMediaFiles, hashLocalFile, hashR2Body, groupCandidatesBySize, loadHashCache, saveHashCache, type HashedEntry, type RedundancyReport, type CandidateItem } from "./src/server/redundancyScan.ts";
 const execAsync = promisify(exec);
+
+/**
+ * Pick the first usable (non-empty string) image candidate, highest quality first.
+ * Shared by the scrape routes so every merge path picks variants consistently.
+ */
+const pickBestImage = (...candidates: any[]) =>
+  candidates.find((candidate) => typeof candidate === 'string' && candidate.trim());
 
 async function startServer() {
   const app = express();
@@ -379,6 +388,16 @@ async function startServer() {
           visitMediaReferences(referencedKeys, media);
         }
       }
+      // Media can also live one level deeper (custom thumbnails, metadata blocks,
+      // scraped extras). Missing these produces false "orphaned" reports.
+      for (const nestedKey of NESTED_MEDIA_CONTAINER_KEYS) {
+        const nested = item?.[nestedKey];
+        if (Array.isArray(nested)) {
+          for (const media of nested) visitMediaReferences(referencedKeys, media);
+        } else if (nested && typeof nested === 'object') {
+          for (const media of Object.values(nested)) visitMediaReferences(referencedKeys, media);
+        }
+      }
     }
   };
 
@@ -619,7 +638,7 @@ async function startServer() {
                     image_thumb: media.image_thumb || media.image || '',
                     image_1k: media.image_1k || '',
                     image_2k: media.image_2k || '',
-                    image_large: media.image_large || media.image_2k || media.image_3k || media.image_1k || media.image_thumb || bestImage || '',
+                    image_large: media.image_large || media.image_2k || media.image_3k || media.image_1k || media.image_thumb || media.image || '',
                     image_3k: media.image_3k || '',
                     image_original: media.image_original || '',
                     image_width: media.image_width || 0,
@@ -976,9 +995,14 @@ async function startServer() {
 
   const getBufferSha1 = (buffer: Buffer) => createHash('sha1').update(buffer).digest('hex');
 
+  // Every field that can hold a media reference. MUST stay in sync with
+  // MEDIA_DELETE_REFERENCE_FIELDS (src/server/mediaDeletion.ts) and IMAGE_FIELDS
+  // (src/server/mediaValidation.ts) — a field missing here makes the orphan
+  // detector trash files that are still in active use.
   const MEDIA_REFERENCE_FIELDS = [
     'image',
     'image_thumb',
+    'image_thumb400',
     'image_1k',
     'image_2k',
     'image_large',
@@ -996,19 +1020,49 @@ async function startServer() {
     'thumbnail',
     'thumb',
     'preview',
+    'thumbnailUrl',
+    'bunnyThumbUrl',
+    'customThumbnail',
+    'customThumbUrl',
+  ] as const;
+
+  // Item-level containers that may hold media objects one level below the post.
+  // Any value found here is passed through the same managed-prefix filter as the
+  // top-level fields, so non-media content is harmless.
+  const NESTED_MEDIA_CONTAINER_KEYS = [
+    'metadata',
+    'customFields',
+    'customMedia',
+    'extraMedia',
+    'media',
+    'gallery',
   ] as const;
 
   const isVideoR2Key = (key: string) => /\.(mp4|webm|mov)$/i.test(key);
   const isImageR2Key = (key: string) => /\.(jpg|jpeg|png|webp|gif|avif|bmp)$/i.test(key);
 
-  // Keep video sibling images (e.g. *_thumb.jpg, *_poster.jpg) safe during cleanup.
+  // Variant/derivation suffixes that may be STACKED on a media basename, e.g.
+  //   X_thumb400.jpg, X_2k_thumb.jpg, X_preview_poster.jpg
+  // The old implementation stripped only ONE trailing suffix, so `X_thumb400.jpg`
+  // never matched the video stem `X` and got trashed as an orphan.
+  // `thumb\d+` matters: the variant pipeline emits `*_thumb400.jpg`, and a plain
+  // `thumb` token does not match the digits that follow it.
+  const MEDIA_STEM_SUFFIX = '(?:thumb\\d*|thumbnail|poster|preview|small|medium|large|orig|original|1k|2k|3k|4k|highres|full|edit|copy)';
+
+  /**
+   * Canonical stem of a media key: basename without extension and without any
+   * trailing variant suffixes (removed repeatedly, so stacked suffixes collapse).
+   * Used to keep video/poster siblings safe during cleanup.
+   */
   const toCanonicalMediaStem = (key: string) => {
-    const basename = key.split('/').pop() || key;
-    return basename
-      .toLowerCase()
-      .split('?')[0]
-      .replace(/\.(jpg|jpeg|png|webp|gif|avif|bmp|mp4|webm|mov)$/i, '')
-      .replace(/(?:[_-](thumb|thumbnail|poster|preview))$/i, '');
+    const basename = (key.split('/').pop() || key).toLowerCase().split('?')[0];
+    let stem = basename.replace(/\.(jpg|jpeg|png|webp|gif|avif|bmp|tif|tiff|mp4|webm|mov|mkv|avi)$/i, '');
+    let previous: string;
+    do {
+      previous = stem;
+      stem = stem.replace(new RegExp(`[_-]${MEDIA_STEM_SUFFIX}$`, 'i'), '');
+    } while (stem !== previous);
+    return stem;
   };
 
   const loadSyncManifest = async () => {
@@ -1037,20 +1091,20 @@ async function startServer() {
     }
   };
 
-  const updateSyncManifestEntries = async (entries: Array<{ r2Key: string; hash: string; size: number }>) => {
-    if (entries.length === 0) return;
-    const manifest = await loadSyncManifest();
-    const syncedAt = new Date().toISOString();
-    for (const entry of entries) {
-      manifest[entry.r2Key] = {
-        hash: entry.hash,
-        size: entry.size,
-        syncedAt
-      };
-    }
-    await saveSyncManifest(manifest);
-  };
-
+  const updateSyncManifestEntries = async (entries: Array<{ r2Key: string; hash: string; size: number }>):
+    Promise<void> => {
+      if (entries.length === 0) return;
+      const manifest = await loadSyncManifest();
+      const syncedAt = new Date().toISOString();
+      for (const entry of entries) {
+        manifest[entry.r2Key] = {
+          hash: entry.hash,
+          size: entry.size,
+          syncedAt
+        };
+      }
+      await saveSyncManifest(manifest);
+    };
   const normalizePossibleR2Key = (value?: string) => {
     if (!value) return null;
 
@@ -1176,8 +1230,18 @@ async function startServer() {
     }
   };
 
+  /**
+   * Build the "keep set" of R2 keys that must never be trashed.
+   *
+   * CRITICAL: an incomplete keep set makes the orphan detector report files that
+   * ARE referenced as orphans, and execute then trashes them. Any failure to read
+   * a reference source therefore sets `refsComplete: false` so the cleanup routes
+   * can refuse to produce a report at all.
+   */
   const collectReferencedR2Keys = async () => {
     const referencedKeys = new Set<string>();
+    const warnings: string[] = [];
+    let refsComplete = true;
     const publicBaseUrl = R2_CONFIG.publicDomain.startsWith('http')
       ? R2_CONFIG.publicDomain.replace(/\/+$/, '')
       : `https://${R2_CONFIG.publicDomain}`.replace(/\/+$/, '');
@@ -1186,6 +1250,8 @@ async function startServer() {
       const stateData = await fs.readFile(path.join(DATA_DIR, 'state.json'), 'utf-8');
       collectReferencedR2KeysFromPortfolioData(referencedKeys, JSON.parse(stateData));
     } catch (e) {
+      refsComplete = false;
+      warnings.push('Lokale data/state.json konnte nicht gelesen werden.');
       console.error('Failed to collect referenced R2 keys:', e);
     }
 
@@ -1202,8 +1268,13 @@ async function startServer() {
       if (r2StateRes.ok) {
         const r2State = await r2StateRes.json();
         collectReferencedR2KeysFromPortfolioData(referencedKeys, r2State);
+      } else {
+        refsComplete = false;
+        warnings.push(`Veroeffentlichter state.json nicht erreichbar (HTTP ${r2StateRes.status}).`);
       }
     } catch (error) {
+      refsComplete = false;
+      warnings.push('Veroeffentlichter state.json konnte nicht abgerufen werden.');
       console.error('Failed to fetch published R2 state.json while collecting references:', error);
     }
 
@@ -1217,11 +1288,11 @@ async function startServer() {
       console.error('Failed to fetch published index.html while collecting references:', error);
     }
 
-    return referencedKeys;
+    return { referencedKeys, warnings, refsComplete };
   };
 
   const listR2ObjectsForPrefixes = async (prefixes: string[]) => {
-    const objects: Array<{ key: string; size: number }> = [];
+    const objects: Array<{ key: string; size: number; eTag: string }> = [];
 
     for (const prefix of prefixes) {
       let continuationToken: string | undefined = undefined;
@@ -1236,7 +1307,11 @@ async function startServer() {
 
         for (const obj of response.Contents || []) {
           if (!obj.Key) continue;
-          objects.push({ key: obj.Key, size: obj.Size || 0 });
+          objects.push({
+            key: obj.Key,
+            size: obj.Size || 0,
+            eTag: (obj.ETag || '').replace(/"/g, '')
+          });
         }
 
         isTruncated = !!response.IsTruncated;
@@ -1249,7 +1324,7 @@ async function startServer() {
 
   const buildR2CleanupReport = async () => {
     const managedPrefixes = ['data/', 'uploads/', 'highres/', 'originals/', 'v2/data/'];
-    const referencedKeys = await collectReferencedR2Keys();
+    const { referencedKeys, warnings, refsComplete } = await collectReferencedR2Keys();
     const r2Objects = await listR2ObjectsForPrefixes(managedPrefixes);
     const allVideoStems = new Set(
       r2Objects
@@ -1273,6 +1348,8 @@ async function startServer() {
       orphanedCount: orphaned.length,
       totalBytes,
       orphaned,
+      warnings,
+      refsComplete,
       sampleKeys: orphaned.slice(0, 25).map(obj => obj.key)
     };
   };
@@ -1309,6 +1386,161 @@ async function startServer() {
     };
   };
 
+  const REDUNDANCY_MANAGED_PREFIXES = ['data/', 'uploads/', 'highres/', 'originals/', 'v2/data/'];
+  const REDUNDANCY_LOCAL_ROOTS = ['data', 'data_v2', 'originals'];
+  const MEDIA_HASH_CACHE_PATH = path.join(process.cwd(), '.cache', 'media_hashes.json');
+
+  /**
+   * Scan managed R2 objects and local media files for byte-identical copies.
+   *
+   * Safeguard & Performance:
+   * 1. Files are first grouped by size. Files with unique sizes are skipped entirely.
+   * 2. Candidate files sharing a byte size are individually hashed with SHA-1.
+   * 3. A persistent hash cache (.cache/media_hashes.json) keyed by ETag (R2) and
+   *    mtime/size (local) prevents re-downloading/re-hashing on subsequent runs.
+   */
+  const collectRedundancyData = async () => {
+    const { referencedKeys, warnings, refsComplete } = await collectReferencedR2Keys();
+    const hashCache = await loadHashCache(MEDIA_HASH_CACHE_PATH);
+    let cacheModified = false;
+
+    const candidates: CandidateItem[] = [];
+
+    // --- R2 ---
+    const r2Objects = await listR2ObjectsForPrefixes(REDUNDANCY_MANAGED_PREFIXES);
+    for (const obj of r2Objects) {
+      if (obj.size <= 0) continue;
+      candidates.push({
+        scope: 'r2',
+        location: obj.key,
+        size: obj.size,
+        eTag: obj.eTag
+      });
+    }
+
+    // --- Local ---
+    for (const root of REDUNDANCY_LOCAL_ROOTS) {
+      const files = await listLocalMediaFiles(path.join(process.cwd(), root));
+      for (const abs of files) {
+        const stats = await fs.stat(abs).catch(() => null);
+        if (!stats || stats.size <= 0) continue;
+        candidates.push({
+          scope: 'local',
+          location: abs,
+          size: stats.size,
+          mtimeMs: Math.round(stats.mtimeMs)
+        });
+      }
+    }
+
+    // Candidate groups sharing the exact same byte size (size >= 2 files)
+    const candidateGroups = groupCandidatesBySize(candidates);
+
+    const entries: HashedEntry[] = [];
+    for (const group of candidateGroups.values()) {
+      for (const item of group) {
+        let hash: string | null = null;
+        if (item.scope === 'r2') {
+          const cached = hashCache.r2[item.location];
+          if (cached && cached.size === item.size && (!item.eTag || cached.etag === item.eTag)) {
+            hash = cached.hash;
+          } else {
+            try {
+              const res = await s3Client.send(new GetObjectCommand({
+                Bucket: R2_CONFIG.bucketName,
+                Key: item.location
+              }));
+              hash = await hashR2Body(res.Body);
+              if (hash) {
+                hashCache.r2[item.location] = {
+                  etag: item.eTag || '',
+                  size: item.size,
+                  hash
+                };
+                cacheModified = true;
+              }
+            } catch (e) {
+              console.error(`Failed to fetch and hash R2 object ${item.location}:`, e);
+              hash = null;
+            }
+          }
+        } else {
+          const cached = hashCache.local[item.location];
+          if (cached && cached.size === item.size && (!item.mtimeMs || cached.mtimeMs === item.mtimeMs)) {
+            hash = cached.hash;
+          } else {
+            hash = await hashLocalFile(item.location);
+            if (hash) {
+              hashCache.local[item.location] = {
+                mtimeMs: item.mtimeMs || 0,
+                size: item.size,
+                hash
+              };
+              cacheModified = true;
+            }
+          }
+        }
+
+        if (hash) {
+          entries.push({
+            scope: item.scope,
+            location: item.location,
+            size: item.size,
+            hash
+          });
+        }
+      }
+    }
+
+    if (cacheModified) {
+      await saveHashCache(MEDIA_HASH_CACHE_PATH, hashCache);
+    }
+
+    // Referenced local files, so a local copy of a referenced R2 key is protected.
+    const referencedLocalPaths = new Set<string>();
+    for (const key of referencedKeys) {
+      const local = r2KeyToLocalPath(key, process.cwd());
+      if (local) referencedLocalPaths.add(path.resolve(local));
+    }
+
+    const ctx = {
+      isReferencedR2Key: (key: string) => referencedKeys.has(key),
+      referencedLocalPaths,
+      r2KeyToLocalPath: (key: string) => r2KeyToLocalPath(key, process.cwd()),
+    };
+
+    return {
+      report: buildRedundancyReport(entries, ctx, candidates.length),
+      entries,
+      warnings,
+      refsComplete
+    };
+  };
+
+  /**
+   * Drop the only surviving copy of a media family. If a redundant video's
+   * sibling image (poster/thumb) is not itself redundant, keep the video.
+   */
+  const filterRedundantWithSiblings = async (report: RedundancyReport) => {
+    const r2Objects = await listR2ObjectsForPrefixes(REDUNDANCY_MANAGED_PREFIXES);
+    const videoStems = new Set(
+      r2Objects.filter((o) => isVideoR2Key(o.key)).map((o) => toCanonicalMediaStem(o.key))
+    );
+    const redundantLocations = new Set(report.duplicates.map((d) => d.location));
+
+    return report.duplicates.filter((dup) => {
+      // Only videos need the sibling guard.
+      if (dup.scope !== 'r2' || !isVideoR2Key(dup.location)) return true;
+      const stem = toCanonicalMediaStem(dup.location);
+      if (!videoStems.has(stem)) return true;
+      // Keep a video whose canonical stem is also present on a NON-redundant image.
+      const siblingSurvives = r2Objects.some(
+        (o) => isImageR2Key(o.key) && toCanonicalMediaStem(o.key) === stem && !redundantLocations.has(o.key)
+      );
+      return !siblingSurvives;
+    });
+  };
+
   const normalizeTrashName = (value: string) =>
     value
       .replace(/[^a-z0-9._-]+/gi, '_')
@@ -1340,7 +1572,9 @@ async function startServer() {
   ) => {
     const movedItems: TrashItem[] = [];
     const skippedKeys: string[] = [];
+    const manifestDirty: string[] = [];
 
+    try {
     for (const obj of objects) {
       try {
         const head = await s3Client.send(new HeadObjectCommand({
@@ -1380,9 +1614,7 @@ async function startServer() {
           Key: obj.key
         }));
 
-        const manifest = await loadSyncManifest();
-        delete manifest[obj.key];
-        await saveSyncManifest(manifest);
+        manifestDirty.push(obj.key);
 
         movedItems.push({
           key: obj.key,
@@ -1397,6 +1629,13 @@ async function startServer() {
       } catch (error) {
         console.error(`Failed to move ${obj.key} to trash:`, error);
         skippedKeys.push(obj.key);
+      }
+    }
+    } finally {
+      if (manifestDirty.length > 0) {
+        const manifest = await loadSyncManifest();
+        for (const key of manifestDirty) delete manifest[key];
+        await saveSyncManifest(manifest);
       }
     }
 
@@ -1538,6 +1777,63 @@ async function startServer() {
     }
 
     return { deletedKeys, skippedKeys };
+  };
+
+  /**
+   * Safe "empty trash": stream every trash object into `bak/r2-trash/<ts>/<originalKey>`
+   * FIRST, verify the local write, and only then delete the R2 trash copy.
+   * If the local write fails or the byte count does not match, the R2 object is
+   * left untouched and the key is reported as skipped — the last copy survives.
+   */
+  const archiveTrashObjectsToBak = async (trashKeys: string[]) => {
+    const archived: Array<{ trashKey: string; originalKey: string; bakPath: string; size: number }> = [];
+    const skippedKeys: string[] = [];
+
+    for (const trashKey of trashKeys) {
+      try {
+        const head = await s3Client.send(new HeadObjectCommand({
+          Bucket: R2_CONFIG.bucketName,
+          Key: trashKey
+        }));
+        const originalKey = head.Metadata?.originalkey || extractFallbackOriginalKey(trashKey);
+        const destPath = await resolveBakArchiveTarget(trashKey, originalKey, process.cwd());
+        if (!destPath) {
+          console.error(`Refusing to archive ${trashKey}: unsafe originalKey "${originalKey}"`);
+          skippedKeys.push(trashKey);
+          continue;
+        }
+
+        const result = await s3Client.send(new GetObjectCommand({
+          Bucket: R2_CONFIG.bucketName,
+          Key: trashKey
+        }));
+
+        const expectedSize = Number(head.Metadata?.originalsizedbytes) || head.ContentLength || 0;
+        const written = await writeR2BodyToFile(result.Body, destPath, expectedSize);
+        if (written === null) {
+          skippedKeys.push(trashKey);
+          continue;
+        }
+
+        // Local copy verified -> safe to drop the R2 trash copy.
+        await s3Client.send(new DeleteObjectCommand({
+          Bucket: R2_CONFIG.bucketName,
+          Key: trashKey
+        }));
+
+        archived.push({
+          trashKey,
+          originalKey,
+          bakPath: path.relative(process.cwd(), destPath).split(path.sep).join('/'),
+          size: written
+        });
+      } catch (error) {
+        console.error(`Failed to archive trash object ${trashKey} to bak/:`, error);
+        skippedKeys.push(trashKey);
+      }
+    }
+
+    return { archived, skippedKeys };
   };
 
   async function getRecursiveFiles(dir: string, baseDir: string): Promise<string[]> {
@@ -1787,11 +2083,15 @@ async function startServer() {
         for (const [sub, subDirPath] of Object.entries(V2_MEDIA_GROUPS)) {
           if (await fs.access(subDirPath).then(() => true).catch(() => false)) {
             const files = await getRecursiveFiles(subDirPath, subDirPath);
-            const mediaFiles = files.filter(f => /\.(jpg|jpeg|png|webp|json|mp4|webm|mov)$/i.test(f)).map(f => ({
-              localPath: path.join(subDirPath, f),
-              r2Key: `${V2_PREFIX}/${sub}/${toPosix(f)}`
-            }));
+            const mediaFiles = files
+              .filter(f => /\.(jpg|jpeg|png|webp|json|mp4|webm|mov)$/i.test(f))
+              .map(f => ({
+                localPath: path.join(subDirPath, f),
+                r2Key: `${V2_PREFIX}/${sub}/${toPosix(f)}`
+              }))
+              .filter(file => !allImageFiles.some(f => f.r2Key === file.r2Key));
             allImageFiles = [...allImageFiles, ...mediaFiles];
+            mediaFiles.forEach(file => allImageFiles.push(file));
           }
         }
       }
@@ -2142,8 +2442,8 @@ async function startServer() {
     return null;
   };
 
-  const isImageUrlLike = (value?: string) => !!value && /\.(jpg|jpeg|png|webp|gif|avif|bmp|tif|tiff)(\?.*)?$/i.test(value);
-  const isVideoUrlLike = (value?: string) => !!value && /\.(mp4|webm|mov|avi|mkv|flv)(\?.*)?$/i.test(value);
+  const isImageUrlLike = (value?: string) => !!value && /\.(jpg|jpeg|png|webp|gif|avif|bmp|tif|tiff|mp4|webm|mov|avi|mkv|flv)$/i.test(value);
+  const isVideoUrlLike = (value?: string) => !!value && /\.(mp4|webm|mov|avi|mkv|flv)$/i.test(value);
   const isYoutubeMedia = (media: any) => {
     const type = String(media?.type || '').toLowerCase();
     return type === 'youtube' || !!media?.youtubeId || !!media?.youtubeUrl || String(media?.url || media?.link || '').includes('youtube.com');
@@ -3355,10 +3655,6 @@ async function startServer() {
       // Auto-correct video dimensions if fallback
       await ensureStateVideoDimensions(state);
       normalizeStateBunnyMedia(state);
-
-      // Update the lastUpdated timestamp so the frontend can detect the change
-      state.lastUpdated = new Date().toISOString();
-
       await assertStateAcceptable(state, { rootDir: process.cwd(), allowNetwork: true });
 
       await backupState();
@@ -3379,6 +3675,216 @@ async function startServer() {
       const validationError = stateValidationHttpPayload(e);
       if (validationError) return res.status(validationError.status).json(validationError.body);
       res.status(500).json({ error: 'Failed to update item', details: e.message });
+    }
+  });
+
+  // API route for AI copy optimization (KI-Edit)
+  app.post("/api/ki-edit", async (req, res) => {
+    try {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return res.status(400).json({
+          error: "GEMINI_API_KEY ist nicht in der .env-Datei konfiguriert. Bitte trage deinen Google Gemini API-Key in .env ein."
+        });
+      }
+
+      const { title, description, images, imageUrls } = req.body || {};
+
+      const inlineParts: Array<{ inlineData: { data: string; mimeType: string } }> = [];
+
+      // Collect base64 images passed directly from client
+      if (Array.isArray(images)) {
+        for (const img of images) {
+          if (!img) continue;
+          if (typeof img === 'object' && img.data) {
+            const cleanData = String(img.data).replace(/^data:[^;]+;base64,/, '');
+            inlineParts.push({
+              inlineData: {
+                data: cleanData,
+                mimeType: img.mimeType || 'image/jpeg',
+              }
+            });
+          } else if (typeof img === 'string') {
+            const match = img.match(/^data:([^;]+);base64,(.+)$/);
+            if (match) {
+              inlineParts.push({
+                inlineData: {
+                  mimeType: match[1],
+                  data: match[2],
+                }
+              });
+            } else if (img.length > 50 && !img.startsWith('http') && !img.startsWith('/')) {
+              inlineParts.push({
+                inlineData: {
+                  mimeType: 'image/jpeg',
+                  data: img,
+                }
+              });
+            }
+          }
+          if (inlineParts.length >= 5) break;
+        }
+      }
+
+      // If no base64 parts yet and imageUrls provided, resolve local thumbnail files
+      if (inlineParts.length === 0 && Array.isArray(imageUrls)) {
+        for (const imgUrl of imageUrls) {
+          if (typeof imgUrl !== 'string') continue;
+          try {
+            let localFilePath: string | null = null;
+            if (imgUrl.startsWith('/data/')) {
+              localFilePath = path.join(DATA_DIR, imgUrl.replace('/data/', ''));
+            } else if (imgUrl.startsWith('/data_v2/')) {
+              localFilePath = path.join(DATA_V2_DIR, imgUrl.replace('/data_v2/', ''));
+            } else if (imgUrl.startsWith('/originals/')) {
+              localFilePath = path.join(ORIGINALS_DIR, imgUrl.replace('/originals/', ''));
+            } else if (!imgUrl.startsWith('http')) {
+              const check1 = path.join(DATA_DIR, imgUrl);
+              const check2 = path.join(DATA_V2_DIR, imgUrl);
+              if (await fs.stat(check1).then(() => true).catch(() => false)) localFilePath = check1;
+              else if (await fs.stat(check2).then(() => true).catch(() => false)) localFilePath = check2;
+            }
+
+            if (localFilePath && await fs.stat(localFilePath).then(s => s.isFile()).catch(() => false)) {
+              const fileBuf = await fs.readFile(localFilePath);
+              const ext = path.extname(localFilePath).toLowerCase();
+              const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+              inlineParts.push({
+                inlineData: {
+                  data: fileBuf.toString('base64'),
+                  mimeType: mime,
+                }
+              });
+            }
+          } catch {
+            // Ignore individual file resolution errors
+          }
+          if (inlineParts.length >= 5) break;
+        }
+      }
+
+      const genAI = new GoogleGenerativeAI(apiKey);
+
+      const systemPrompt = `You are an elite copywriter and SEO expert for Vijay Sikanda (a leading studio specializing in 3D projection mapping, stage design, and immersive audiovisual art, in the style of Lumine or United Motion Labs).
+
+Task: Analyze the input (project title, existing description, and preview images) and transform it into an English, structured, concise, and SEO-optimized case study (2–3 short paragraphs, approx. 70 to 110 words total) followed by structured project metadata.
+
+Collaborating Artists & Credits: If other artists, painters, musicians, DJs, performers, or co-creators are mentioned in the input (e.g. Amanda Sage, A. Andrew Gonzalez, DJ Gobayashi, etc.), seamlessly weave them into the narrative and credit them in the Collaborators line.
+
+Structure & Output:
+1. Narrative Description (strictly in English, 2 to 3 short, fluidly readable paragraphs, approx. 70 to 110 words total):
+   - Paragraph 1: Occasion, context, artistic vision, and any featured/collaborating artists.
+   - Paragraph 2: Immersive atmosphere, narrative, and visual experience.
+   - Paragraph 3 (optional): Technical implementation and spatial impact.
+
+2. Project Metadata Block (at the very end of the text, strictly in English, each item on its own line):
+Type: [Event type, e.g. Festival, Corporate Event, Art Exhibition, Conscious Gathering, Club Night]
+Theme: [Theme or concept - ONLY include this line if a specific artistic theme or motto exists, otherwise omit this line completely]
+Client: [Client, brand, or organizer]
+Agency: [Agency - ONLY include this line if an agency was involved or is known, otherwise omit this line completely]
+Location: [Venue, City, Country]
+Collaborators: [Collaborating artists, painters, musicians, performers, or co-creators - ONLY include this line if other artists/collaborators are mentioned in the input, otherwise omit this line completely]
+Technical Solution: [Technologies used, e.g. 3D Architectural Video Mapping, Stage Design, Live VJing, Laser Projection, Slide Installation]
+
+SEO Keywords (naturally integrate where fitting): "3D Video Mapping", "Architectural Projection", "Immersive Media Art", "Stage Design", "Slide Installation", "Audiovisual Art", "Conscious Events".
+
+Tone & Language: Authoritative, technically sophisticated, artistically refined, direct, and impactful. Written in flawless English from the perspective of the studio/artist ("Vijay Sikanda"). Do not use clichés like "We are proud to present" – describe the installation factually and powerfully.
+Rule: Output ONLY the final text in English (Narrative Description + Project Metadata Block). No introductions, no conversational filler, no markdown titles or headings like "Context:".`;
+
+      const userPrompt = `Project Title: ${title || "Untitled Project"}
+
+Existing Project Description:
+${description ? String(description).trim() : "(No previous description provided. Please create the case study based on the title and images.)"}`;
+
+      const requestedModel = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+      const modelCandidates = Array.from(new Set([
+        requestedModel,
+        "gemini-3.8-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-flash-latest"
+      ]));
+
+      const thinkingConfig = {
+        thinkingLevel: (process.env.GEMINI_THINKING_LEVEL || "MEDIUM").toUpperCase(),
+      };
+
+      let generatedText = "";
+      let primaryError: any = null;
+      let lastError: any = null;
+
+      for (const candidateModelName of modelCandidates) {
+        console.log(`[ki-edit] Trying model candidate: ${candidateModelName}`);
+
+        // Variation 1: Search Grounding + Thinking
+        try {
+          const model = genAI.getGenerativeModel({
+            model: candidateModelName,
+            systemInstruction: systemPrompt,
+            tools: [{ googleSearch: {} } as any],
+            generationConfig: {
+              thinkingConfig,
+            } as any,
+          });
+          const result = await model.generateContent([...inlineParts, userPrompt]);
+          generatedText = result.response.text();
+          if (generatedText) {
+            console.log(`[ki-edit] Success with ${candidateModelName} (Search + Thinking)`);
+            break;
+          }
+        } catch (err: any) {
+          console.warn(`[ki-edit] ${candidateModelName} (Search + Thinking) failed: ${err.message}`);
+          if (!primaryError && candidateModelName === requestedModel) primaryError = err;
+          lastError = err;
+        }
+
+        // Variation 2: Thinking without search tools (resolves quota limits on search grounding)
+        try {
+          const model = genAI.getGenerativeModel({
+            model: candidateModelName,
+            systemInstruction: systemPrompt,
+            generationConfig: {
+              thinkingConfig,
+            } as any,
+          });
+          const result = await model.generateContent([...inlineParts, userPrompt]);
+          generatedText = result.response.text();
+          if (generatedText) {
+            console.log(`[ki-edit] Success with ${candidateModelName} (Thinking only)`);
+            break;
+          }
+        } catch (err: any) {
+          console.warn(`[ki-edit] ${candidateModelName} (Thinking only) failed: ${err.message}`);
+          if (!primaryError && candidateModelName === requestedModel) primaryError = err;
+          lastError = err;
+        }
+
+        // Variation 3: Plain (no thinking, no search tools)
+        try {
+          const model = genAI.getGenerativeModel({
+            model: candidateModelName,
+            systemInstruction: systemPrompt,
+          });
+          const result = await model.generateContent([...inlineParts, userPrompt]);
+          generatedText = result.response.text();
+          if (generatedText) {
+            console.log(`[ki-edit] Success with ${candidateModelName} (Plain)`);
+            break;
+          }
+        } catch (err: any) {
+          console.warn(`[ki-edit] ${candidateModelName} (Plain) failed: ${err.message}`);
+          if (!primaryError && candidateModelName === requestedModel) primaryError = err;
+          lastError = err;
+        }
+      }
+
+      if (!generatedText) {
+        throw primaryError || lastError || new Error("Generierung mit allen Modellen fehlgeschlagen.");
+      }
+
+      res.json({ success: true, text: generatedText.trim() });
+    } catch (e: any) {
+      console.error("[ki-edit] Error during AI generation:", e);
+      res.status(500).json({ error: e.message || "Fehler beim Ausführen des KI-Edits." });
     }
   });
 
@@ -3784,6 +4290,50 @@ async function startServer() {
     }
   });
 
+  // Permanently remove files from the local bak/ archive. This is IRREVERSIBLE and
+  // is the counterpart of archiveTrashObjectsToBak - without it bak/ grows forever.
+  app.post("/api/bak/purge", async (req, res) => {
+    try {
+      const targetRel = typeof req.body?.target === 'string' ? req.body.target : '';
+      const bakRoot = path.resolve(BAK_DIR);
+
+      let targetAbs: string;
+      if (targetRel) {
+        targetAbs = path.resolve(process.cwd(), targetRel.split('/').join(path.sep));
+        const allowed =
+          targetAbs === bakRoot ||
+          targetAbs.startsWith(bakRoot + path.sep) ||
+          targetAbs === path.resolve(process.cwd(), BAK_DIR_NAME);
+        if (!allowed) {
+          return res.status(400).json({ error: 'Pfad nicht erlaubt' });
+        }
+      } else {
+        targetAbs = bakRoot;
+      }
+
+      const stats = await fs.stat(targetAbs).catch(() => null);
+      if (!stats) {
+        return res.status(404).json({ error: 'Pfad nicht gefunden' });
+      }
+
+      const files = await listBakFiles(targetAbs, targetAbs);
+      const bytes = await Promise.all(
+        files.map(async (rel) => (await fs.stat(path.join(targetAbs, rel.split('/').join(path.sep))).catch(() => null))?.size || 0)
+      );
+      const totalBytes = bytes.reduce((sum, size) => sum + size, 0);
+
+      await fs.rm(targetAbs, { recursive: true, force: true });
+      if (targetAbs === bakRoot) {
+        await fs.mkdir(BAK_DIR, { recursive: true });
+      }
+
+      res.json({ success: true, deletedCount: files.length, deletedBytes: totalBytes, target: targetRel || BAK_DIR_NAME });
+    } catch (error: any) {
+      console.error("Bak purge error:", error);
+      res.status(500).json({ error: error.message || 'Bak-Bereinigung fehlgeschlagen' });
+    }
+  });
+
   // API route to restore files from the local bak/ folder (used by Undo)
   app.post("/api/bak/restore", async (req, res) => {
     try {
@@ -3924,6 +4474,14 @@ async function startServer() {
   app.post("/api/r2-cleanup/preview", async (req, res) => {
     try {
       const report = await buildR2CleanupReport();
+      if (!report.refsComplete) {
+        return res.status(409).json({
+          success: false,
+          refsComplete: false,
+          warnings: report.warnings,
+          error: 'Referenzdaten sind unvollstaendig - Cleanup wurde blockiert, um verwaiste Dateien zu vermeiden.'
+        });
+      }
       res.json({ success: true, ...report });
     } catch (error: any) {
       console.error("Error generating R2 cleanup preview:", error);
@@ -3934,6 +4492,17 @@ async function startServer() {
   app.post("/api/r2-cleanup/execute", async (req, res) => {
     try {
       const report = await buildR2CleanupReport();
+
+      // A partial keep set would mark still-referenced files as orphaned and trash
+      // them. Refuse to run until every reference source could be read.
+      if (!report.refsComplete) {
+        return res.status(409).json({
+          success: false,
+          refsComplete: false,
+          warnings: report.warnings,
+          error: 'Referenzdaten sind unvollstaendig - Cleanup wurde abgebrochen, um verwaiste Dateien zu vermeiden.'
+        });
+      }
 
       if (report.orphanedCount === 0) {
         return res.json({
@@ -3961,6 +4530,89 @@ async function startServer() {
     } catch (error: any) {
       console.error("Error executing R2 cleanup:", error);
       res.status(500).json({ error: error.message || 'Cleanup fehlgeschlagen' });
+    }
+  });
+
+  app.post("/api/r2-redundancy/preview", async (req, res) => {
+    try {
+      const { report, warnings, refsComplete } = await collectRedundancyData();
+      if (!refsComplete) {
+        return res.status(409).json({
+          success: false,
+          refsComplete: false,
+          warnings,
+          error: 'Referenzdaten sind unvollstaendig - Redundanz-Scan wurde blockiert.'
+        });
+      }
+      res.json({ success: true, ...report, warnings, refsComplete });
+    } catch (error: any) {
+      console.error("Error generating redundancy preview:", error);
+      res.status(500).json({ error: error.message || 'Redundanz-Vorschau fehlgeschlagen' });
+    }
+  });
+
+  app.post("/api/r2-redundancy/execute", async (req, res) => {
+    try {
+      const { report, warnings, refsComplete } = await collectRedundancyData();
+      if (!refsComplete) {
+        return res.status(409).json({
+          success: false,
+          refsComplete: false,
+          warnings,
+          error: 'Referenzdaten sind unvollstaendig - Redundanz-Scan wurde abgebrochen.'
+        });
+      }
+
+      const safeDuplicates = await filterRedundantWithSiblings(report);
+      if (safeDuplicates.length === 0) {
+        return res.json({ success: true, movedCount: 0, movedBytes: 0, message: 'Keine redundanten Dateien gefunden.' });
+      }
+
+      // `scope` is authoritative - never infer R2 vs local from the path shape,
+      // because a Windows absolute path also contains forward-slash R2 prefixes.
+      // Referenced duplicates are NEVER auto-removed: state.json / the published site
+      // still points at them and nothing repoints those references.
+      const removable = safeDuplicates.filter((d) => !d.isReferenced);
+      const referencedSkipped = safeDuplicates.filter((d) => d.isReferenced).map((d) => d.location);
+      const r2Duplicates = removable.filter((d) => d.scope === 'r2');
+      const localDuplicates = removable.filter((d) => d.scope === 'local');
+
+      const { movedItems, skippedKeys } = await moveR2ObjectsToTrash(
+        r2Duplicates.map((d) => ({ key: d.location, size: d.size })),
+        'redundant-content'
+      );
+
+      // Local redundant copies are archived into bak/, never hard-deleted.
+      const bakFiles: Array<{ from: string; to: string }> = [];
+      const localSkipped: string[] = [];
+      for (const dup of localDuplicates) {
+        try {
+          const moved = await moveFileToBak(dup.location, process.cwd(), 'redundant');
+          if (moved) bakFiles.push(moved);
+          else localSkipped.push(dup.location);
+        } catch (error) {
+          console.error(`Failed to move redundant local file ${dup.location} to bak/:`, error);
+          localSkipped.push(dup.location);
+        }
+      }
+
+      await syncStorageSize();
+
+      res.json({
+        success: true,
+        movedCount: movedItems.length + bakFiles.length,
+        movedBytes: removable.reduce((sum, d) => sum + d.size, 0),
+        skippedCount: skippedKeys.length + localSkipped.length,
+        referencedSkipped,
+        trashItems: movedItems,
+        bakFiles,
+        skippedKeys,
+        localSkipped,
+        sampleKeys: report.sampleKeys
+      });
+    } catch (error: any) {
+      console.error("Error executing redundancy cleanup:", error);
+      res.status(500).json({ error: error.message || 'Redundanz-Bereinigung fehlgeschlagen' });
     }
   });
 
@@ -4041,6 +4693,41 @@ async function startServer() {
     } catch (error: any) {
       console.error("Error restoring trash items:", error);
       res.status(500).json({ error: error.message || 'Trash restore failed' });
+    }
+  });
+
+  app.post("/api/r2-trash/archive", async (req, res) => {
+    try {
+      const trashKeys = Array.isArray(req.body?.trashKeys)
+        ? req.body.trashKeys.filter((key: any) => typeof key === 'string' && key.startsWith(TRASH_PREFIX))
+        : [];
+      if (trashKeys.length === 0) {
+        return res.status(400).json({ error: 'trashKeys required' });
+      }
+
+      const { archived, skippedKeys } = await archiveTrashObjectsToBak(trashKeys);
+      await syncStorageSize();
+
+      // Return bak/restore-compatible mappings so archiving is undoable.
+      const bakFiles = archived
+        .map((entry) => {
+          const from = r2KeyToLocalPath(entry.originalKey, process.cwd());
+          if (!from) return null;
+          return { from, to: path.resolve(process.cwd(), entry.bakPath) };
+        })
+        .filter(Boolean);
+
+      res.json({
+        success: true,
+        archivedCount: archived.length,
+        skippedCount: skippedKeys.length,
+        archived,
+        bakFiles,
+        skippedKeys
+      });
+    } catch (error: any) {
+      console.error("Error archiving trash items to bak/:", error);
+      res.status(500).json({ error: error.message || 'Trash archive failed' });
     }
   });
 
@@ -4185,7 +4872,11 @@ async function startServer() {
       const existsInState = (id: string) => {
         for (const item of state.items) {
           if (item.id === id) return true;
-          if (item.mergedMedia) { for (const m of item.mergedMedia) { if (m.id === id) return true; } }
+          if (item.mergedMedia) {
+            for (const m of item.mergedMedia) {
+              if (m.id === id) return true;
+            }
+          }
         }
         return false;
       };
@@ -4206,18 +4897,41 @@ async function startServer() {
                     }
                     return { type: 'image', image: media, image_large: media, link: item.link };
                   }
-                  return { type: media.type || 'image', image: media.image || media.image_thumb || '', image_thumb: media.image_thumb || '', image_1k: media.image_1k || '', image_2k: media.image_2k || '', image_large: media.image_large || '', image_3k: media.image_3k || '', image_original: media.image_original || '', image_width: media.image_width || 0, image_height: media.image_height || 0, link: media.link || item.link };
+                  const bestImage = pickBestImage(media.image_original, media.image_3k, media.image_2k, media.image_large, media.image_1k, media.image_thumb, media.image);
+                  return {
+                    type: media.type || 'image',
+                    image: bestImage || media.image || media.image_thumb || '',
+                    image_thumb: media.image_thumb || media.image || '',
+                    image_1k: media.image_1k || '',
+                    image_2k: media.image_2k || '',
+                    image_large: media.image_large || media.image_2k || media.image_3k || media.image_1k || media.image_thumb || media.image || '',
+                    image_3k: media.image_3k || '',
+                    image_original: media.image_original || '',
+                    image_width: media.image_width || 0,
+                    image_height: media.image_height || 0,
+                    link: media.link || item.link
+                  };
                 })
               : (item.image ? [{ type: 'image', image: item.image, image_thumb: item.image_thumb || item.image || '', image_1k: item.image_1k || '', image_2k: item.image_2k || '', image_large: item.image_large || '', image_3k: item.image_3k || '', image_original: item.image_original || '', image_width: item.image_width || 0, image_height: item.image_height || 0, link: item.link }] : []);
             newItems.push({
-              id, type: mergedMedia.some((m: any) => m.type === 'video') ? 'video' : 'image', source: 'instagram',
-              title: item.title || '', description: item.description || '',
-              image: item.image || mergedMedia[0]?.image || '',
-              image_thumb: item.image_thumb || item.image || '', image_1k: item.image_1k || '',
-              image_2k: item.image_2k || '', image_large: item.image_large || item.image_2k || item.image_3k || item.image_1k || item.image_thumb || item.image || '',
-              image_3k: item.image_3k || '', image_original: item.image_original || '',
-              image_width: item.image_width || 0, image_height: item.image_height || 0,
-              mergedMedia, url: item.link, date: item.timestamp || new Date().toISOString(), phash: item.phash
+              id,
+              type: mergedMedia.some((media: any) => media.type === 'video') ? 'video' : 'image',
+              source: 'instagram',
+              title: item.title || '',
+              description: item.description || '',
+              image: pickBestImage(item.image_original, item.image_3k, item.image_2k, item.image_large, item.image_1k, item.image_thumb, item.image) || item.image || item.image_thumb || '',
+              image_thumb: item.image_thumb || item.image || '',
+              image_1k: item.image_1k || '',
+              image_2k: item.image_2k || '',
+              image_large: item.image_large || item.image_2k || item.image_3k || item.image_1k || item.image_thumb || item.image || '',
+              image_3k: item.image_3k || '',
+              image_original: item.image_original || '',
+              image_width: item.image_width || 0,
+              image_height: item.image_height || 0,
+              mergedMedia,
+              url: item.link,
+              date: item.timestamp || new Date().toISOString(),
+              phash: item.phash
             });
           }
         } catch (e) { console.error('[Merge] Instagram data read failed:', e); }
@@ -4235,7 +4949,7 @@ async function startServer() {
       res.json({ success: true, addedCount: newItems.length, message: `Merge complete: ${newItems.length} new items added from ${source}.` });
     } catch (error: any) {
       console.error(`[Merge] Failed for ${source}:`, error);
-      res.status(500).json({ error: 'Merge failed', details: error.message || String(error) });
+      res.status(500).json({ error: error.message || String(error) });
     }
   });
 
@@ -4672,7 +5386,11 @@ async function startServer() {
         }
       }
 
-      let variantSet: any = {};
+      let variantSet: any = null;
+      let remoteUrls: Record<string, string> = {};
+      let uploadErrors: string[] = [];
+      const canUploadDirectly = hasR2UploadCredentials();
+
       if (thumbBuffer && thumbBuffer.length > 0) {
         variantSet = await materializeVariantSet(thumbBuffer, {
           group: 'uploads',
@@ -4681,13 +5399,36 @@ async function startServer() {
           originalExt: 'jpg',
           uploadToCloud: false,
         });
+
+        if (canUploadDirectly) {
+          try {
+            const directUploadResult = await uploadVariantSetToR2(variantSet, {
+              group: 'uploads',
+              originalBuffer: thumbBuffer,
+              originalExt: 'jpg',
+            });
+            remoteUrls = directUploadResult.remoteUrls || {};
+            uploadErrors = directUploadResult.uploadErrors || [];
+          } catch (uploadError: any) {
+            uploadErrors = [uploadError?.message || 'Thumbnail upload failed'];
+          }
+        }
       }
 
-      const localThumb = variantSet.localUrls?.image_thumb || '';
-      const local1k = variantSet.localUrls?.image_1k || '';
-      const local2k = variantSet.localUrls?.image_2k || '';
-      const local3k = variantSet.localUrls?.image_3k || '';
-      const localOriginal = variantSet.localUrls?.image_original || '';
+      const localUrls = variantSet?.localUrls || {};
+      const localThumb = localUrls.image_thumb || '';
+      const local1k = localUrls.image_1k || '';
+      const local2k = localUrls.image_2k || '';
+      const local3k = localUrls.image_3k || '';
+      const localOriginal = localUrls.image_original || '';
+      const remoteThumb = remoteUrls.image_thumb || '';
+      const remote1k = remoteUrls.image_1k || '';
+      const remote2k = remoteUrls.image_2k || '';
+      const remote3k = remoteUrls.image_3k || '';
+      const remoteLarge = remote2k || remote3k || remote1k || remoteThumb || '';
+      const remoteOriginal = remoteUrls.image_original || '';
+      const localLargeVariant = local2k ? '2k' : (local3k ? '3k' : (local1k ? '1k' : 'thumb'));
+      const cloudUploaded = canUploadDirectly && uploadErrors.length === 0 && Object.keys(remoteUrls).length > 0;
 
       res.json({
         success: true,
@@ -4698,10 +5439,12 @@ async function startServer() {
         image_1k: local1k,
         image_2k: local2k,
         image_3k: local3k,
-        image_original: originalUrl,
+        image_original: remoteOriginal || localOriginal,
         image_width: variantSet.sourceWidth || 0,
         image_height: variantSet.sourceHeight || 0,
-        missing_variants: variantSet.missingVariants || [],
+        missing_variants: variantSet.missingVariants,
+        cloudUploaded,
+        cloudUploadErrors: uploadErrors,
       });
     } catch (error: any) {
       console.error("Error processing video upload:", error);
@@ -4786,20 +5529,25 @@ async function startServer() {
       const remote1k = remoteUrls.image_1k || '';
       const remote2k = remoteUrls.image_2k || '';
       const remote3k = remoteUrls.image_3k || '';
+      const remoteLarge = remote2k || remote3k || remote1k || remoteThumb || '';
       const remoteOriginal = remoteUrls.image_original || '';
+      const localLargeVariant = local2k ? '2k' : (local3k ? '3k' : (local1k ? '1k' : 'thumb'));
+      const cloudUploaded = canUploadDirectly && uploadErrors.length === 0 && Object.keys(remoteUrls).length > 0;
 
       res.json({
         success: true,
-        cloudUploaded: canUploadDirectly && uploadErrors.length === 0 && Object.keys(remoteUrls).length > 0,
-        cloudUploadErrors: uploadErrors,
-        image_thumb: remoteThumb || localThumb,
-        image_1k: remote1k || local1k,
-        image_2k: remote2k || local2k,
-        image_3k: remote3k || local3k,
+        type: 'image',
+        image: local2k || local3k || local1k || localThumb || '',
+        image_thumb: localThumb,
+        image_1k: local1k,
+        image_2k: local2k,
+        image_3k: local3k,
         image_original: remoteOriginal || localOriginal,
         image_width: variantSet.sourceWidth,
         image_height: variantSet.sourceHeight,
         missing_variants: variantSet.missingVariants,
+        cloudUploaded,
+        cloudUploadErrors: uploadErrors,
       });
     } catch (error: any) {
       console.error("Error processing custom thumbnail upload:", error);
@@ -4991,10 +5739,10 @@ async function startServer() {
         });
       }
 
-      const localThumb = localVariantSet.localUrls?.image_thumb || '';
-      const local1k = localVariantSet.localUrls?.image_1k || '';
-      const local2k = localVariantSet.localUrls?.image_2k || '';
-      const local3k = localVariantSet.localUrls?.image_3k || '';
+      const localThumb = localVariantSet.localUrls.image_thumb || '';
+      const local1k = localVariantSet.localUrls.image_1k || '';
+      const local2k = localVariantSet.localUrls.image_2k || '';
+      const local3k = localVariantSet.localUrls.image_3k || '';
       const previewCloudUploaded = !!Object.keys(localVariantSet.remoteUrls || {}).length;
 
       const videoBuffer = req.file.buffer;
@@ -5607,7 +6355,7 @@ async function startServer() {
   const stripFileStem = (filePath: string) => {
     const clean = filePath.split('?')[0];
     const base = clean.split('/').pop() || clean;
-    return base.replace(/\.(jpg|jpeg|png|webp|gif|avif|mp4|webm|mov)$/i, '');
+    return base.replace(/\.(jpg|jpeg|png|webp|gif|avif|bmp|tif|tiff|mp4|webm|mov|avi|mkv|flv)$/i, '');
   };
 
   const localPathToUrl = (absPath: string) => {
@@ -5664,7 +6412,7 @@ async function startServer() {
         const videoFiles = entry.media_list.filter((p: any) => typeof p === 'string' && isDirectVideoFile(p));
         if (videoFiles.length > 0) {
           // Prefer stem match against any local path hint on the media item
-          const localHint = ['video', 'video_url', 'url', 'image', 'image_thumb', 'image_1k']
+          const localHint = ['video', 'video_url', 'url', 'image', 'image_thumb', 'image_1k', 'image_2k', 'image_3k']
             .map((f) => media?.[f])
             .find((v) => typeof v === 'string' && v.startsWith('/data/'));
           if (localHint) {

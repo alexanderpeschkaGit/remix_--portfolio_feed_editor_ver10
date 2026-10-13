@@ -11,15 +11,14 @@ A web-based portfolio management tool that allows you to scrape images from Flic
 
 This project is designed to be managed by AI assistants. The following files provide context:
 
-- `.cursorrules`: Contains project architecture, environment constraints, and AI shortcut commands.
-- `HOWTOUSE.md`: User manual for the Admin Panel.
+- `AGENTS.md`: Single source of truth (architecture, environment constraints, code quality). Tool-specific files (`.clinerules`, `.windsurfrules`, `CLAUDE.md`, `.cursor/rules/agents.mdc`, `.github/copilot-instructions.md`) only point to it.
+- `.agents/rules/`: Modular rules (`workflow.md` for shortcut tags, `representation-r2.md`, `bio-display.md`).
+- `prompts/`: Prompt templates used by the app itself (not rules for coding agents).
+- `docs/HOWTOUSE.md`: Human user manual (buttons and keyboard/mouse shortcuts). Not loaded by agents unless asked.
 - `metadata.json`: Application settings.
 
 ### AI Shortcut Commands
-- `#plan`: Create a step-by-step architecture plan.
-- `#exec [step]`: Execute a specific step.
-- `#review`: Analyze code for errors/improvements.
-- `#check`: Assess task complexity.
+Defined in `.agents/rules/workflow.md`: `#plan`, `#exec [step]`, `#review`, `#check`, `#ask`, `#grillme`, `#flash`, `#refactor`.
 
 ## Project Architecture
 The active application is implemented in `src/` with a modular React structure.
@@ -32,9 +31,3 @@ The active application is implemented in `src/` with a modular React structure.
 - `backups_app/` is intentionally preserved and contains backup copies and older integration references.
 - Active source code lives under `src/`; runtime build is driven by `vite` and `package.json`.
 - `data/` (runtime state: `state.json`, previews, uploads, etc.) is **gitignored** by design — it is not version-controlled. Migration scripts (e.g. `scripts/migrate-*.ts`) automatically back up `data/state.json` to `backups/data/` before applying changes.
-
-[!IMPORTANT]
-> **AI INSTRUCTIONS:**
-> Wenn du (KI/Agent) an diesem Projekt arbeitest, lies ZUERST die Datei 
-> [AI_SYSTEM_INSTRUCTIONS.md](./AI_SYSTEM_INSTRUCTIONS.md) und befolge alle 
-> dort definierten Regeln strikt.

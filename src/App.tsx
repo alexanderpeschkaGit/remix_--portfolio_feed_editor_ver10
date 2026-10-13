@@ -73,9 +73,9 @@ const MergeConfirmationModal = ({ isOpen, group, onConfirm, onSkip }: any) => {
   return (
     <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4">
       <div className="bg-[#111] border border-white/10 rounded-xl p-6 max-w-lg w-full">
-        <h2 className="text-xl font-bold text-white mb-4">Projekte zusammenfÃ¼hren?</h2>
+        <h2 className="text-xl font-bold text-white mb-4">Projekte zusammenführen?</h2>
         <p className="text-white/70 mb-4">
-          MÃ¶chtest du die folgenden {group.length} Projekte mit dem Title "{group[0].title}" zusammenfÃ¼hren?
+          Möchtest du die folgenden {group.length} Projekte mit dem Title "{group[0].title}" zusammenführen?
         </p>
         <div className="space-y-2 mb-6 max-h-60 overflow-y-auto custom-scrollbar">
           {group.map((post: any) => (
@@ -86,7 +86,7 @@ const MergeConfirmationModal = ({ isOpen, group, onConfirm, onSkip }: any) => {
         </div>
         <div className="flex gap-4">
           <button onClick={onSkip} className="flex-1 bg-white/30 hover:bg-white/40 text-white py-2 rounded">Nein</button>
-          <button onClick={onConfirm} className="flex-1 bg-white/30 hover:bg-white/40 text-white py-2 rounded">Ja, zusammenfÃ¼hren</button>
+          <button onClick={onConfirm} className="flex-1 bg-white/30 hover:bg-white/40 text-white py-2 rounded">Ja, zusammenführen</button>
         </div>
       </div>
     </div>
@@ -339,6 +339,7 @@ export default function App() {
   const [restoringLatestPublish, setRestoringLatestPublish] = useState(false);
   const [r2CleanupRunning, setR2CleanupRunning] = useState(false);
   const [legacyDupCleanupRunning, setLegacyDupCleanupRunning] = useState(false);
+  const [redundancyCleanupRunning, setRedundancyCleanupRunning] = useState(false);
   const [selectedImage, setSelectedImage] = useState<any | null>(null);
   const [imageDimensions, setImageDimensions] = useState<Record<string, string>>({});
 
@@ -491,7 +492,7 @@ export default function App() {
       let newPosts = prevPosts.filter(p => !groupIds.has(p.id));
       newPosts.splice(firstPostIndex, 0, newPost);
       return newPosts;
-    }, `Gruppe zusammengefÃ¼hrt (${newTitle})`);
+    }, `Gruppe zusammengeführt (${newTitle})`);
 
     processNextMerge(mergeQueue);
   };
@@ -518,7 +519,7 @@ export default function App() {
     }
   };
 
-  // ===== Hook: useRearrangeState fÃ¼r Rearrange/Merge/Delete FunktionalitÃ¤t =====
+  // ===== Hook: useRearrangeState für Rearrange/Merge/Delete Funktionalität =====
   const rearrangeState = useRearrangeState();
   const {
     isReorderView,
@@ -539,7 +540,7 @@ export default function App() {
     exitMoveMode,
   } = rearrangeState;
 
-  // ===== Hook: useLightboxState fÃ¼r Lightbox Modal UI State (Mouse, Hovering, Dragging) =====
+  // ===== Hook: useLightboxState für Lightbox Modal UI State (Mouse, Hovering, Dragging) =====
   const lightboxState = useLightboxState();
   const {
     lightboxMousePos,
@@ -685,10 +686,10 @@ export default function App() {
   };
   
   const reorderScrollRef = useRef<HTMLDivElement>(null!);
-  const [portfolioTitle, setPortfolioTitle] = useState("ProjectionArt by Vijay Sikanda");
-  const [portfolioSubtitle, setPortfolioSubtitle] = useState("immersive projection experience");
-  const [igAccount, setIgAccount] = useState("vijay_sikanda");
-  const [flickrUrl, setFlickrUrl] = useState("https://www.flickr.com/photos/23689211@N04/albums/72157604835171705/");
+  const [portfolioTitle, setPortfolioTitle] = useState("Portfolio Gallery");
+  const [portfolioSubtitle, setPortfolioSubtitle] = useState("My creative works");
+  const [igAccount, setIgAccount] = useState("your_instagram_handle");
+  const [flickrUrl, setFlickrUrl] = useState("https://www.flickr.com/photos/your_account/albums/your_album_id/");
   const [publicDomain, setPublicDomain] = useState<string | null>(null);
   
   // Bio feature hook
@@ -880,7 +881,7 @@ export default function App() {
 
   // Public media configuration. Credentials and publishing remain server-side.
   const R2_CONFIG = {
-    publicDomain: "https://pub-85bb68a84f3b4ba6b512b3d165c96497.r2.dev"
+    publicDomain: ""
   };
 
   useEffect(() => {
@@ -893,8 +894,18 @@ export default function App() {
       });
   }, []);
 
+  // Hält immer die aktuellen Handler/Auswahl, damit der einmalig registrierte keydown-Listener
+  // keine veralteten Closures (leere Undo-History, alte Medien-Auswahl) verwendet.
+  const keyHandlersRef = useRef<{
+    handleUndo: () => void | Promise<void>;
+    handleRedo: () => void;
+    mediaSelection: MediaSelection;
+    clearMediaSelection: () => void;
+  } | null>(null);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const latest = keyHandlersRef.current;
       if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'a') {
         setIsEditing(prev => !prev);
       }
@@ -904,17 +915,17 @@ export default function App() {
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         if (e.shiftKey) {
-          handleRedo();
+          latest?.handleRedo();
         } else {
-          handleUndo();
+          latest?.handleUndo();
         }
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
-        handleRedo();
+        latest?.handleRedo();
       }
       if (e.key === 'Escape') {
-        if (mediaSelection) {
-          clearMediaSelection();
+        if (latest?.mediaSelection) {
+          latest.clearMediaSelection();
           return;
         }
         setSelectedImage(null);
@@ -944,7 +955,7 @@ export default function App() {
   const handleScrape = async (source: string) => {
     setIsScraping(true);
     setShowLogs(true);
-    setScrapeLogs([`Starte Scraping fÃ¼r ${source}...`]);
+    setScrapeLogs([`Starte Scraping für ${source}...`]);
     
     try {
       // 1. Start the scrape
@@ -954,7 +965,7 @@ export default function App() {
         body: JSON.stringify({ source })
       }).catch(err => {
         console.error("Fetch error:", err);
-        throw new Error(`Netzwerkfehler: ${err.message}. LÃ¤uft der Server?`);
+        throw new Error(`Netzwerkfehler: ${err.message}. Läuft der Server?`);
       });
       
       if (!startRes.ok) {
@@ -992,7 +1003,7 @@ export default function App() {
                 setIsFlickrFallback(false);
                 
                 
-                setScrapeLogs(prev => [...prev, "Log-Fenster bleibt offen. Bitte manuell schlieÃŸen."]);
+                setScrapeLogs(prev => [...prev, "Log-Fenster bleibt offen. Bitte manuell schließen."]);
               } catch (e) {
                 console.error("Failed to load new state", e);
                 setScrapeLogs(prev => [...prev, "Fehler beim Laden der neuen Daten. Lade Seite neu..."]);
@@ -1073,7 +1084,7 @@ export default function App() {
         const stateData = await stateRes.json();
         const hasNew = (stateData.items || []).some((i: any) => !flickrPostsRef.current.some((p: any) => String(p.id) === String(i.id)));
         if (hasNew) {
-          updatePosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items), 'High-Res Match bestÃ¤tigt');
+          updatePosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items), 'High-Res Match bestätigt');
         } else {
           setFlickrPosts(current => mergeIncomingPostsPreservingExisting(current, stateData.items));
         }
@@ -1108,8 +1119,8 @@ export default function App() {
           if (data.posts && data.posts.length > 0) {
             console.log("Loading from embedded data");
             setIsEmbeddedData(true);
-            setPortfolioTitle(data.title || "ProjectionArt by Vijay Sikanda");
-            setPortfolioSubtitle(data.subtitle || "immersive projection experience");
+            setPortfolioTitle(data.title || "Portfolio Gallery");
+            setPortfolioSubtitle(data.subtitle || "My creative works");
             if (data.bio) setPortfolioBio(data.bio);
             setFlickrPosts(data.posts);
             setLoading(false);
@@ -1358,15 +1369,15 @@ export default function App() {
     };
   }, [flickrPosts, portfolioTitle, portfolioSubtitle]);
 
-  // Beschreibung fÃ¼r Undo/Redo-Tooltips: Post-Titel + Quelle (network_name), falls nicht "Custom"
+  // Beschreibung für Undo/Redo-Tooltips: Post-Titel + Quelle (network_name), falls nicht "Custom"
   const describePost = (post: any) => {
     const title = post?.title || 'Unbenannt';
     const network = post?.network_name;
-    if (network && network !== 'Custom') return `${title} Â· ${network}`;
+    if (network && network !== 'Custom') return `${title} · ${network}`;
     return title;
   };
 
-  const updatePosts = useCallback((newPosts: any[] | ((p: any[]) => any[]), actionDescription: string = 'Aktion durchgefÃ¼hrt') => {
+  const updatePosts = useCallback((newPosts: any[] | ((p: any[]) => any[]), actionDescription: string = 'Aktion durchgeführt') => {
     setFlickrPosts(current => {
       const next = typeof newPosts === 'function' ? newPosts(current) : newPosts;
       setPast((p): typeof p => [...p, { posts: current, action: actionDescription }].slice(-50)); // Keep last 50 states
@@ -1406,7 +1417,7 @@ export default function App() {
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
-          throw new Error(data.error || 'R2-Trash konnte nicht rÃ¼ckgÃ¤ngig gemacht werden.');
+          throw new Error(data.error || 'R2-Trash konnte nicht rückgängig gemacht werden.');
         }
 
         const restoredKeys = new Set<string>(
@@ -1431,18 +1442,18 @@ export default function App() {
         if (remainingKeys.length > 0) {
           pushStatusNotice(
             'warning',
-            'R2-Undo teilweise ausgefÃ¼hrt',
+            'R2-Undo teilweise ausgeführt',
             `${restoredKeys.size} Datei(en) wiederhergestellt, ${remainingKeys.length} wegen Konflikten oder Fehlern noch im Trash.`
           );
         } else {
           pushStatusNotice(
             'success',
             'R2-Undo abgeschlossen',
-            `${restoredKeys.size} Datei(en) wurden an ihren ursprÃ¼nglichen Pfad zurÃ¼ckverschoben.`
+            `${restoredKeys.size} Datei(en) wurden an ihren ursprünglichen Pfad zurückverschoben.`
           );
         }
       } catch (undoError: any) {
-        const message = undoError.message || 'R2-Trash konnte nicht rÃ¼ckgÃ¤ngig gemacht werden.';
+        const message = undoError.message || 'R2-Trash konnte nicht rückgängig gemacht werden.';
         setError(message);
         pushStatusNotice('warning', 'R2-Undo fehlgeschlagen', message);
       } finally {
@@ -1493,6 +1504,8 @@ export default function App() {
     setFlickrPosts(nextState.posts);
   };
 
+  keyHandlersRef.current = { handleUndo, handleRedo, mediaSelection, clearMediaSelection };
+
   const handleToggleHidden = (postId: string) => {
     const targetTitle = describePost(flickrPosts.find(p => String(p.id) === String(postId)));
     updatePosts(posts => posts.map(post => {
@@ -1500,7 +1513,7 @@ export default function App() {
         return { ...post, hidden: !post.hidden };
       }
       return post;
-    }), `Visibility geÃ¤ndert (${targetTitle})`);
+    }), `Visibility geändert (${targetTitle})`);
   };
 
   const handleStateToggle = (postId: string, stateId: string) => {
@@ -1517,7 +1530,7 @@ export default function App() {
         return { ...post, states: newStates };
       }
       return post;
-    }), `Kategorie geÃ¤ndert (${targetTitle})`);
+    }), `Kategorie geändert (${targetTitle})`);
   };
 
   const handlePostChange = (id: string, field: string, value: string) => {
@@ -1536,7 +1549,7 @@ export default function App() {
       type: 'image',
       states: []
     };
-    updatePosts([newPost, ...flickrPosts], 'Neuen Post hinzugefÃ¼gt (Custom)');
+    updatePosts([newPost, ...flickrPosts], 'Neuen Post hinzugefügt (Custom)');
     setIsEditing(true);
   };
 
@@ -1631,12 +1644,12 @@ export default function App() {
 
       newPosts.splice(index + 1, 1);
       return newPosts;
-    }, `Posts zusammengefÃ¼hrt (${targetTitle})`);
+    }, `Posts zusammengeführt (${targetTitle})`);
   }, [flickrPosts, updatePosts]);
 
   const handleUpdatePostMedia = (id: string, newMediaRaw: any[]) => {
     // FIX #3: Strikte Filter-Logik - Phantom-Elemente entfernen
-    // uploadId ist NUR wÃ¤hrend des Uploads erlaubt, danach mÃ¼ssen finale URLs vorhanden sein
+    // uploadId ist NUR während des Uploads erlaubt, danach müssen finale URLs vorhanden sein
     const newMedia = newMediaRaw.filter(hasRenderableMedia);
     const targetTitle = describePost(flickrPosts.find(p => String(p.id) === String(id)));
     updatePosts(posts => posts.map(post => {
@@ -1840,14 +1853,14 @@ export default function App() {
         if (isNew || mediaIndex === undefined) {
           const newItem: any = { uploadId, type: 'image', image_preview: localUrl };
           
-          // FIX #1: Explizites Array-Clearing beim HinzufÃ¼gen neuer Bilder
+          // FIX #1: Explizites Array-Clearing beim Hinzufügen neuer Bilder
           // Nur bereits fertiggestellte Bilder mit finalen URLs behalten, keine uploadId-Only oder Phantom-Elemente
           let validatedMedia: any[] = [];
           if (post.mergedMedia && post.mergedMedia.length > 0) {
             // Strikte Validierung: Nur Elemente mit echten finalen URLs beibehalten
             validatedMedia = post.mergedMedia.filter(hasRenderableMedia);
           } else if (hasPrimaryMedia(post)) {
-            // Falls keine mergedMedia aber primÃ¤re Post-Daten vorhanden: Diese als Basis verwenden
+            // Falls keine mergedMedia aber primäre Post-Daten vorhanden: Diese als Basis verwenden
             validatedMedia = [postToMediaItem(post)];
           }
           
@@ -1884,7 +1897,7 @@ export default function App() {
         return { ...cleanOldUrls(post), uploadId, image_preview: localUrl, type: 'image' };
       }
       return post;
-    }), `Lokales Bild hinzugefÃ¼gt (${describePost(flickrPosts.find(p => String(p.id) === String(id)))})`);
+    }), `Lokales Bild hinzugefügt (${describePost(flickrPosts.find(p => String(p.id) === String(id)))})`);
 
     try {
       const formData = new FormData();
@@ -1916,13 +1929,13 @@ export default function App() {
         pushStatusNotice(
           'success',
           'Direkt nach R2 hochgeladen',
-          'Die neuen Bildvarianten sind sofort in Cloudflare R2 verfÃ¼gbar.'
+          'Die neuen Bildvarianten sind sofort in Cloudflare R2 verfügbar.'
         );
       } else if (Array.isArray(uploadData.cloudUploadErrors) && uploadData.cloudUploadErrors.length > 0) {
         pushStatusNotice(
           'warning',
           'Lokal gespeichert',
-          'Mindestens eine R2-Variante hat den Direkt-Upload nicht geschafft und wird spÃ¤ter synchronisiert.'
+          'Mindestens eine R2-Variante hat den Direkt-Upload nicht geschafft und wird später synchronisiert.'
         );
       }
       
@@ -1980,9 +1993,9 @@ export default function App() {
                 return true;
               });
               
-              // Wenn das neue Upload nicht eingefÃ¼gt wurde, versuche es noch einmal
+              // Wenn das neue Upload nicht eingefügt wurde, versuche es noch einmal
               if (cleanedMedia.length === newMedia.length) {
-                // Element mit uploadId wurde nicht aktualisiert - fÃ¼ge direkt hinzu
+                // Element mit uploadId wurde nicht aktualisiert - füge direkt hinzu
                 const uploadedItem = { 
                   type: 'image', 
                   image: thumbUrl, 
@@ -2366,7 +2379,7 @@ export default function App() {
                image_width: data.image_width || 0,
                image_height: data.image_height || 0
              } : post
-           ), `Bunny Video hinzugefÃ¼gt (${describePost(flickrPosts.find(p => String(p.id) === String(id)))})`);
+           ), `Bunny Video hinzugefügt (${describePost(flickrPosts.find(p => String(p.id) === String(id)))})`);
         } else {
            console.error("Failed to sync Bunny video", data.error);
            alert("Fehler beim Abrufen der Bunny.net Metadaten: " + data.error);
@@ -2397,7 +2410,7 @@ export default function App() {
           type: 'youtube',
           url: url
         } : post
-      ), `YouTube Link hinzugefÃ¼gt (${describePost(flickrPosts.find(p => String(p.id) === String(id)))})`);
+      ), `YouTube Link hinzugefügt (${describePost(flickrPosts.find(p => String(p.id) === String(id)))})`);
     } else {
       handlePostChange(id, 'url', url); // fallback
     }
@@ -2628,31 +2641,31 @@ export default function App() {
     <script>
       console.log('Script running');
       function init() {
-        let publicDomain = "https://pub-85bb68a84f3b4ba6b512b3d165c96497.r2.dev";
+        let publicDomain = "https://your-r2-public-domain.example.invalid";
         try {
           console.log('Init starting...');
-          const portfolioDataEl = document.getElementById('portfolio-data');
-          if (!portfolioDataEl) {
+          const your-r2-bucketEl = document.getElementById('portfolio-data');
+          if (!your-r2-bucketEl) {
             console.error('portfolio-data element not found');
             // Continue anyway, maybe some things still work
           } else {
-            console.log('portfolioDataEl found');
+            console.log('your-r2-bucketEl found');
             try {
-              window.portfolioData = JSON.parse(portfolioDataEl.textContent);
-              if (window.portfolioData.items && !window.portfolioData.posts) {
-                window.portfolioData.posts = window.portfolioData.items.filter(p => !p.hidden);
+              window.your-r2-bucket = JSON.parse(your-r2-bucketEl.textContent);
+              if (window.your-r2-bucket.items && !window.your-r2-bucket.posts) {
+                window.your-r2-bucket.posts = window.your-r2-bucket.items.filter(p => !p.hidden);
               }
-              console.log('Portfolio data parsed:', window.portfolioData);
-              if (window.portfolioData && window.portfolioData.publicDomain) {
-                publicDomain = window.portfolioData.publicDomain;
+              console.log('Portfolio data parsed:', window.your-r2-bucket);
+              if (window.your-r2-bucket && window.your-r2-bucket.publicDomain) {
+                publicDomain = window.your-r2-bucket.publicDomain;
               }
               
               // Live Update Check
               fetch('state.json')
                 .then(res => res.json())
                 .then(newData => {
-                  if (newData && newData.lastUpdated && window.portfolioData.lastUpdated) {
-                    if (new Date(newData.lastUpdated) > new Date(window.portfolioData.lastUpdated)) {
+                  if (newData && newData.lastUpdated && window.your-r2-bucket.lastUpdated) {
+                    if (new Date(newData.lastUpdated) > new Date(window.your-r2-bucket.lastUpdated)) {
                       console.log('Newer state found! Updating live view...', newData.lastUpdated);
                       
                       // 1. Update Title and Bio if changed
@@ -2708,7 +2721,7 @@ export default function App() {
                       
                       // 3. Update global window object for Lightbox sync
                       newData.posts = newData.items.filter(p => !p.hidden); // Map items back to posts property for Lightbox
-                      window.portfolioData = newData;
+                      window.your-r2-bucket = newData;
                       renderGallery();
                     }
                   }
@@ -2717,7 +2730,7 @@ export default function App() {
                 
             } catch (jsonErr) {
               console.error('JSON parse failed:', jsonErr);
-              console.log('Raw data length:', portfolioDataEl.textContent.length);
+              console.log('Raw data length:', your-r2-bucketEl.textContent.length);
             }
           }
         } catch (e) {
@@ -2727,7 +2740,7 @@ export default function App() {
         const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.includes('.run.app');
         
         function isDirectMediaFile(url) {
-          return !!url && /\.(jpg|jpeg|png|webp|gif|avif|bmp|mp4|webm|mov)(\\?.*)?$/i.test(url);
+          return !!url && /\\.(jpg|jpeg|png|webp|gif|avif|bmp|mp4|webm|mov)(\\?.*)?$/i.test(url);
         }
 
         function isValidImageCandidate(url) {
@@ -2738,7 +2751,7 @@ export default function App() {
           // Bunny embed URLs are videos, never <img> sources
           if (url.includes('iframe.mediadelivery.net/embed/') || url.includes('player.mediadelivery.net/embed/')) return false;
           if (url.startsWith('http')) return true;
-          return !!url.match(/\.(jpe?g|png|webp|gif|avif|bmp)(\\?.*)?$/i);
+          return !!url.match(/\\.(jpe?g|png|webp|gif|avif|bmp)(\\?.*)?$/i);
         }
 
         function getImageSrc(media, preferLarge) {
@@ -2951,8 +2964,8 @@ export default function App() {
           if (cleanUrl.startsWith('/')) cleanUrl = cleanUrl.substring(1);
           if (cleanUrl.startsWith('data_v2/')) cleanUrl = cleanUrl.substring('data_v2/'.length);
           
-          // Fallback domain if window.portfolioData.publicDomain is not available
-          const domain = (window.portfolioData && window.portfolioData.publicDomain) ? window.portfolioData.publicDomain : publicDomain;
+          // Fallback domain if window.your-r2-bucket.publicDomain is not available
+          const domain = (window.your-r2-bucket && window.your-r2-bucket.publicDomain) ? window.your-r2-bucket.publicDomain : publicDomain;
           const safeDomain = domain.endsWith('/') ? domain.slice(0, -1) : domain;
 
           if (isLocalFile) {
@@ -3034,7 +3047,7 @@ export default function App() {
           const mediaHtml = renderMediaMarkup(post);
           const descriptionHtml = post.description ? '<p>' + post.description + '</p>' : '';
           const tagsHtml = post.states && post.states.length > 0 ? '<div class="tags" style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px;">' + post.states.map(stateId => {
-            const state = window.portfolioData.projectStates.find(s => String(s.id).toLowerCase() === String(stateId).toLowerCase());
+            const state = window.your-r2-bucket.projectStates.find(s => String(s.id).toLowerCase() === String(stateId).toLowerCase());
             return state ? '<span class="tag-label" style="background-color: ' + state.bright + '; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">' + state.label + '</span>' : '';
           }).join('') + '</div>' : '';
           const linksHtml = post.mergedMedia ? '<div class="links">' + post.mergedMedia.map((m, i) => (m.url || m.link) ? '<a href="' + (m.url || m.link) + '" target="_blank">Link ' + (i + 1) + '</a>' : '').join(' ') + '</div>' : '';
@@ -3062,10 +3075,10 @@ export default function App() {
 
         function renderGallery() {
           const galleryRoot = document.getElementById('gallery-root');
-          if (!galleryRoot || !window.portfolioData) return;
-          const sourcePosts = (window.portfolioData.posts && window.portfolioData.posts.length > 0)
-            ? window.portfolioData.posts
-            : (window.portfolioData.items || []);
+          if (!galleryRoot || !window.your-r2-bucket) return;
+          const sourcePosts = (window.your-r2-bucket.posts && window.your-r2-bucket.posts.length > 0)
+            ? window.your-r2-bucket.posts
+            : (window.your-r2-bucket.items || []);
           galleryRoot.innerHTML = sourcePosts.filter(p => !p.hidden).map(renderCard).join('');
           startFeedVideoPreviews(galleryRoot);
         }
@@ -3086,7 +3099,7 @@ export default function App() {
             
             cards.forEach(card => {
               const postId = card.getAttribute('data-post-id');
-              const post = window.portfolioData.posts.find(p => String(p.id) === String(postId));
+              const post = window.your-r2-bucket.posts.find(p => String(p.id) === String(postId));
               const postStatesLower = post && post.states ? post.states.map(s => String(s).toLowerCase()) : [];
               
               if (filter === 'all') {
@@ -3143,9 +3156,9 @@ export default function App() {
         console.log('Cards found:', galleryRoot ? galleryRoot.querySelectorAll('.card').length : 0);
         const openLightboxForPostId = (postId) => {
           if (!postId) return;
-          if (!window.portfolioData || !window.portfolioData.posts) return;
+          if (!window.your-r2-bucket || !window.your-r2-bucket.posts) return;
 
-          currentPost = window.portfolioData.posts.find(p => String(p.id) === String(postId));
+          currentPost = window.your-r2-bucket.posts.find(p => String(p.id) === String(postId));
           if (!currentPost) return;
 
           currentPostMedia = [];
@@ -3163,9 +3176,9 @@ export default function App() {
           lightboxTitle.textContent = currentPost.title || '';
           lightboxDescription.innerHTML = currentPost.description ? currentPost.description.replace(/\\n/g, '<br/>') : '';
 
-          if (currentPost.states && currentPost.states.length > 0 && window.portfolioData.projectStates) {
+          if (currentPost.states && currentPost.states.length > 0 && window.your-r2-bucket.projectStates) {
             lightboxTags.innerHTML = currentPost.states.map(stateId => {
-              const state = window.portfolioData.projectStates.find(s => String(s.id).toLowerCase() === String(stateId).toLowerCase());
+              const state = window.your-r2-bucket.projectStates.find(s => String(s.id).toLowerCase() === String(stateId).toLowerCase());
               return state ? \`<span class="tag-label" style="background-color: \${state.muted}; border: 1px solid \${state.bright}; color: #fff; margin-right: 4px; margin-bottom: 4px; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">\${state.label}</span>\` : '';
             }).join('');
             lightboxTags.style.display = 'flex';
@@ -3349,10 +3362,10 @@ export default function App() {
             
             currentPostMedia = items;
             
-            // Update the post in window.portfolioData
-            const postIdx = window.portfolioData.posts.findIndex(p => String(p.id) === String(currentPost.id));
+            // Update the post in window.your-r2-bucket
+            const postIdx = window.your-r2-bucket.posts.findIndex(p => String(p.id) === String(currentPost.id));
             if (postIdx !== -1) {
-              const updatedPost = { ...window.portfolioData.posts[postIdx], mergedMedia: currentPostMedia };
+              const updatedPost = { ...window.your-r2-bucket.posts[postIdx], mergedMedia: currentPostMedia };
               const primaryMedia = currentPostMedia[0];
               if (primaryMedia) {
                 updatedPost.type = primaryMedia.type || updatedPost.type;
@@ -3361,7 +3374,7 @@ export default function App() {
                 updatedPost.url = primaryMedia.url || primaryMedia.link || updatedPost.url;
                 updatedPost.youtubeId = primaryMedia.youtubeId || updatedPost.youtubeId;
               }
-              window.portfolioData.posts[postIdx] = updatedPost;
+              window.your-r2-bucket.posts[postIdx] = updatedPost;
             }
             
             renderReorderGrid();
@@ -3376,11 +3389,11 @@ export default function App() {
 
         btnSaveOrder.addEventListener('click', () => {
           // Normalize media state before embedding into the exported HTML
-          window.portfolioData = normalizePortfolioState(window.portfolioData);
+          window.your-r2-bucket = normalizePortfolioState(window.your-r2-bucket);
 
           // Update the script tag content
           const scriptTag = document.getElementById('portfolio-data');
-          scriptTag.textContent = JSON.stringify(window.portfolioData);
+          scriptTag.textContent = JSON.stringify(window.your-r2-bucket);
           
           // Generate new HTML content
           const html = document.documentElement.outerHTML;
@@ -3786,6 +3799,54 @@ export default function App() {
     setTrashError(null);
 
     try {
+      // Archive (not hard delete): each object is first streamed into bak/r2-trash/
+      // and only removed from R2 after the local write verified, so the last copy
+      // always survives. Use the explicit permanent-delete action to skip bak/.
+      const res = await fetch('/api/r2-trash/archive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trashKeys })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to archive trash items');
+      }
+
+      if (Array.isArray(data.bakFiles) && data.bakFiles.length > 0) {
+        setPast(previous => [
+          ...previous,
+          { posts: [], bakFiles: data.bakFiles, action: `Trash archiviert (${data.bakFiles.length} Dateien in bak/)` }
+        ].slice(-50));
+        setFuture([]);
+      }
+
+      await loadTrashItems(true);
+      if ((data.skippedCount || 0) > 0) {
+        setTrashError(`${data.skippedCount} item(s) could not be archived (R2 copy kept).`);
+      }
+      await fetchCloudflareUsage();
+    } catch (error: any) {
+      setTrashError(error.message || 'Failed to archive trash items');
+    } finally {
+      setTrashLoading(false);
+    }
+  };
+
+  // Irreversible: removes the R2 trash copy WITHOUT writing anything to bak/.
+  const handlePermanentlyDeleteTrashItems = async (trashKeys: string[]) => {
+    if (trashKeys.length === 0) return;
+
+    const confirmed = window.confirm(
+      `${trashKeys.length} Datei(en) werden UNWIDERruflich gelöscht.\n\n` +
+      `Es wird KEINE Kopie in bak/ abgelegt. Diese Dateien sind danach nicht wiederherstellbar.\n\n` +
+      `Trotzdem fortfahren?`
+    );
+    if (!confirmed) return;
+
+    setTrashLoading(true);
+    setTrashError(null);
+
+    try {
       const res = await fetch('/api/r2-trash/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3807,6 +3868,135 @@ export default function App() {
       setTrashLoading(false);
     }
   };
+
+  // Content-hash (SHA-1) duplicate scan across R2 and local media. Moves R2
+  // duplicates to trash/ and archives local duplicates into bak/redundant/.
+  const handleRedundancyCleanup = async () => {
+    if (redundancyCleanupRunning) return;
+
+    setRedundancyCleanupRunning(true);
+    setError('');
+    setShowLogs(true);
+    setScrapeLogs(['Hashing R2 and local media (SHA-1)...']);
+
+    try {
+      const previewResponse = await fetch('/api/r2-redundancy/preview', { method: 'POST' });
+      const previewData = await previewResponse.json().catch(() => ({}));
+
+      if (!previewResponse.ok) {
+        throw new Error(
+          previewData.error ||
+          (previewData.warnings || []).join(' ') ||
+          'Redundancy preview failed'
+        );
+      }
+
+      const previewLogs = [
+        'Redundancy scan complete.',
+        `Files hashed: ${previewData.scannedCount || 0}`,
+        `Redundant copies: ${previewData.duplicateCount || 0}`,
+        `Potential bytes affected: ${formatBytes(previewData.totalBytes || 0)}`
+      ];
+
+      if (Array.isArray(previewData.sampleKeys) && previewData.sampleKeys.length > 0) {
+        previewLogs.push('Examples:');
+        previewData.sampleKeys.forEach((key: string) => previewLogs.push(`- ${key}`));
+      }
+
+      setScrapeLogs(previewLogs);
+
+      if (!previewData.duplicateCount) {
+        setRedundancyCleanupRunning(false);
+        return;
+      }
+
+      setTimeout(async () => {
+        try {
+          const confirmed = window.confirm(
+            `${previewData.duplicateCount} byte-identical duplicates found.\n` +
+            `Potential bytes affected: ${formatBytes(previewData.totalBytes || 0)}.\n\n` +
+            `R2 copies move to trash/ (undoable), local copies move to bak/redundant/.\n` +
+            `Referenced files are always kept as the surviving copy.\n\n` +
+            `Continue?`
+          );
+
+          if (!confirmed) {
+            setScrapeLogs(prev => [...prev, 'Redundancy cleanup cancelled.']);
+            setRedundancyCleanupRunning(false);
+            return;
+          }
+
+          setScrapeLogs(prev => [...prev, 'Moving redundant copies...']);
+          const executeResponse = await fetch('/api/r2-redundancy/execute', { method: 'POST' });
+          const executeData = await executeResponse.json().catch(() => ({}));
+
+          if (!executeResponse.ok) {
+            throw new Error(executeData.error || 'Redundancy cleanup failed');
+          }
+
+          setScrapeLogs(prev => [
+            ...prev,
+            'Redundancy cleanup complete.',
+            `Moved files: ${executeData.movedCount || 0}`,
+            `Bytes affected: ${formatBytes(executeData.movedBytes || 0)}`
+          ]);
+
+          recordTrashUndo(executeData.trashItems || [], 'Redundanz rückgängig');
+          if (Array.isArray(executeData.bakFiles) && executeData.bakFiles.length > 0) {
+            setPast(previous => [
+              ...previous,
+              { posts: [], bakFiles: executeData.bakFiles, action: `Redundante lokale Dateien nach bak/ (${executeData.bakFiles.length})` }
+            ].slice(-50));
+            setFuture([]);
+          }
+          await loadTrashItems(true);
+          await fetchCloudflareUsage();
+        } catch (err: any) {
+          const message = err.message || 'Redundancy cleanup failed';
+          setError(message);
+          setScrapeLogs(prev => [...prev, `ERROR: ${message}`]);
+        } finally {
+          setRedundancyCleanupRunning(false);
+        }
+      }, 100);
+    } catch (err: any) {
+      const message = err.message || 'Redundancy cleanup failed';
+      setError(message);
+      setScrapeLogs(prev => [...prev, `ERROR: ${message}`]);
+      setRedundancyCleanupRunning(false);
+    }
+  };
+
+  // Irreversible: empties the local bak/ archive. bak/ is the last safety net,
+  // so this needs an explicit typed confirmation.
+  const handlePurgeBak = async () => {
+    const typed = window.prompt(
+      'bak/ LEEREN?\n\nAlle lokal archivierten Dateien werden unwiderruflich gelöscht.\n' +
+      'Dies kann NICHT rückgängig gemacht werden.\n\nZum Bestätigen "LEEREN" eingeben:'
+    );
+    if (typed?.trim().toUpperCase() !== 'LEEREN') return;
+
+    setError('');
+    try {
+      const res = await fetch('/api/bak/purge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'bak/ konnte nicht geleert werden');
+      }
+      setScrapeLogs(prev => [
+        ...prev,
+        `bak/ geleert: ${data.deletedCount || 0} Dateien (${formatBytes(data.deletedBytes || 0)}).`
+      ]);
+      setShowLogs(true);
+    } catch (err: any) {
+      setError(err.message || 'bak/ konnte nicht geleert werden');
+    }
+  };
+
 
   useEffect(() => {
     if (!isInitialized) return;
@@ -3966,7 +4156,7 @@ export default function App() {
       }
     } catch (err: any) {
       console.error("Publish error:", err);
-      setError(err.message || 'Upload fehlgeschlagen. PrÃ¼fen Sie die Cloudflare CORS-Einstellungen.');
+      setError(err.message || 'Upload fehlgeschlagen. Prüfen Sie die Cloudflare CORS-Einstellungen.');
       setUploading(false);
       setUploadProgress(null);
     }
@@ -4102,7 +4292,7 @@ export default function App() {
             `Bytes affected: ${formatBytes(executeData.movedBytes || 0)}`
           ]);
 
-          recordTrashUndo(executeData.trashItems || [], 'R2-Cleanup rÃ¼ckgÃ¤ngig');
+          recordTrashUndo(executeData.trashItems || [], 'R2-Cleanup rückgängig');
           await loadTrashItems(true);
           await fetchCloudflareUsage();
         } catch (err: any) {
@@ -4185,7 +4375,7 @@ export default function App() {
             `Bytes affected: ${formatBytes(executeData.movedBytes || 0)}`
           ]);
 
-          recordTrashUndo(executeData.trashItems || [], 'Legacy-Cleanup rÃ¼ckgÃ¤ngig');
+          recordTrashUndo(executeData.trashItems || [], 'Legacy-Cleanup rückgängig');
           await loadTrashItems(true);
           await fetchCloudflareUsage();
         } catch (err: any) {
@@ -4300,7 +4490,7 @@ export default function App() {
           throw new Error("Keine Daten im Backup gefunden.");
         }
       } else {
-        throw new Error(isJson ? "JSON-Daten ungÃ¼ltig." : "Backup-Format ungÃ¼ltig (Script-Tag fehlt).");
+        throw new Error(isJson ? "JSON-Daten ungültig." : "Backup-Format ungültig (Script-Tag fehlt).");
       }
     } catch (e: any) {
       console.error("Restore failed:", e);
@@ -4483,7 +4673,7 @@ export default function App() {
     updatePosts(prev => {
       const filtered = prev.filter(p => !selectedThumbnails.includes(String(p.id)) || String(p.id) === String(mainPost.id));
       return filtered.map(p => String(p.id) === String(mainPost.id) ? mainPost : p);
-    }, `Posts zusammengefÃ¼hrt (${describePost(mainPost)})`);
+    }, `Posts zusammengeführt (${describePost(mainPost)})`);
 
     // Stay in rearrange mode and select the newly merged post
     setSelectedThumbnails([String(mainPost.id)]);
@@ -4629,7 +4819,7 @@ export default function App() {
                   setSelectedImage(post);
                 }}
                 className="absolute top-1 left-1 p-1 bg-black/50 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80 z-10"
-                title="Lightbox Ã¶ffnen"
+                title="Lightbox ööffnen"
               >
                 <Maximize2 className="w-3 h-3 text-white/70" />
               </button>
@@ -4699,7 +4889,7 @@ export default function App() {
             className="fixed bottom-10 left-1/2 z-[100] bg-white/30 text-white px-6 py-3 rounded-full shadow-2xl font-bold flex items-center gap-3 border border-white/20 backdrop-blur-md"
           >
             <ImageIcon className="w-5 h-5" />
-            <span>AuflÃ¶sungs-Overlay: {showResolutions ? 'AN' : 'AUS'} (Strg+Alt+Y)</span>
+            <span>Auflösungs-Overlay: {showResolutions ? 'AN' : 'AUS'} (Strg+Alt+Y)</span>
           </motion.div>
         )}
       </AnimatePresence>
@@ -4742,6 +4932,9 @@ export default function App() {
         handleRestoreLatestPublish={handleRestoreLatestPublish}
         handleR2Cleanup={handleR2Cleanup}
         handleLegacyDuplicateCleanup={handleLegacyDuplicateCleanup}
+        handleRedundancyCleanup={handleRedundancyCleanup}
+        handlePurgeBak={handlePurgeBak}
+        redundancyCleanupRunning={redundancyCleanupRunning}
         handleOpenTrash={handleOpenTrash}
         handleAddNewPost={handleAddNewPost}
         handleUndo={handleUndo}
@@ -4786,7 +4979,7 @@ export default function App() {
                 setStatusNotice(null);
               }}
               className="shrink-0 text-current/70 hover:text-current transition-colors"
-              aria-label="Hinweis schlieÃŸen"
+              aria-label="Hinweis schließen"
             >
               <X className="w-4 h-4" />
             </button>
@@ -4951,6 +5144,7 @@ export default function App() {
         onRefresh={() => loadTrashItems()}
         onRestore={handleRestoreTrashItems}
         onDelete={handleDeleteTrashItems}
+        onDeletePermanently={handlePermanentlyDeleteTrashItems}
       />
 
       <MediaVariantsModal
@@ -5003,22 +5197,7 @@ export default function App() {
         handleDragEnd={handleDragEnd}
         handleMoveToTarget={handleMoveToTarget}
         onSelect={(post: any, e: React.MouseEvent) => {
-          const postId = String(post.id);
-          if (e.shiftKey && lastSelectedId) {
-            const startIndex = flickrPosts.findIndex(p => String(p.id) === String(lastSelectedId));
-            const endIndex = flickrPosts.findIndex(p => String(p.id) === postId);
-            if (startIndex !== -1 && endIndex !== -1) {
-              const start = Math.min(startIndex, endIndex);
-              const end = Math.max(startIndex, endIndex);
-              const range = flickrPosts.slice(start, end + 1).map(p => String(p.id));
-              setSelectedThumbnails(prev => Array.from(new Set([...prev, ...range])));
-            }
-          } else {
-            setSelectedThumbnails(prev => 
-              prev.includes(postId) ? prev.filter(id => id !== postId) : [...prev, postId]
-            );
-          }
-          setLastSelectedId(postId);
+          toggleSelection(String(post.id), e.shiftKey, e.ctrlKey || e.metaKey, flickrPosts.map(p => String(p.id)));
         }}
         reorderScrollRef={reorderScrollRef}
         isR2Fallback={isR2Fallback}

@@ -1,8 +1,8 @@
-// hooks/useRearrangeState.ts
+﻿// hooks/useRearrangeState.ts
 import { useState } from 'react';
 
 /**
- * Hook für Rearrange-Modal State-Verwaltung
+ * Hook fÃ¼r Rearrange-Modal State-Verwaltung
  * Verwaltet: Selection, Bewegung, Undo/Redo Stack-Status
  */
 export const useRearrangeState = () => {
@@ -14,7 +14,7 @@ export const useRearrangeState = () => {
   const [moveToPosition, setMoveToPosition] = useState<string | null>(null);
 
   /**
-   * Setzt alle Rearrange-relevanten States zurück
+   * Setzt alle Rearrange-relevanten States zurÃ¼ck
    */
   const resetSelection = () => {
     setSelectedThumbnails([]);
@@ -27,7 +27,7 @@ export const useRearrangeState = () => {
    * Selektiert/Deselektiert einzelne Items
    * Unterstützt: Single, Shift+Range, Strg+Multi
    */
-  const toggleSelection = (id: string, shiftKey: boolean = false, ctrlKey: boolean = false) => {
+  const toggleSelection = (id: string, shiftKey: boolean = false, ctrlKey: boolean = false, allIds: string[] = []) => {
     if (ctrlKey) {
       setSelectedThumbnails(prev => 
         prev.includes(id) 
@@ -35,8 +35,16 @@ export const useRearrangeState = () => {
           : [...prev, id]
       );
     } else if (shiftKey && lastSelectedId) {
-      // Range selection würde hier implementiert werden
-      setSelectedThumbnails(prev => [...prev, id]);
+      const startIndex = allIds.findIndex(pid => String(pid) === String(lastSelectedId));
+      const endIndex = allIds.findIndex(pid => String(pid) === String(id));
+      if (startIndex !== -1 && endIndex !== -1) {
+        const start = Math.min(startIndex, endIndex);
+        const end = Math.max(startIndex, endIndex);
+        const range = allIds.slice(start, end + 1).map(String);
+        setSelectedThumbnails(prev => Array.from(new Set([...prev, ...range])));
+      } else {
+        setSelectedThumbnails(prev => [...prev, id]);
+      }
     } else {
       setSelectedThumbnails(prev => 
         prev.includes(id) && prev.length === 1
@@ -57,7 +65,7 @@ export const useRearrangeState = () => {
   };
 
   /**
-   * Verlässt Move-Modus
+   * VerlÃ¤sst Move-Modus
    */
   const exitMoveMode = () => {
     setIsMoving(false);
@@ -65,7 +73,7 @@ export const useRearrangeState = () => {
   };
 
   /**
-   * Bestätigt Move-Operation
+   * BestÃ¤tigt Move-Operation
    */
   const confirmMove = (targetId: string) => {
     setMoveToPosition(targetId);

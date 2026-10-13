@@ -21,7 +21,10 @@ interface TrashModalProps {
   error: string | null;
   onRefresh: () => Promise<void>;
   onRestore: (trashKeys: string[]) => Promise<void>;
+  /** Safe action: archives into bak/ first, then removes the R2 trash copy. */
   onDelete: (trashKeys: string[]) => Promise<void>;
+  /** Irreversible: removes the R2 trash copy with NO bak/ copy. */
+  onDeletePermanently: (trashKeys: string[]) => Promise<void>;
 }
 
 const formatBytes = (bytes: number) => {
@@ -55,6 +58,7 @@ export function TrashModal({
   onRefresh,
   onRestore,
   onDelete,
+  onDeletePermanently,
 }: TrashModalProps) {
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
 
@@ -139,10 +143,20 @@ export function TrashModal({
           <button
             onClick={() => runAction(onDelete)}
             disabled={loading || selectedKeys.length === 0}
+            title="Copies each item into bak/r2-trash/ first, then removes it from R2. Undo-able."
             className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-white/20 bg-white/30 hover:bg-white/40 text-white text-sm transition-colors disabled:opacity-40"
           >
             <Trash2 className="w-4 h-4" />
-            Delete selected
+            Archive to bak/
+          </button>
+          <button
+            onClick={() => runAction(onDeletePermanently)}
+            disabled={loading || selectedKeys.length === 0}
+            title="Irreversible. No copy is written to bak/."
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-red-500/40 bg-red-500/20 hover:bg-red-500/30 text-white text-sm transition-colors disabled:opacity-40"
+          >
+            <Trash2 className="w-4 h-4" />
+            Delete permanently
           </button>
           <div className="ml-auto text-xs text-white/40">
             Selected: {selectedKeys.length} {selectedKeys.length > 0 ? `(${formatBytes(selectedBytes)})` : ''}

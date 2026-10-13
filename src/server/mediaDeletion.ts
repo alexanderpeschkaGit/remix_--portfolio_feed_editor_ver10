@@ -13,6 +13,8 @@
 // Undo restores files from `bak/` (see POST /api/bak/restore); the next Cloud
 // Sync re-uploads restored files to R2 because their manifest entries were removed.
 import fs from 'fs/promises';
+import { createWriteStream } from 'fs';
+import { pipeline } from 'stream/promises';
 import path from 'path';
 import {
   resolveMediaAssetLocation,
@@ -97,7 +99,7 @@ export interface BakMove {
  * (EXDEV) via copy + unlink and resolves name collisions with a timestamp suffix.
  * Returns the {from, to} mapping (used by Undo) or null if the source is missing.
  */
-export async function moveFileToBak(localPath: string, rootDir = process.cwd()): Promise<BakMove | null> {
+export async function moveFileToBak(localPath: string, rootDir = process.cwd(), subFolder?: string): Promise<BakMove | null> {
   const abs = path.resolve(localPath);
   let stats;
   try {
@@ -126,7 +128,7 @@ export async function moveFileToBak(localPath: string, rootDir = process.cwd()):
     rel = relToRoot || path.basename(abs);
   }
 
-  const bakDir = path.join(root, BAK_DIR_NAME);
+  const bakDir = subFolder ? path.join(root, BAK_DIR_NAME, subFolder) : path.join(root, BAK_DIR_NAME);
   let dest = path.join(bakDir, rel.split('/').join(path.sep));
   await fs.mkdir(path.dirname(dest), { recursive: true });
 
@@ -198,4 +200,131 @@ export function enumerateR2KeysForMedia(mediaLike: any): string[] {
     if (key) keys.add(key);
   }
   return Array.from(keys);
+}
+
+// ---------------------------------------------------------------------------
+// R2 trash -> bak/ archive
+// ---------------------------------------------------------------------------
+// "Empty trash" must never destroy the last copy of a file. Instead of a plain
+// DeleteObject on the `trash/<ts>/…` key, the object is first streamed down into
+// `bak/r2-trash/<ts>/<originalKey>` (path preserved so the origin stays obvious)
+// and the R2 copy is only removed after the local write has been verified
+// byte-for-byte. `bak/` is git-ignored and never scanned by any R2 sync, so an
+// archived object cannot be re-uploaded.
+//
+// POST /api/bak/restore can move it back, which makes archiving reversible.
+
+export interface BakArchiveEntry {
+  trashKey: string;
+  originalKey: string;
+  bakPath: string;
+  size: number;
+}
+
+export interface BakArchiveResult {
+  archived: BakArchiveEntry[];
+  skippedKeys: string[];
+}
+
+export function extractFallbackOriginalKey(trashKey: string): string {
+  const base = path.basename(trashKey);
+  const cleaned = base.replace(/^[a-f0-9]{12}-/i, '');
+  return `unlabeled/${cleaned || 'file'}`;
+}
+
+/** `bak/r2-trash/2026-09-30T12-00-00/data/uploads/x.jpg` */
+export function buildBakArchiveRelPath(trashKey: string, originalKey?: string): string {
+  const timestamp = trashKey.split('/')[1] || 'unknown';
+  const effectiveOriginal = originalKey && originalKey.trim() ? originalKey.trim() : extractFallbackOriginalKey(trashKey);
+  const safeOriginal = toPosix(effectiveOriginal).replace(/\.\./g, '_');
+  return `${BAK_DIR_NAME}/r2-trash/${timestamp}/${safeOriginal}`;
+}
+
+/**
+ * Resolve the destination for an archived trash object and guarantee it stays
+ * inside `bak/`. Returns null when the original key would escape the bak root.
+ */
+export async function resolveBakArchiveTarget(
+  trashKey: string,
+  originalKey?: string,
+  rootDir = process.cwd()
+): Promise<string | null> {
+  const rel = buildBakArchiveRelPath(trashKey, originalKey);
+  const abs = path.resolve(rootDir, rel.split('/').join(path.sep));
+  const bakRoot = path.resolve(path.join(rootDir, BAK_DIR_NAME));
+  if (abs !== bakRoot && !abs.startsWith(bakRoot + path.sep)) return null;
+  return abs;
+}
+
+/**
+ * Write an R2 object body to a local path, streaming, and verify the byte length
+ * afterwards. Returns the number of bytes written, or null when the write failed
+ * or the size did not match.
+ */
+export async function writeR2BodyToFile(
+  body: any,
+  destPath: string,
+  expectedSize: number
+): Promise<number | null> {
+  const tmpPath = `${destPath}.part`;
+  try {
+    await fs.mkdir(path.dirname(destPath), { recursive: true });
+
+    await pipeline(body as NodeJS.ReadableStream, createWriteStream(tmpPath));
+    const { size } = await fs.stat(tmpPath);
+
+    if (expectedSize > 0 && size !== expectedSize) {
+      console.error(`bak/ archive size mismatch for ${destPath}: wrote ${size}, expected ${expectedSize}`);
+      await fs.unlink(tmpPath).catch(() => {});
+      return null;
+    }
+    await fs.rename(tmpPath, destPath);
+    return size;
+  } catch (error) {
+    console.error('Failed to write R2 body to bak/ archive:', error);
+    await fs.unlink(tmpPath).catch(() => {});
+    return null;
+  }
+}
+
+/** Recursive file listing helper used by the bak purge endpoint. */
+export async function listBakFiles(dir: string, baseDir: string): Promise<string[]> {
+  let dirents;
+  try {
+    dirents = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const files: string[] = [];
+  for (const dirent of dirents) {
+    const full = path.join(dir, dirent.name);
+    if (dirent.isDirectory()) {
+      files.push(...(await listBakFiles(full, baseDir)));
+    } else if (dirent.isFile()) {
+      files.push(toPosix(path.relative(baseDir, full)));
+    }
+  }
+  return files;
+}
+
+/**
+ * Reverse of `toPossibleR2Key` for archive undo: map an R2 key back to the local
+ * media path it came from. Mirrors the `localUrlToSyncTarget` prefixes in
+ * server.ts so an archived `uploads/x.jpg` restores to `data/uploads/x.jpg`.
+ */
+export function r2KeyToLocalPath(originalKey: string, rootDir = process.cwd()): string | null {
+  const key = toPosix(originalKey).replace(/^\/+/, '');
+  const map = (prefix: string, dir: string) => {
+    if (!key.startsWith(prefix)) return null;
+    const rel = key.slice(prefix.length);
+    if (!rel) return null;
+    return path.join(rootDir, dir, ...rel.split('/'));
+  };
+  return (
+    map('v2/data/', 'data_v2') ??
+    map('data/', 'data') ??
+    map('uploads/', 'data/uploads') ??
+    map('highres/', 'data/highres') ??
+    map('originals/', 'originals')
+  );
 }

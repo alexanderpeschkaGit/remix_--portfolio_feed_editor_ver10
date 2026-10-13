@@ -3,7 +3,7 @@ import React, { useState, useRef, useLayoutEffect, useEffect, useMemo, useCallba
 import { createPortal } from 'react-dom';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Loader2, Eye, GripVertical, ImageIcon, Youtube, Film, X, Maximize2, FoldVertical, Trash2, ExternalLink, Check, Upload, CheckCircle2, AlertCircle, Camera, ImageUp } from 'lucide-react';
+import { Loader2, Eye, GripVertical, ImageIcon, Youtube, Film, X, Maximize2, FoldVertical, Trash2, ExternalLink, Check, Upload, CheckCircle2, AlertCircle, Camera, ImageUp, Sparkles, Undo2 } from 'lucide-react';
 import { PROJECT_STATES } from '../../constants';
 import { CustomThumbnailModal } from '../modals/CustomThumbnailModal';
 
@@ -74,8 +74,94 @@ export function FeedPostCard({
   const [feedImageDimensions, setFeedImageDimensions] = useState<string>('');
   const [confirmingMerge, setConfirmingMerge] = useState(false);
   const [mergeChoice, setMergeChoice] = useState<'y' | 'n'>('y');
+  const [isGeneratingKi, setIsGeneratingKi] = useState(false);
+  const [undoDescription, setUndoDescription] = useState<string | null>(null);
   const mergeYesRef = useRef<HTMLButtonElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleCardUndo = () => {
+    if (undoDescription !== null) {
+      setLocalDescription(undoDescription);
+      handlePostChange(post.id, 'description', undoDescription);
+      setUndoDescription(null);
+    }
+  };
+
+  const handleKiEditCard = async () => {
+    if (isGeneratingKi) return;
+    setIsGeneratingKi(true);
+    try {
+      if (undoDescription === null) {
+        setUndoDescription(localDescription);
+      }
+
+      const mediaItems = (post.mergedMedia && post.mergedMedia.length > 0) ? post.mergedMedia : [post];
+      const imageCandidates: string[] = [];
+      for (const m of mediaItems) {
+        const thumb = m.image_thumb || m.custom_thumb || m.image_preview || m.image || getImageSrc(m, false);
+        if (thumb && typeof thumb === 'string') imageCandidates.push(thumb);
+      }
+      const selectedThumbs = imageCandidates.slice(0, 5);
+
+      const base64Images: Array<{ data: string; mimeType: string }> = [];
+      for (const rawUrl of selectedThumbs) {
+        try {
+          const resolvedUrl = getDisplayImage(rawUrl, isR2Fallback, isEmbeddedData) || rawUrl;
+          if (resolvedUrl.startsWith('data:')) {
+            const match = resolvedUrl.match(/^data:([^;]+);base64,(.+)$/);
+            if (match) {
+              base64Images.push({ mimeType: match[1], data: match[2] });
+              continue;
+            }
+          }
+          const resp = await fetch(resolvedUrl);
+          if (resp.ok) {
+            const blob = await resp.blob();
+            const b64 = await new Promise<{ data: string; mimeType: string } | null>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const resStr = reader.result as string;
+                const match = resStr.match(/^data:([^;]+);base64,(.+)$/);
+                if (match) resolve({ mimeType: match[1], data: match[2] });
+                else resolve(null);
+              };
+              reader.onerror = () => resolve(null);
+              reader.readAsDataURL(blob);
+            });
+            if (b64) base64Images.push(b64);
+          }
+        } catch (err) {
+          console.warn('Could not convert thumb to base64 in browser:', rawUrl, err);
+        }
+      }
+
+      const response = await fetch('/api/ki-edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: localTitle,
+          description: localDescription,
+          images: base64Images,
+          imageUrls: selectedThumbs,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Fehler beim KI-Edit');
+      }
+
+      if (data.text) {
+        setLocalDescription(data.text);
+        handlePostChange(post.id, 'description', data.text);
+      }
+    } catch (error: any) {
+      console.error('KI-Edit fehlgeschlagen:', error);
+      alert(`KI-Edit fehlgeschlagen: ${error.message || 'Unbekannter Fehler'}`);
+    } finally {
+      setIsGeneratingKi(false);
+    }
+  };
 
   const rawMediaItems = useMemo(() => {
     return (post.mergedMedia && post.mergedMedia.length > 0)
@@ -1001,7 +1087,7 @@ export function FeedPostCard({
         </div>
       )}
       <div 
-        className={`relative ${(!isEditing && renderedMediaCount > 1) || isEditing ? 'h-auto min-h-[300px] max-h-[600px] overflow-y-auto custom-scrollbar' : 'aspect-[4/3] overflow-hidden'} cursor-pointer bg-black/50 shrink-0 ${isEditing && post.hidden ? 'grayscale brightness-50' : ''} ${isDragging ? 'pointer-events-none' : ''}`}
+        className={`relative ${isEditing ? 'h-auto min-h-[300px] max-h-[600px] overflow-y-auto custom-scrollbar' : (renderedMediaCount > 1 ? 'h-auto min-h-[300px] max-h-[600px] overflow-hidden' : 'aspect-[4/3] overflow-hidden')} cursor-pointer bg-black/50 shrink-0 ${isEditing && post.hidden ? 'grayscale brightness-50' : ''} ${isDragging ? 'pointer-events-none' : ''}`}
         onClick={() => {
           if (!isEditing) setSelectedImage(post);
         }}
@@ -1538,6 +1624,39 @@ export function FeedPostCard({
               className="w-full bg-black/50 border border-white/10 rounded px-2 py-1 text-xs text-white/80 focus:outline-none focus:border-white/30 min-h-[80px]"
               placeholder="Beschreibung..."
             />
+            <div className="flex items-center gap-2 mt-1.5 mb-1">
+              <button
+                type="button"
+                onClick={handleKiEditCard}
+                disabled={isGeneratingKi}
+                className="flex items-center justify-center gap-1 px-2 py-1 rounded text-[11px] font-medium bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white shadow-sm transition-all disabled:opacity-50 cursor-pointer"
+                title="Generiert eine strukturierte Case Study mit KI"
+              >
+                {isGeneratingKi ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <span>KI generiert...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3 h-3" />
+                    <span>✨ KI-Edit</span>
+                  </>
+                )}
+              </button>
+              {undoDescription !== null && (
+                <button
+                  type="button"
+                  onClick={handleCardUndo}
+                  disabled={isGeneratingKi}
+                  className="flex items-center justify-center gap-1 px-2 py-1 rounded text-[11px] font-medium bg-white/10 hover:bg-white/20 text-white/90 border border-white/10 transition-colors cursor-pointer"
+                  title="Originaltext wiederherstellen"
+                >
+                  <Undo2 className="w-3 h-3" />
+                  <span>↩️ Undo</span>
+                </button>
+              )}
+            </div>
             <div className="flex flex-wrap gap-1 mt-2">
               {PROJECT_STATES.map(s => {
                 const isActive = (post.states || []).map((state: string) => String(state).toLowerCase()).includes(String(s.id).toLowerCase());
