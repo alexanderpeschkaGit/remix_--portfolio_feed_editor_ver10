@@ -127,9 +127,3 @@ Maintain a checklist of observable behaviors relevant to the refactor based on t
    - Output a **Docs Delta list**: one entry per finding in the form `File → Section → proposed wording`, or explicitly "no update needed". Do not edit documentation at this stage.
 3. **User gate (mandatory):** Present the Docs Delta list (already pre-routed by type) and ask the user to confirm the changes. Write them only after explicit user approval. Never modify `AGENTS.md` or rule files silently.
 4. **Skill routing registration:** If the refactor introduced a new skill, register its trigger tag in `.agents/WORKFLOWS.md` as required by `AGENTS.md`.
-
-
-
-<tagged_files>
-* y:\projekte2026\website\remix_--portfolio_feed_editor_ver10\.agents\skills\deep-refactor\SKILL.md (52 lines)
-</tagged_files>
