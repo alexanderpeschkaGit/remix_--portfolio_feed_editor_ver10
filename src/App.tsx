@@ -23,6 +23,7 @@ import { useLightboxState } from './hooks/useLightboxState';
 import { useBioFeature } from './hooks/useBioFeature';
 import { linkifyToHtml } from './utils/linkify';
 import { RearrangeModal } from './components/modals/RearrangeModal';
+import { MergeConfirmationModal } from './components/modals/MergeConfirmationModal';
 import { LightboxModal } from './components/modals/LightboxModal';
 import { ConfirmSyncModal } from './components/modals/ConfirmSyncModal';
 import { BackupsModal } from './components/modals/BackupsModal';
@@ -36,38 +37,13 @@ import { MediaVariantsModal } from './components/modals/MediaVariantsModal';
 import { FeedPostCard } from './components/feed/FeedPostCard';
 import { ThumbnailGalleryGrid } from './components/gallery/ThumbnailGalleryGrid';
 import { AdminHeader } from './components/header/AdminHeader';
+import { CloudflareUsageDisplay } from './components/header/CloudflareUsageDisplay';
 import { mergeIncomingPostsPreservingExisting, mergeCloudIntoLocal } from './utils/mergePosts';
 import { formatDescription, isDirectMediaFile, isValidImageCandidate, getImageSrc, getVideoSrc, hasRenderableMedia, getMediaDedupeKey, getMediaPriorityScore, getPrimaryMergedMedia, syncMediaFieldsFromPrimary, clearPostMediaFields, formatBytes, createGetDisplayImage } from './utils/mediaHelpers';
 import { generateHTML } from './utils/generatePortfolioHtml';
 import { getPostSignature } from './utils/cloudCompare';
 import { cleanPostsForServer } from './utils/cleanPosts';
 import type { PostHistoryEntry, TrashHistoryEntry, MediaDeleteHistoryEntry, UndoHistoryEntry } from './types';
-
-const MergeConfirmationModal = ({ isOpen, group, onConfirm, onSkip }: any) => {
-  if (!isOpen || !group) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4">
-      <div className="bg-[#111] border border-white/10 rounded-xl p-6 max-w-lg w-full">
-        <h2 className="text-xl font-bold text-white mb-4">Projekte zusammenführen?</h2>
-        <p className="text-white/70 mb-4">
-          Möchtest du die folgenden {group.length} Projekte mit dem Title "{group[0].title}" zusammenführen?
-        </p>
-        <div className="space-y-2 mb-6 max-h-60 overflow-y-auto custom-scrollbar">
-          {group.map((post: any) => (
-            <div key={post.id} className="text-sm text-white/50 bg-white/10 p-2 rounded">
-              {post.title} ({post.network_name})
-            </div>
-          ))}
-        </div>
-        <div className="flex gap-4">
-          <button onClick={onSkip} className="flex-1 bg-white/30 hover:bg-white/40 text-white py-2 rounded">Nein</button>
-          <button onClick={onConfirm} className="flex-1 bg-white/30 hover:bg-white/40 text-white py-2 rounded">Ja, zusammenführen</button>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 // SortablePost component moved to src/components/feed/FeedPostCard.tsx
 
@@ -3209,27 +3185,6 @@ export default function App() {
     }
   };
 
-  const CloudflareUsageDisplay = () => {
-    if (!cloudflareUsage) return null;
-    const { local, estimatedCost } = cloudflareUsage;
-    
-    return (
-      <div className="flex items-center justify-between gap-4 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-[10px] whitespace-nowrap overflow-x-auto no-scrollbar">
-        <div className="flex items-center gap-2">
-          <span className="font-bold text-white/90">Cloudflare R2:</span>
-          <span className="text-white/60">A: <span className="text-white font-mono">{local.classA}</span></span>
-          <span className="text-white/60">B: <span className="text-white font-mono">{local.classB}</span></span>
-          <span className="text-white/60">Storage: <span className="text-white font-mono">{(local.storageBytes / (1024 * 1024)).toFixed(1)}MB</span></span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="px-1.5 py-0.5 rounded font-bold bg-white/10 text-white/90">
-            ${estimatedCost}
-          </span>
-        </div>
-      </div>
-    );
-  };
-
   const AdminButton = ({ onClick, disabled, id, children, className = "", color = "bg-white/30 text-white hover:bg-white/40 border-white/20", tooltip, active }: any) => (
     <div className="relative group w-full h-full">
       <button
@@ -3417,7 +3372,7 @@ export default function App() {
         uncertainMatches={uncertainMatches}
         publicDomain={publicDomain}
         flickrPosts={flickrPosts}
-        CloudflareUsageDisplay={CloudflareUsageDisplay}
+        CloudflareUsageDisplay={() => <CloudflareUsageDisplay usage={cloudflareUsage} />}
         handleScrape={handleScrape}
         handleHighResSync={handleHighResSync}
         handleFullR2Sync={handleFullR2Sync}
