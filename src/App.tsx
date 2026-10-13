@@ -1,22 +1,6 @@
-import React, { useEffect, useState, useRef, useLayoutEffect, useCallback } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Loader2, ExternalLink, Maximize2, X, Edit3, Save, UploadCloud, CheckCircle, Plus, Image as ImageIcon, Youtube, Trash2, GripVertical, Undo2, Redo2, FoldVertical, History, Download, RefreshCw, Instagram, ChevronUp, ChevronDown, FileCode, Layers, ArrowLeft, Eye } from 'lucide-react';
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  DragEndEvent
-} from '@dnd-kit/core';
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  rectSortingStrategy,
-  useSortable
-} from '@dnd-kit/sortable';
+import { Loader2, ExternalLink, X, ImageIcon, RefreshCw, Instagram, CheckCircle } from 'lucide-react';
 import { PROJECT_STATES } from './constants';
 import { useRearrangeState } from './hooks/useRearrangeState';
 import { useLightboxState } from './hooks/useLightboxState';
@@ -34,6 +18,8 @@ import { usePortfolioInit } from './hooks/usePortfolioInit';
 import { useStatePersistence } from './hooks/useStatePersistence';
 import { usePostActions } from './hooks/usePostActions';
 import { usePostOrdering } from './hooks/usePostOrdering';
+import { useImageDimensions } from './hooks/useImageDimensions';
+import { useEditorLifecycle } from './hooks/useEditorLifecycle';
 import { linkifyToHtml } from './utils/linkify';
 import { RearrangeModal } from './components/modals/RearrangeModal';
 import { MergeConfirmationModal } from './components/modals/MergeConfirmationModal';
@@ -50,12 +36,7 @@ import { MediaVariantsModal } from './components/modals/MediaVariantsModal';
 import { ThumbnailGalleryGrid } from './components/gallery/ThumbnailGalleryGrid';
 import { AdminHeader } from './components/header/AdminHeader';
 import { CloudflareUsageDisplay } from './components/header/CloudflareUsageDisplay';
-import { mergeIncomingPostsPreservingExisting, mergeCloudIntoLocal } from './utils/mergePosts';
-import { formatDescription, isDirectMediaFile, isValidImageCandidate, getImageSrc, getVideoSrc, hasRenderableMedia, getMediaDedupeKey, getMediaPriorityScore, getPrimaryMergedMedia, syncMediaFieldsFromPrimary, clearPostMediaFields, formatBytes, createGetDisplayImage } from './utils/mediaHelpers';
-import { generateHTML } from './utils/generatePortfolioHtml';
-import { getPostSignature } from './utils/cloudCompare';
-import { cleanPostsForServer } from './utils/cleanPosts';
-import type { PostHistoryEntry, TrashHistoryEntry, MediaDeleteHistoryEntry, UndoHistoryEntry } from './types';
+import { formatDescription, isValidImageCandidate, getImageSrc, getVideoSrc, createGetDisplayImage } from './utils/mediaHelpers';
 
 // SortablePost component moved to src/components/feed/FeedPostCard.tsx
 
@@ -68,23 +49,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedImage, setSelectedImage] = useState<any | null>(null);
-  const [imageDimensions, setImageDimensions] = useState<Record<string, string>>({});
-
-  const getMediaDimensionsKey = (postId: string, mediaIndex: number) => `${postId}-${mediaIndex}`;
-
-  const setImageDimensionForKey = (key: string, width: number, height: number) => {
-    setImageDimensions(prev => {
-      const value = `${width} x ${height} px`;
-      if (prev[key] === value) return prev;
-      return { ...prev, [key]: value };
-    });
-  };
-
-  const handleImageLoad = (id: string, e: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = e.currentTarget;
-    setImageDimensionForKey(id, img.naturalWidth, img.naturalHeight);
-  };
-  const [isEditing, setIsEditing] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
   const [mediaIndex, setMediaIndex] = useState(0);
   const [showResolutions, setShowResolutions] = useState(false);
   const [showResolutionToast, setShowResolutionToast] = useState(false);
@@ -110,21 +75,7 @@ export default function App() {
 
     const uploadingCount = Object.values(activeUploads).reduce((sum: number, count: number) => sum + count, 0);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'y') {
-        e.preventDefault();
-        setShowResolutions(prev => {
-          const next = !prev;
-          setShowResolutionToast(true);
-          setTimeout(() => setShowResolutionToast(false), 2000);
-          return next;
-        });
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);// ===== Hook: useRearrangeState für Rearrange/Merge/Delete Funktionalität =====
+  // ===== Hook: useRearrangeState für Rearrange/Merge/Delete Funktionalität =====
   const rearrangeState = useRearrangeState();
   const {
     isReorderView,
@@ -296,25 +247,6 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    flickrPostsRef.current = flickrPosts;
-  }, [flickrPosts]);
-
-  useEffect(() => {
-    portfolioTitleRef.current = portfolioTitle;
-    if (isInitialized) setHasUnpublishedChanges(true);
-  }, [portfolioTitle, isInitialized]);
-
-  useEffect(() => {
-    portfolioSubtitleRef.current = portfolioSubtitle;
-    if (isInitialized) setHasUnpublishedChanges(true);
-  }, [portfolioSubtitle, isInitialized]);
-
-  useEffect(() => {
-    portfolioBioRef.current = portfolioBio;
-    if (isInitialized) setHasUnpublishedChanges(true);
-  }, [portfolioBio, isInitialized]);
-
   // Public media configuration. Credentials and publishing remain server-side.
   const R2_CONFIG = {
     publicDomain: ""
@@ -323,76 +255,9 @@ export default function App() {
   // Image URL resolver (utils/mediaHelpers) bound to the R2 public domain.
   const getDisplayImage = createGetDisplayImage(R2_CONFIG.publicDomain);
 
-  // Hält immer die aktuellen Handler/Auswahl, damit der einmalig registrierte keydown-Listener
-  // keine veralteten Closures (leere Undo-History, alte Medien-Auswahl) verwendet.
-  const keyHandlersRef = useRef<{
-    handleUndo: () => void | Promise<void>;
-    handleRedo: () => void;
-    mediaSelection: MediaSelection;
-    clearMediaSelection: () => void;
-  } | null>(null);
+  const { imageDimensions, handleImageLoad } = useImageDimensions({ flickrPosts, isR2Fallback, isEmbeddedData, getDisplayImage });
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const latest = keyHandlersRef.current;
-      if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'a') {
-        setIsEditing(prev => !prev);
-      }
-      if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'r') {
-        setIsReorderView(prev => !prev);
-        setSelectedThumbnails([]);
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-        if (e.shiftKey) {
-          latest?.handleRedo();
-        } else {
-          latest?.handleUndo();
-        }
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
-        latest?.handleRedo();
-      }
-      if (e.key === 'Escape') {
-        if (latest?.mediaSelection) {
-          latest.clearMediaSelection();
-          return;
-        }
-        setSelectedImage(null);
-        setIsHoveringLightboxBg(false);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  useEffect(() => {
-    if (logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [scrapeLogs]);
-
-  useEffect(() => {
-    const handleWheel = (e: WheelEvent) => {
-      if (activeId && isReorderView && reorderScrollRef.current) {
-        reorderScrollRef.current.scrollTop += e.deltaY;
-      }
-    };
-    window.addEventListener('wheel', handleWheel, { passive: true });
-    return () => window.removeEventListener('wheel', handleWheel);
-  }, [activeId, isReorderView]);
-
-  useEffect(() => {
-    (window as any).portfolioData = {
-      title: portfolioTitle,
-      subtitle: portfolioSubtitle,
-      projectStates: PROJECT_STATES,
-      posts: flickrPosts,
-      publicDomain: R2_CONFIG.publicDomain
-    };
-  }, [flickrPosts, portfolioTitle, portfolioSubtitle]);
-
-  // Beschreibung für Undo/Redo-Tooltips: Post-Titel + Quelle (network_name), falls nicht "Custom"
-  const describePost = (post: any) => {
+    const describePost = (post: any) => {
     const title = post?.title || 'Unbenannt';
     const network = post?.network_name;
     if (network && network !== 'Custom') return `${title} · ${network}`;
@@ -479,8 +344,6 @@ export default function App() {
     loadTrashItems().catch(() => {});
   }, [isInitialized]);
 
-  keyHandlersRef.current = { handleUndo, handleRedo, mediaSelection, clearMediaSelection };
-
     const { handleToggleHidden, handleStateToggle, handlePostChange, handleAddNewPost, handleDeletePost, handleMergeDown, handleUpdatePostMedia, handleRemoveMedia, handleMoveToTarget, handleAddInstagramPost, handleAddFlickrPost, handleConfirmCommitPost } = usePostActions({
     flickrPosts,
     updatePosts,
@@ -499,48 +362,7 @@ export default function App() {
     handleGetLatestInstagram,
     handleGetLatestFlickr,
     handleCommitPostToPortfolio
-  });// Track Bunny upload progress per post
-  useEffect(() => {
-    if (!flickrPosts || flickrPosts.length === 0) return;
-    const cancel = { value: false };
-
-    flickrPosts.forEach((post) => {
-      if (!post || post.id == null) return;
-      const rawMedia = (post.mergedMedia && post.mergedMedia.length > 0)
-        ? post.mergedMedia
-        : [{ ...post, type: post.type || 'image' }];
-
-      rawMedia.forEach((media: any, index: number) => {
-        const dimensionKey = getMediaDimensionsKey(post.id, index);
-        if (imageDimensions[dimensionKey]) return;
-
-        const src = getImageSrc(media, true) || getImageSrc(media);
-        if (!src) return;
-
-        const displaySrc = getDisplayImage(src, isR2Fallback, isEmbeddedData) || src;
-        const img = new Image();
-
-        img.onload = () => {
-          if (cancel.value) return;
-          setImageDimensionForKey(dimensionKey, img.naturalWidth, img.naturalHeight);
-        };
-
-        img.onerror = () => {
-          const fallbackSrc = getImageSrc(media) || src;
-          const displayFallback = getDisplayImage(fallbackSrc, isR2Fallback, isEmbeddedData);
-          if (displayFallback && displayFallback !== displaySrc) {
-            img.src = displayFallback;
-          }
-        };
-
-        img.src = displaySrc;
-      });
-    });
-
-    return () => { cancel.value = true; };
-  }, [flickrPosts, imageDimensions, isR2Fallback, isEmbeddedData]);
-
-  // Content-hash (SHA-1) duplicate scan across R2 and local media. Moves R2
+  });// Content-hash (SHA-1) duplicate scan across R2 and local media. Moves R2
   // duplicates to trash/ and archives local duplicates into bak/redundant/.
   const { sensors, handleDragEnd, handleLightboxDragStart, handleLightboxDragOver, handleLightboxDrop, currentLightboxPost, handleMerge, handleBulkDelete } = usePostOrdering({
     flickrPosts,
@@ -556,6 +378,36 @@ export default function App() {
     recordHistory,
     setHasUnpublishedChanges,
     setFlickrPosts
+  });
+
+  useEditorLifecycle({
+    setShowResolutions,
+    setShowResolutionToast,
+    setIsEditing,
+    setIsReorderView,
+    setSelectedThumbnails,
+    setSelectedImage,
+    setIsHoveringLightboxBg,
+    handleUndo,
+    handleRedo,
+    mediaSelection,
+    clearMediaSelection,
+    flickrPostsRef,
+    portfolioTitleRef,
+    portfolioSubtitleRef,
+    portfolioBioRef,
+    setHasUnpublishedChanges,
+    isInitialized,
+    portfolioTitle,
+    portfolioSubtitle,
+    portfolioBio,
+    logsEndRef,
+    scrapeLogs,
+    activeId,
+    isReorderView,
+    reorderScrollRef,
+    R2_CONFIG,
+    flickrPosts
   });
 
   return (
