@@ -21,6 +21,7 @@ import { PROJECT_STATES } from './constants';
 import { useRearrangeState } from './hooks/useRearrangeState';
 import { useLightboxState } from './hooks/useLightboxState';
 import { useBioFeature } from './hooks/useBioFeature';
+import { useUndoHistory } from './hooks/useUndoHistory';
 import { linkifyToHtml } from './utils/linkify';
 import { RearrangeModal } from './components/modals/RearrangeModal';
 import { MergeConfirmationModal } from './components/modals/MergeConfirmationModal';
@@ -52,9 +53,6 @@ export default function App() {
   const portfolioTitleRef = useRef<string>('');
   const portfolioSubtitleRef = useRef<string>('');
   const portfolioBioRef = useRef<string>('');
-  const [past, setPast] = useState<UndoHistoryEntry[]>([]);
-  const [future, setFuture] = useState<PostHistoryEntry[]>([]);
-  const undoingR2TrashRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [restoringLatestPublish, setRestoringLatestPublish] = useState(false);
@@ -993,134 +991,16 @@ export default function App() {
     return title;
   };
 
-  const updatePosts = useCallback((newPosts: any[] | ((p: any[]) => any[]), actionDescription: string = 'Aktion durchgeführt') => {
-    setFlickrPosts(current => {
-      const next = typeof newPosts === 'function' ? newPosts(current) : newPosts;
-      setPast((p): typeof p => [...p, { posts: current, action: actionDescription }].slice(-50)); // Keep last 50 states
-      setFuture([]); // Clear future on new action
-      setHasUnpublishedChanges(true);
-      return next;
-    });
-  }, []);
-
-  const recordTrashUndo = (trashItems: any[], label: string) => {
-    const trashKeys = trashItems
-      .map(item => item?.trashKey)
-      .filter((key): key is string => typeof key === 'string' && key.startsWith('trash/'));
-    if (trashKeys.length === 0) return;
-
-    setPast(previous => [
-      ...previous,
-      { trashKeys, action: `${label} (${trashKeys.length} Dateien)` }
-    ].slice(-50));
-    setFuture([]);
-  };
-
-  const handleUndo = async () => {
-    if (past.length === 0) return;
-    const current = flickrPosts;
-    const previousState = past[past.length - 1];
-
-    if ('trashKeys' in previousState) {
-      if (undoingR2TrashRef.current) return;
-      undoingR2TrashRef.current = true;
-
-      try {
-        const response = await fetch('/api/r2-trash/restore', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ trashKeys: previousState.trashKeys })
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(data.error || 'R2-Trash konnte nicht rückgängig gemacht werden.');
-        }
-
-        const restoredKeys = new Set<string>(
-          (Array.isArray(data.restoredItems) ? data.restoredItems : [])
-            .map((item: any) => item?.trashKey)
-            .filter((key: any): key is string => typeof key === 'string')
-        );
-        const remainingKeys = previousState.trashKeys.filter(key => !restoredKeys.has(key));
-
-        setPast(history => {
-          if (history[history.length - 1] !== previousState) return history;
-          if (remainingKeys.length === 0) return history.slice(0, -1);
-          return [
-            ...history.slice(0, -1),
-            { ...previousState, trashKeys: remainingKeys, action: `R2-Trash wiederherstellen (${remainingKeys.length} offen)` }
-          ];
-        });
-
-        await loadTrashItems(false);
-        await fetchCloudflareUsage();
-
-        if (remainingKeys.length > 0) {
-          pushStatusNotice(
-            'warning',
-            'R2-Undo teilweise ausgeführt',
-            `${restoredKeys.size} Datei(en) wiederhergestellt, ${remainingKeys.length} wegen Konflikten oder Fehlern noch im Trash.`
-          );
-        } else {
-          pushStatusNotice(
-            'success',
-            'R2-Undo abgeschlossen',
-            `${restoredKeys.size} Datei(en) wurden an ihren ursprünglichen Pfad zurückverschoben.`
-          );
-        }
-      } catch (undoError: any) {
-        const message = undoError.message || 'R2-Trash konnte nicht rückgängig gemacht werden.';
-        setError(message);
-        pushStatusNotice('warning', 'R2-Undo fehlgeschlagen', message);
-      } finally {
-        undoingR2TrashRef.current = false;
-      }
-      return;
-    }
-
-    if ('bakFiles' in previousState) {
-      const bakFiles = previousState.bakFiles;
-      if (bakFiles.length > 0) {
-        try {
-          const resp = await fetch('/api/bak/restore', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ bakFiles })
-          });
-          const data = await resp.json().catch(() => ({}));
-          if (!resp.ok) throw new Error(data.error || 'Bak-Wiederherstellung fehlgeschlagen.');
-          if (data.failedCount > 0) {
-            pushStatusNotice('warning', 'Undo teilweise ausgeführt', `${data.restoredCount ?? 0} Datei(en) aus bak/ zurückgeholt, ${data.failedCount} fehlgeschlagen.`);
-          } else {
-            pushStatusNotice('success', 'Undo abgeschlossen', `${data.restoredCount ?? 0} Datei(en) aus bak/ wiederhergestellt. R2-Objekte werden beim nächsten Cloud Sync neu hochgeladen.`);
-          }
-        } catch (undoError: any) {
-          setError(undoError.message || 'Bak-Wiederherstellung fehlgeschlagen.');
-          pushStatusNotice('warning', 'Undo fehlgeschlagen', undoError.message || 'Bak-Wiederherstellung fehlgeschlagen.');
-        }
-      }
-      shouldPushStateToR2Ref.current = true;
-      setPast(p => p.slice(0, -1));
-      setFuture([]);
-      setFlickrPosts(previousState.posts);
-      return;
-    }
-
-    setPast(p => p.slice(0, -1));
-    setFuture((f): typeof f => [...f, { posts: current, action: previousState.action }].slice(-50));
-    setFlickrPosts(previousState.posts);
-  };
-
-  const handleRedo = () => {
-    if (future.length === 0) return;
-    const current = flickrPosts;
-    const nextState = future[future.length - 1];
-    setFuture(f => f.slice(0, -1));
-    setPast((p): typeof p => [...p, { posts: current, action: nextState.action }].slice(-50));
-    setFlickrPosts(nextState.posts);
-  };
-
-  keyHandlersRef.current = { handleUndo, handleRedo, mediaSelection, clearMediaSelection };
+    const { past, future, recordHistory, updatePosts, recordTrashUndo, handleUndo, handleRedo } = useUndoHistory({
+    flickrPosts,
+    setFlickrPosts,
+    setHasUnpublishedChanges,
+    setError,
+    pushStatusNotice,
+    fetchCloudflareUsage,
+    loadTrashItems: (openModal = false) => loadTrashItems(openModal),
+    shouldPushStateToR2Ref
+  });keyHandlersRef.current = { handleUndo, handleRedo, mediaSelection, clearMediaSelection };
 
   const handleToggleHidden = (postId: string) => {
     const targetTitle = describePost(flickrPosts.find(p => String(p.id) === String(postId)));
@@ -1193,8 +1073,7 @@ export default function App() {
 
       const bakFiles = Array.isArray(data.movedToBak) ? data.movedToBak : [];
       const prevPosts = flickrPosts;
-      setPast(p => [...p, { posts: prevPosts, bakFiles, action: `Post gelöscht (${targetTitle})` }].slice(-50));
-      setFuture([]);
+      recordHistory({ posts: prevPosts, bakFiles, action: `Post gelöscht (${targetTitle})` });
       setHasUnpublishedChanges(true);
       setFlickrPosts(prev => prev.filter(post => String(post.id) !== String(id)));
       if (bakFiles.length > 0) {
@@ -1344,8 +1223,7 @@ export default function App() {
         }
         return updatedPost;
       });
-      setPast(p => [...p, { posts: prevPosts, bakFiles, action: `Media entfernt (${removedLabel})` }].slice(-50));
-      setFuture([]);
+      recordHistory({ posts: prevPosts, bakFiles, action: `Media entfernt (${removedLabel})` });
       setHasUnpublishedChanges(true);
       setFlickrPosts(newPosts);
       shouldPushStateToR2Ref.current = true;
@@ -2293,11 +2171,7 @@ export default function App() {
       }
 
       if (Array.isArray(data.bakFiles) && data.bakFiles.length > 0) {
-        setPast(previous => [
-          ...previous,
-          { posts: [], bakFiles: data.bakFiles, action: `Trash archiviert (${data.bakFiles.length} Dateien in bak/)` }
-        ].slice(-50));
-        setFuture([]);
+        recordHistory({ posts: [], bakFiles: data.bakFiles, action: `Trash archiviert (${data.bakFiles.length} Dateien in bak/)` });
       }
 
       await loadTrashItems(true);
@@ -2423,11 +2297,7 @@ export default function App() {
 
           recordTrashUndo(executeData.trashItems || [], 'Redundanz rückgängig');
           if (Array.isArray(executeData.bakFiles) && executeData.bakFiles.length > 0) {
-            setPast(previous => [
-              ...previous,
-              { posts: [], bakFiles: executeData.bakFiles, action: `Redundante lokale Dateien nach bak/ (${executeData.bakFiles.length})` }
-            ].slice(-50));
-            setFuture([]);
+            recordHistory({ posts: [], bakFiles: executeData.bakFiles, action: `Redundante lokale Dateien nach bak/ (${executeData.bakFiles.length})` });
           }
           await loadTrashItems(true);
           await fetchCloudflareUsage();
@@ -2680,8 +2550,7 @@ export default function App() {
         if (restoredState.bio) setPortfolioBio(restoredState.bio);
 
         setFlickrPosts(current => {
-          setPast((p): typeof p => [...p, { posts: current, action: `Backup wiederhergestellt (${data.restoredBackup || 'Latest Publish'})` }].slice(-50));
-          setFuture([]);
+          recordHistory({ posts: current, action: `Backup wiederhergestellt (${data.restoredBackup || 'Latest Publish'})` });
           return items;
         });
 
@@ -2933,8 +2802,7 @@ export default function App() {
         if (items) {
           // Use the functional update to ensure we have the latest state for history
           setFlickrPosts(current => {
-            setPast(p => [...p, { posts: current, action: `Backup wiederhergestellt (${filename})` }].slice(-50));
-            setFuture([]);
+            recordHistory({ posts: current, action: `Backup wiederhergestellt (${filename})` });
             return items;
           });
           
@@ -3169,8 +3037,7 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         const bakFiles = Array.isArray(data.movedToBak) ? data.movedToBak : [];
-        setPast(p => [...p, { posts: prevPosts, bakFiles, action: `${idsToDelete.length} Posts gelöscht` }].slice(-50));
-        setFuture([]);
+        recordHistory({ posts: prevPosts, bakFiles, action: `${idsToDelete.length} Posts gelöscht` });
         setHasUnpublishedChanges(true);
         setFlickrPosts(prev => prev.filter(post => !idsToDelete.includes(String(post.id))));
         setSelectedThumbnails([]);
