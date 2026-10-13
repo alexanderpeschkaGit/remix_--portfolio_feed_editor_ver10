@@ -122,23 +122,23 @@ Checkpoints:
 
 | # | Observable behavior | Status |
 |---|---|---|
-| 1 | Boot chain: embedded data → `/api/state` → Flickr test-data/R2 fallback banner + fallback toggle persisted | unverified |
-| 2 | Header meta edits (title/subtitle/bio/IG/Flickr) + unpublished-changes flag | unverified |
-| 3 | Post CRUD: add/edit/delete/toggle hidden/state toggle | unverified |
-| 4 | Undo/redo (Ctrl+Z/Y, Ctrl+Shift+Z) incl. trash-key and media-delete undo via R2 trash API | unverified |
-| 5 | Media: image upload w/ progress, video upload (Bunny pipeline + progress text), YouTube link, remove media | unverified |
-| 6 | Multi-select (click/ctrl/shift/alt) + cross-post media drag | unverified |
-| 7 | Merge flow: merge similar → confirmation modal → confirm/skip | unverified |
-| 8 | Rearrange view: drag order, move mode, merge, bulk delete | unverified |
-| 9 | Scraping: IG/Flickr scrape + polling logs, uncertain-match confirm/reject, high-res sync, full R2 sync | unverified |
-| 10 | Cloud sync: 15s change polling, flash, sync/ignore/cancel/apply modal flow | unverified |
-| 11 | Trash modal: open/refresh/restore/delete/permanent delete | unverified |
-| 12 | Publishing: preview, upload/publish, restore latest publish | unverified |
-| 13 | Maintenance: R2 cleanup, legacy dup cleanup, redundancy cleanup, purge bak, reset all | unverified |
-| 14 | Backups: list + restore | unverified |
-| 15 | Keyboard: Ctrl+Alt+A, Ctrl+Alt+R, Escape, Ctrl+Alt+Y overlay toast | unverified |
-| 16 | German UI strings render correctly (no new mojibake); D1 repairs verified | unverified |
-| 17 | Media variants modal refresh + Cloudflare usage display | unverified |
+| 1 | Boot chain: embedded data → `/api/state` → Flickr test-data/R2 fallback banner + fallback toggle persisted | tested (fallback path N/A: normal boot, no fallback triggered) |
+| 2 | Header meta edits (title/subtitle/bio/IG/Flickr) + unpublished-changes flag | tested (edit survives reload; flag visual = PUBLISH button shade, subtle) |
+| 3 | Post CRUD: add/edit/delete/toggle hidden/state toggle | tested |
+| 4 | Undo/redo (Ctrl+Z/Y, Ctrl+Shift+Z) incl. trash-key and media-delete undo via R2 trash API | tested (pre-existing quirk: first button click swallowed by blur-commit) |
+| 5 | Media: image upload w/ progress, video upload (Bunny pipeline + progress text), YouTube link, remove media | unverified (real uploads skipped in this pass) |
+| 6 | Multi-select (click/ctrl/shift/alt) + cross-post media drag | tested |
+| 7 | Merge flow: merge similar → confirmation modal → confirm/skip | tested |
+| 8 | Rearrange view: drag order, move mode, merge, bulk delete | tested |
+| 9 | Scraping: IG/Flickr scrape + polling logs, uncertain-match confirm/reject, high-res sync, full R2 sync | N/A (network ops skipped by user decision) |
+| 10 | Cloud sync: 15s change polling, flash, sync/ignore/cancel/apply modal flow | N/A (requires external cloud change) |
+| 11 | Trash modal: open/refresh/restore/delete/permanent delete | tested (open + list + refresh; restore/delete N/A) |
+| 12 | Publishing: preview, upload/publish, restore latest publish | preview tested; live publish N/A (user decision) |
+| 13 | Maintenance: R2 cleanup, legacy dup cleanup, redundancy cleanup, purge bak, reset all | N/A (destructive, skipped by user decision) |
+| 14 | Backups: list + restore | tested (list; restore N/A) |
+| 15 | Keyboard: Ctrl+Alt+A, Ctrl+Alt+R, Escape, Ctrl+Alt+Y overlay toast | tested |
+| 16 | German UI strings render correctly (no new mojibake); D1 repairs verified | tested |
+| 17 | Media variants modal refresh + Cloudflare usage display | tested |
 
 ---
 
