@@ -25,6 +25,7 @@ import { useUndoHistory } from './hooks/useUndoHistory';
 import { useMediaInteraction, type MediaSelection } from './hooks/useMediaInteraction';
 import { useScrapeSync } from './hooks/useScrapeSync';
 import { useCloudSync } from './hooks/useCloudSync';
+import { useTrashManager } from './hooks/useTrashManager';
 import { linkifyToHtml } from './utils/linkify';
 import { RearrangeModal } from './components/modals/RearrangeModal';
 import { MergeConfirmationModal } from './components/modals/MergeConfirmationModal';
@@ -85,11 +86,10 @@ export default function App() {
   const [showResolutions, setShowResolutions] = useState(false);
   const [showResolutionToast, setShowResolutionToast] = useState(false);
   const shouldPushStateToR2Ref = useRef(false);
-  const [showTrashModal, setShowTrashModal] = useState(false);
-  const [showMediaVariantsModal, setShowMediaVariantsModal] = useState(false);
-  const [trashItems, setTrashItems] = useState<any[]>([]);
-  const [trashLoading, setTrashLoading] = useState(false);
-  const [trashError, setTrashError] = useState<string | null>(null);
+    const { showTrashModal, setShowTrashModal, trashItems, trashLoading, trashError, loadTrashItems, handleOpenTrash, handleRestoreTrashItems, handleDeleteTrashItems, handlePermanentlyDeleteTrashItems } = useTrashManager({
+    fetchCloudflareUsage: () => fetchCloudflareUsage(),
+    recordHistory: (entry: any) => recordHistory(entry)
+  });const [showMediaVariantsModal, setShowMediaVariantsModal] = useState(false);
   const [hasUnsyncedMedia, setHasUnsyncedMedia] = useState(false);
   const [hasUnpublishedChanges, setHasUnpublishedChanges] = useState(false);
 
@@ -649,7 +649,7 @@ export default function App() {
     setError,
     pushStatusNotice,
     fetchCloudflareUsage,
-    loadTrashItems: (openModal = false) => loadTrashItems(openModal),
+    loadTrashItems,
     shouldPushStateToR2Ref
   });
 
@@ -1564,131 +1564,6 @@ export default function App() {
 
     return () => { cancel.value = true; };
   }, [flickrPosts, imageDimensions, isR2Fallback, isEmbeddedData]);
-
-  const loadTrashItems = async (openModal = false) => {
-    setTrashLoading(true);
-    setTrashError(null);
-    if (openModal) setShowTrashModal(true);
-
-    try {
-      const res = await fetch('/api/r2-trash');
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to load trash items');
-      }
-
-      setTrashItems(data.items || []);
-    } catch (error: any) {
-      setTrashError(error.message || 'Failed to load trash items');
-    } finally {
-      setTrashLoading(false);
-    }
-  };
-
-  const handleOpenTrash = async () => {
-    await loadTrashItems(true);
-  };
-
-  const handleRestoreTrashItems = async (trashKeys: string[]) => {
-    if (trashKeys.length === 0) return;
-    setTrashLoading(true);
-    setTrashError(null);
-
-    try {
-      const res = await fetch('/api/r2-trash/restore', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trashKeys })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to restore trash items');
-      }
-
-      await loadTrashItems(true);
-      if ((data.conflictCount || 0) > 0) {
-        setTrashError(`${data.conflictCount} item(s) were skipped because the original file already exists.`);
-      }
-      await fetchCloudflareUsage();
-    } catch (error: any) {
-      setTrashError(error.message || 'Failed to restore trash items');
-    } finally {
-      setTrashLoading(false);
-    }
-  };
-
-  const handleDeleteTrashItems = async (trashKeys: string[]) => {
-    if (trashKeys.length === 0) return;
-    setTrashLoading(true);
-    setTrashError(null);
-
-    try {
-      // Archive (not hard delete): each object is first streamed into bak/r2-trash/
-      // and only removed from R2 after the local write verified, so the last copy
-      // always survives. Use the explicit permanent-delete action to skip bak/.
-      const res = await fetch('/api/r2-trash/archive', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trashKeys })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to archive trash items');
-      }
-
-      if (Array.isArray(data.bakFiles) && data.bakFiles.length > 0) {
-        recordHistory({ posts: [], bakFiles: data.bakFiles, action: `Trash archiviert (${data.bakFiles.length} Dateien in bak/)` });
-      }
-
-      await loadTrashItems(true);
-      if ((data.skippedCount || 0) > 0) {
-        setTrashError(`${data.skippedCount} item(s) could not be archived (R2 copy kept).`);
-      }
-      await fetchCloudflareUsage();
-    } catch (error: any) {
-      setTrashError(error.message || 'Failed to archive trash items');
-    } finally {
-      setTrashLoading(false);
-    }
-  };
-
-  // Irreversible: removes the R2 trash copy WITHOUT writing anything to bak/.
-  const handlePermanentlyDeleteTrashItems = async (trashKeys: string[]) => {
-    if (trashKeys.length === 0) return;
-
-    const confirmed = window.confirm(
-      `${trashKeys.length} Datei(en) werden UNWIDERruflich gelöscht.\n\n` +
-      `Es wird KEINE Kopie in bak/ abgelegt. Diese Dateien sind danach nicht wiederherstellbar.\n\n` +
-      `Trotzdem fortfahren?`
-    );
-    if (!confirmed) return;
-
-    setTrashLoading(true);
-    setTrashError(null);
-
-    try {
-      const res = await fetch('/api/r2-trash/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trashKeys })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to delete trash items');
-      }
-
-      await loadTrashItems(true);
-      if ((data.skippedCount || 0) > 0) {
-        setTrashError(`${data.skippedCount} item(s) could not be deleted.`);
-      }
-      await fetchCloudflareUsage();
-    } catch (error: any) {
-      setTrashError(error.message || 'Failed to delete trash items');
-    } finally {
-      setTrashLoading(false);
-    }
-  };
 
   // Content-hash (SHA-1) duplicate scan across R2 and local media. Moves R2
   // duplicates to trash/ and archives local duplicates into bak/redundant/.
