@@ -56,6 +56,14 @@ function applyExports(block, names) {
   return block.replace(re, (m, indent, kw, name) => indent + 'export ' + kw + ' ' + name);
 }
 
+function indexOfAnchor(raw, anchor, fromIndex = 0) {
+  let i = raw.indexOf(anchor, fromIndex);
+  if (i === -1 && anchor.includes('\n')) {
+    i = raw.indexOf(anchor.replace(/\n/g, '\r\n'), fromIndex);
+  }
+  return i;
+}
+
 function main() {
   const args = process.argv.slice(2);
   const op = args[0];
@@ -73,12 +81,12 @@ function main() {
   const append = args.includes('--append');
 
   const raw = readUtf8(src);
-  const startIdx = raw.indexOf(from);
+  const startIdx = indexOfAnchor(raw, from);
   if (startIdx === -1) fail('--from anchor not found in ' + src);
-  if (raw.indexOf(from, startIdx + 1) !== -1) fail('--from anchor is not unique in ' + src);
-  const endIdx = raw.indexOf(to, startIdx);
+  if (indexOfAnchor(raw, from, startIdx + 1) !== -1) fail('--from anchor is not unique in ' + src);
+  const endIdx = indexOfAnchor(raw, to, startIdx);
   if (endIdx === -1) fail('--to anchor not found after --from in ' + src);
-  if (raw.indexOf(to, endIdx + 1) !== -1) {
+  if (indexOfAnchor(raw, to, endIdx + 1) !== -1) {
     // The to-anchor may legitimately appear multiple times later (e.g. useEffect).
     // Only fail if the *next* occurrence is immediately adjacent, i.e. ambiguous slice.
     console.warn('splice-block: warning: --to anchor occurs more than once; using first occurrence after --from');
