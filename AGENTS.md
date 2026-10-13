@@ -13,6 +13,9 @@ This file (`AGENTS.md`) is the Single Source of Truth for all AI coding assistan
 - **Cloud:** Cloudflare R2 for public hosting and image delivery.
 - **Cloudflare Credentials:** Stored securely in `.env`. DO NOT hardcode them.
 - **Canonical paths & ownership (deep-refactor 2026-10-13):** `App.tsx` is the orchestrator only; `src/hooks/` owns one state/effect/handler cluster per file (custom hooks may own state + effects + lifecycle); `src/utils/` holds pure logic; `src/components/` holds leaf UI. `updatePosts` (in `src/hooks/useUndoHistory.ts`) is the single central mutation point, returned to `App.tsx` and passed to consumers. Hooks receive dependencies declared later in `App.tsx` via closure adapters (`(v) => setX(v)`) or getters (`() => value`).
+- **Published-HTML generation (batch 15b):** The portfolio page template is split into section builders — `src/utils/portfolioHtmlParts.ts` (favicons, post-cards builder, head, styles, data script, body) plus `src/utils/portfolioHtmlRuntimeCore.ts` and `src/utils/portfolioHtmlRuntimeLightbox.ts` (the two runtime `<script>` halves, split at `renderGallery`). Published output MUST stay byte-identical when editing these files; verify with `npx tsx scripts/html-parity-fixture.ts <dir>` and compare hashes.
+- **Upload flows (batch 15b):** `src/hooks/useMediaUploads.ts` is a thin orchestrator; the real pipelines live in `src/hooks/uploadImageFlow.ts` (image) and `src/hooks/uploadVideoFlow.ts` (Bunny video + link change), injected with deps from the hook.
+- **Status notices (batch 15b):** `src/hooks/useStatusNotice.ts` owns the notice state/timer; `src/components/StatusNotice.tsx` is the leaf. Leaf components `FallbackBanner`/`ResolutionToast` in `src/components/` render their visibility from props passed by `App.tsx`.
 
 ## Dual-Environment Constraint (CRITICAL)
 This application must run flawlessly in TWO environments:
@@ -52,7 +55,7 @@ To keep the AI agent fast, specific architectural rules have been extracted to `
 - **File Size & Refactoring Limits:**
   - **300–499 lines (Warning & Refactor Suggestion):** Actively warn the user that the file is approaching critical complexity and provide an actionable decomposition suggestion.
   - **500+ lines (Mandatory Pro Decomposition):** Strictly refactor. If extraction boundaries are fully clear, delegate to a `pro` subagent. Otherwise, trigger a `#grillme` interview.
-  - **Post-refactor follow-ups (2026-10-13):** `App.tsx` (was 5,213) is at 780 lines and still needs the final cutover to <500. Two extraction targets remain above the mandatory threshold and need decomposition: `src/hooks/useMediaUploads.ts` (~637 lines) and `src/utils/generatePortfolioHtml.ts` (~1,095 lines).
+  - **Post-refactor follow-ups (2026-10-13):** `App.tsx` (was 5,213) is now 447 lines ✓; `src/hooks/useMediaUploads.ts` and `src/utils/generatePortfolioHtml.ts` are decomposed ✓. Watch list (approaching the 500-line limit by design of the template split): `src/utils/portfolioHtmlRuntimeCore.ts` (~438) and `src/utils/portfolioHtmlRuntimeLightbox.ts` (~381) — if the embedded runtime script grows, split again at a function boundary.
 - Strictly avoid omitting code or using placeholders like `// ...`. Retain all existing props, types, and logic unless explicitly instructed otherwise.
 - **Script Organization:** All one-off utility scripts, automated patches, python scrapers, and test scripts must be placed in the `scripts/` directory.
 
