@@ -32,6 +32,8 @@ import { useBackups } from './hooks/useBackups';
 import { useR2Maintenance } from './hooks/useR2Maintenance';
 import { usePortfolioInit } from './hooks/usePortfolioInit';
 import { useStatePersistence } from './hooks/useStatePersistence';
+import { usePostActions } from './hooks/usePostActions';
+import { usePostOrdering } from './hooks/usePostOrdering';
 import { linkifyToHtml } from './utils/linkify';
 import { RearrangeModal } from './components/modals/RearrangeModal';
 import { MergeConfirmationModal } from './components/modals/MergeConfirmationModal';
@@ -479,272 +481,25 @@ export default function App() {
 
   keyHandlersRef.current = { handleUndo, handleRedo, mediaSelection, clearMediaSelection };
 
-  const handleToggleHidden = (postId: string) => {
-    const targetTitle = describePost(flickrPosts.find(p => String(p.id) === String(postId)));
-    updatePosts(posts => posts.map(post => {
-      if (String(post.id) === String(postId)) {
-        return { ...post, hidden: !post.hidden };
-      }
-      return post;
-    }), `Visibility geändert (${targetTitle})`);
-  };
-
-  const handleStateToggle = (postId: string, stateId: string) => {
-    const targetTitle = describePost(flickrPosts.find(p => String(p.id) === String(postId)));
-    updatePosts(posts => posts.map(post => {
-      if (String(post.id) === String(postId)) {
-        const states = post.states || [];
-        const stateIdLower = String(stateId).toLowerCase();
-        const hasState = states.some((s: string) => String(s).toLowerCase() === stateIdLower);
-        
-        const newStates = hasState 
-          ? states.filter((s: string) => String(s).toLowerCase() !== stateIdLower)
-          : [...states, stateId];
-        return { ...post, states: newStates };
-      }
-      return post;
-    }), `Kategorie geändert (${targetTitle})`);
-  };
-
-  const handlePostChange = (id: string, field: string, value: string) => {
-    const targetTitle = describePost(flickrPosts.find(p => String(p.id) === String(id)));
-    updatePosts(posts => posts.map(post => 
-      String(post.id) === String(id) ? { ...post, [field]: value } : post
-    ), `Textfeld bearbeitet (${targetTitle})`);
-  };
-
-  const handleAddNewPost = () => {
-    const newPost = {
-      id: `custom-${Date.now()}`,
-      title: '',
-      description: '',
-      network_name: 'Custom',
-      type: 'image',
-      states: []
-    };
-    updatePosts([newPost, ...flickrPosts], 'Neuen Post hinzugefügt (Custom)');
-    setIsEditing(true);
-  };
-
-  const handleDeletePost = async (id: string) => {
-    const targetPost = flickrPosts.find(p => String(p.id) === String(id));
-    if (!targetPost) return;
-    const targetTitle = describePost(targetPost);
-    const hasMediaFiles = !!(
-      targetPost.image || targetPost.image_original || targetPost.url || targetPost.image_thumb ||
-      (Array.isArray(targetPost.mergedMedia) && targetPost.mergedMedia.length > 0)
-    );
-    const confirmMessage = hasMediaFiles
-      ? `Post "${targetTitle}" wirklich löschen?\n\nLokale Dateien werden nach bak/ verschoben (über Undo wiederherstellbar) und die R2-Dateien werden unwiderruflich gelöscht.`
-      : `Post "${targetTitle}" wirklich löschen?`;
-    if (!window.confirm(confirmMessage)) return;
-
-    try {
-      const res = await fetch('/api/state/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success) throw new Error(data.error || 'Löschen fehlgeschlagen');
-
-      const bakFiles = Array.isArray(data.movedToBak) ? data.movedToBak : [];
-      const prevPosts = flickrPosts;
-      recordHistory({ posts: prevPosts, bakFiles, action: `Post gelöscht (${targetTitle})` });
-      setHasUnpublishedChanges(true);
-      setFlickrPosts(prev => prev.filter(post => String(post.id) !== String(id)));
-      if (bakFiles.length > 0) {
-        pushStatusNotice('info', 'Post gelöscht', `${bakFiles.length} Datei(en) nach bak/ verschoben, ${data.r2DeletedCount ?? 0} von R2 gelöscht.`);
-      }
-    } catch (err: any) {
-      setError(err.message || 'Ein Fehler ist aufgetreten.');
-    }
-  };
-
-  const handleMergeDown = useCallback((index: number) => {
-    const targetTitle = describePost(flickrPosts[index]);
-    updatePosts(posts => {
-      const newPosts = [...posts];
-      const current = newPosts[index];
-      const next = newPosts[index + 1];
-      
-      if (!next) return posts;
-
-      // FIX #2c: Merge-Operation - Strikte Filter-Logik
-      const mergedMedia = [
-        ...(current.mergedMedia || [{
-          type: current.type || 'image',
-          image: current.image,
-          image_thumb: current.image_thumb,
-          image_1k: current.image_1k,
-          image_2k: current.image_2k,
-          image_large: current.image_large,
-          image_preview: current.image_preview,
-          image_3k: current.image_3k,
-          image_original: current.image_original,
-          youtubeId: current.youtubeId,
-          youtubeUrl: current.youtubeUrl,
-          link: current.url,
-          url: current.url
-        }]),
-        ...(next.mergedMedia || [{
-          type: next.type || 'image',
-          image: next.image,
-          image_thumb: next.image_thumb,
-          image_1k: next.image_1k,
-          image_2k: next.image_2k,
-          image_large: next.image_large,
-          image_preview: next.image_preview,
-          image_3k: next.image_3k,
-          image_original: next.image_original,
-          youtubeId: next.youtubeId,
-          youtubeUrl: next.youtubeUrl,
-          link: next.url,
-          url: next.url
-        }])
-      ].filter(hasRenderableMedia);
-
-      const mergedDescription = [current.description, next.description].filter(Boolean).join('<br/><br/>');
-      const primaryMedia = getPrimaryMergedMedia(mergedMedia) || current;
-
-      newPosts[index] = {
-        ...current,
-        ...syncMediaFieldsFromPrimary({ ...current }, primaryMedia),
-        description: mergedDescription,
-        mergedMedia,
-      };
-
-      newPosts.splice(index + 1, 1);
-      return newPosts;
-    }, `Posts zusammengeführt (${targetTitle})`);
-  }, [flickrPosts, updatePosts]);
-
-  const handleUpdatePostMedia = (id: string, newMediaRaw: any[]) => {
-    // FIX #3: Strikte Filter-Logik - Phantom-Elemente entfernen
-    // uploadId ist NUR während des Uploads erlaubt, danach müssen finale URLs vorhanden sein
-    const newMedia = newMediaRaw.filter(hasRenderableMedia);
-    const targetTitle = describePost(flickrPosts.find(p => String(p.id) === String(id)));
-    updatePosts(posts => posts.map(post => {
-      if (String(post.id) === String(id)) {
-        const updatedPost = { ...post, mergedMedia: newMedia };
-        const primaryMedia = getPrimaryMergedMedia(newMedia);
-        if (primaryMedia) {
-          return {
-            ...syncMediaFieldsFromPrimary(updatedPost, primaryMedia),
-            mergedMedia: newMedia
-          };
-        }
-        return updatedPost;
-      }
-      return post;
-    }), `Post Media aktualisiert (${targetTitle})`);
-    shouldPushStateToR2Ref.current = true;
-  };
-
-  const handleRemoveMedia = async (postId: string, mediaIndex: number) => {
-    const targetPost = flickrPosts.find(p => String(p.id) === String(postId));
-    if (!targetPost) return;
-    const mergedMedia = Array.isArray(targetPost.mergedMedia) ? targetPost.mergedMedia : [];
-    const mediaItems = mergedMedia.length > 0
-      ? mergedMedia
-      : [{ type: targetPost.type || 'image', image: targetPost.image, image_large: targetPost.image_large, youtubeId: targetPost.youtubeId, youtubeUrl: targetPost.youtubeUrl, link: targetPost.url }];
-    const removedItem = mediaItems[mediaIndex];
-    if (!removedItem) return;
-
-    const isRealEntry = mergedMedia.includes(removedItem);
-
-    // Synthesized entry (post without mergedMedia) -> keep old local-only removal.
-    if (!isRealEntry) {
-      handleUpdatePostMedia(postId, mediaItems.filter((_: any, idx: number) => idx !== mediaIndex));
-      return;
-    }
-
-    const mediaId = removedItem?.id !== undefined && removedItem?.id !== null ? String(removedItem.id) : undefined;
-    const mediaUrl =
-      (typeof removedItem?.video === 'string' && removedItem.video) ||
-      (typeof removedItem?.url === 'string' && removedItem.url) ||
-      (typeof removedItem?.image_original === 'string' && removedItem.image_original) ||
-      (typeof removedItem?.image_large === 'string' && removedItem.image_large) ||
-      (typeof removedItem?.image === 'string' && removedItem.image) ||
-      undefined;
-
-    const removedLabel = removedItem.type === 'youtube' ? 'YouTube' : removedItem.type === 'bunny' ? 'Bunny-Video' : removedItem.type === 'video' ? 'Video' : 'Bild';
-    if (!window.confirm(`"${removedLabel}" wirklich entfernen?\n\nLokale Dateien werden nach bak/ verschoben (über Undo wiederherstellbar) und die R2-Dateien werden unwiderruflich gelöscht.`)) return;
-
-    try {
-      const res = await fetch('/api/state/delete-media', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: postId, mediaId, mediaIndex, mediaUrl })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 404) {
-        // Server could not find the media entry (e.g. state drift) -> safe local-only removal.
-        handleUpdatePostMedia(postId, mediaItems.filter((_: any, idx: number) => idx !== mediaIndex));
-        return;
-      }
-      if (!res.ok || !data.success) throw new Error(data.error || 'Entfernen fehlgeschlagen');
-
-      const bakFiles = Array.isArray(data.movedToBak) ? data.movedToBak : [];
-      const newMedia = mediaItems.filter((_: any, idx: number) => idx !== mediaIndex).filter(hasRenderableMedia);
-      const prevPosts = flickrPosts;
-      const newPosts = prevPosts.map(post => {
-        if (String(post.id) !== String(postId)) return post;
-        const updatedPost = { ...post, mergedMedia: newMedia };
-        const primaryMedia = getPrimaryMergedMedia(newMedia);
-        if (primaryMedia) {
-          return { ...syncMediaFieldsFromPrimary(updatedPost, primaryMedia), mergedMedia: newMedia };
-        }
-        if (newMedia.length === 0) {
-          return clearPostMediaFields({ ...updatedPost, mergedMedia: undefined });
-        }
-        return updatedPost;
-      });
-      recordHistory({ posts: prevPosts, bakFiles, action: `Media entfernt (${removedLabel})` });
-      setHasUnpublishedChanges(true);
-      setFlickrPosts(newPosts);
-      shouldPushStateToR2Ref.current = true;
-      if (bakFiles.length > 0) {
-        pushStatusNotice('info', 'Media entfernt', `${bakFiles.length} Datei(en) nach bak/ verschoben, ${data.r2DeletedCount ?? 0} von R2 gelöscht.`);
-      }
-    } catch (err: any) {
-      setError(err.message || 'Ein Fehler ist aufgetreten.');
-    }
-  };
-
-  const handleMoveToTarget = (targetId: string) => {
-    if (selectedThumbnails.includes(String(targetId))) return;
-
-    const selectedPosts = flickrPosts.filter(p => selectedThumbnails.includes(String(p.id)));
-    const remainingPosts = flickrPosts.filter(p => !selectedThumbnails.includes(String(p.id)));
-    
-    const targetIndex = remainingPosts.findIndex(p => String(p.id) === String(targetId));
-    const firstTitle = describePost(selectedPosts[0]);
-    
-    if (targetIndex === -1) {
-      // If target not found, just append to the end
-      updatePosts([...remainingPosts, ...selectedPosts], `Posts verschoben (${selectedPosts.length}, u.a. ${firstTitle})`);
-    } else {
-      // Insert selected items AFTER the target item
-      const newPosts = [
-        ...remainingPosts.slice(0, targetIndex + 1),
-        ...selectedPosts,
-        ...remainingPosts.slice(targetIndex + 1)
-      ];
-      updatePosts(newPosts, `Posts verschoben (${selectedPosts.length}, u.a. ${firstTitle})`);
-    }
-    
-    setIsMoving(false);
-    setSelectedThumbnails([]);
-    setLastSelectedId(null);
-  };
-
-  // Bio feature handlers (wrappers around hook functions)
-  const handleAddInstagramPost = () => handleGetLatestInstagram(flickrPosts);
-  const handleAddFlickrPost = () => handleGetLatestFlickr(flickrPosts);
-  const handleConfirmCommitPost = () => handleCommitPostToPortfolio(updatePosts, flickrPosts);
-
-  // Track Bunny upload progress per post
+    const { handleToggleHidden, handleStateToggle, handlePostChange, handleAddNewPost, handleDeletePost, handleMergeDown, handleUpdatePostMedia, handleRemoveMedia, handleMoveToTarget, handleAddInstagramPost, handleAddFlickrPost, handleConfirmCommitPost } = usePostActions({
+    flickrPosts,
+    updatePosts,
+    describePost,
+    recordHistory,
+    setHasUnpublishedChanges,
+    setFlickrPosts,
+    setError,
+    pushStatusNotice,
+    shouldPushStateToR2Ref,
+    setIsEditing,
+    selectedThumbnails,
+    setSelectedThumbnails,
+    setIsMoving,
+    setLastSelectedId,
+    handleGetLatestInstagram,
+    handleGetLatestFlickr,
+    handleCommitPostToPortfolio
+  });// Track Bunny upload progress per post
   useEffect(() => {
     if (!flickrPosts || flickrPosts.length === 0) return;
     const cancel = { value: false };
@@ -787,163 +542,21 @@ export default function App() {
 
   // Content-hash (SHA-1) duplicate scan across R2 and local media. Moves R2
   // duplicates to trash/ and archives local duplicates into bak/redundant/.
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8,
-      },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    setActiveId(null);
-
-    if (over && active.id !== over.id) {
-      const targetTitle = describePost(flickrPosts.find(p => String(p.id) === String(active.id)));
-      updatePosts((items) => {
-        const oldIndex = items.findIndex((item) => item.id === active.id);
-        const newIndex = items.findIndex((item) => item.id === over.id);
-        
-        return arrayMove(items, oldIndex, newIndex);
-      }, `Post verschoben (${targetTitle})`);
-    }
-  };
-
-    const handleLightboxDragStart = (e: React.DragEvent, index: number) => {
-    e.stopPropagation();
-    setLightboxDraggedIdx(index);
-  };
-
-  const handleLightboxDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
-  const handleLightboxDrop = (e: React.DragEvent, index: number, postId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (lightboxDraggedIdx === null || lightboxDraggedIdx === index) return;
-    
-    const post = flickrPosts.find(p => String(p.id) === String(postId));
-    if (!post) return;
-    
-    const mediaItems = post.mergedMedia || [{ type: post.type || 'image', image: post.image, image_large: post.image_large, youtubeId: post.youtubeId, link: post.url }];
-    const newMedia = [...mediaItems];
-    const [draggedItem] = newMedia.splice(lightboxDraggedIdx, 1);
-    newMedia.splice(index, 0, draggedItem);
-    
-    handleUpdatePostMedia(postId, newMedia);
-    setLightboxDraggedIdx(null);
-  };
-
-  const currentLightboxPost = selectedImage ? (flickrPosts.find(p => String(p.id) === String(selectedImage.id)) || selectedImage) : null;
-
-  const handleMerge = async () => {
-    if (selectedThumbnails.length < 2) return;
-    
-    const postsToMerge = flickrPosts.filter(p => selectedThumbnails.includes(String(p.id)));
-    // Sort them by their current order in the feed
-    postsToMerge.sort((a, b) => {
-      return flickrPosts.indexOf(a) - flickrPosts.indexOf(b);
-    });
-
-    const mainPost = { ...postsToMerge[0] };
-    const otherPosts = postsToMerge.slice(1);
-
-    // Combine text
-    let combinedDescription = mainPost.description || "";
-    for (const post of otherPosts) {
-      if (post.title || post.description) {
-        combinedDescription += "\n\nâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€\n\n";
-        if (post.title) combinedDescription += `<strong>${post.title}</strong>\n\n`;
-        if (post.description) combinedDescription += post.description;
-      }
-    }
-    mainPost.description = combinedDescription;
-
-    if (!mainPost.mergedMedia) mainPost.mergedMedia = [];
-    
-    // Add main post's own media to mergedMedia if it's not already there
-    const mainMedia = {
-      id: mainPost.id,
-      type: mainPost.type || 'image',
-      image: mainPost.image,
-      image_large: mainPost.image_large,
-      url: mainPost.url,
-      phash: mainPost.phash,
-      youtubeId: mainPost.youtubeId
-    };
-    
-    // Check if mainMedia is already in mergedMedia
-    const alreadyPresent = mainPost.mergedMedia.some((m: any) => m.id === mainPost.id);
-    if (!alreadyPresent) {
-      mainPost.mergedMedia = [mainMedia, ...mainPost.mergedMedia];
-    }
-
-    // Add other posts' media
-    for (const post of otherPosts) {
-      if (post.mergedMedia && post.mergedMedia.length > 0) {
-        mainPost.mergedMedia = [...mainPost.mergedMedia, ...post.mergedMedia];
-      } else {
-        mainPost.mergedMedia.push({
-          id: post.id,
-          type: post.type || 'image',
-          image: post.image,
-          image_large: post.image_large,
-          url: post.url,
-          phash: post.phash,
-          youtubeId: post.youtubeId
-        });
-      }
-    }
-
-    const primaryMedia = getPrimaryMergedMedia(mainPost.mergedMedia) || mainPost;
-    syncMediaFieldsFromPrimary(mainPost, primaryMedia);
-
-    updatePosts(prev => {
-      const filtered = prev.filter(p => !selectedThumbnails.includes(String(p.id)) || String(p.id) === String(mainPost.id));
-      return filtered.map(p => String(p.id) === String(mainPost.id) ? mainPost : p);
-    }, `Posts zusammengeführt (${describePost(mainPost)})`);
-
-    // Stay in rearrange mode and select the newly merged post
-    setSelectedThumbnails([String(mainPost.id)]);
-  };
-
-  const handleBulkDelete = async () => {
-    if (selectedThumbnails.length === 0) return;
-
-    const confirmDelete = window.confirm(`Bist du sicher, dass du ${selectedThumbnails.length} Element(e) löschen möchtest?\n\nLokale Dateien werden nach bak/ verschoben (über Undo wiederherstellbar), R2-Dateien werden unwiderruflich gelöscht.`);
-    if (!confirmDelete) return;
-
-    try {
-      const idsToDelete = selectedThumbnails.map(id => String(id));
-      const prevPosts = flickrPosts;
-      const res = await fetch('/api/state/bulk-delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: idsToDelete })
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        const bakFiles = Array.isArray(data.movedToBak) ? data.movedToBak : [];
-        recordHistory({ posts: prevPosts, bakFiles, action: `${idsToDelete.length} Posts gelöscht` });
-        setHasUnpublishedChanges(true);
-        setFlickrPosts(prev => prev.filter(post => !idsToDelete.includes(String(post.id))));
-        setSelectedThumbnails([]);
-        alert(`${data.deletedCount} Element(e) gelöscht. ${bakFiles.length} Datei(en) nach bak/ verschoben, ${data.r2DeletedCount ?? 0} von R2 gelöscht.`);
-      } else {
-        alert('Fehler beim Löschen: ' + data.error);
-      }
-    } catch (err) {
-      console.error(err);
-      alert('Ein Fehler ist aufgetreten.');
-    }
-  };
+  const { sensors, handleDragEnd, handleLightboxDragStart, handleLightboxDragOver, handleLightboxDrop, currentLightboxPost, handleMerge, handleBulkDelete } = usePostOrdering({
+    flickrPosts,
+    updatePosts,
+    describePost,
+    selectedThumbnails,
+    setSelectedThumbnails,
+    setActiveId,
+    lightboxDraggedIdx,
+    setLightboxDraggedIdx,
+    handleUpdatePostMedia,
+    selectedImage,
+    recordHistory,
+    setHasUnpublishedChanges,
+    setFlickrPosts
+  });
 
   return (
     <div className="min-h-screen bg-black text-white p-4 md:p-12 font-sans">
