@@ -28,6 +28,8 @@ import { useCloudSync } from './hooks/useCloudSync';
 import { useTrashManager } from './hooks/useTrashManager';
 import { useMediaUploads } from './hooks/useMediaUploads';
 import { usePublishing } from './hooks/usePublishing';
+import { useBackups } from './hooks/useBackups';
+import { useR2Maintenance } from './hooks/useR2Maintenance';
 import { linkifyToHtml } from './utils/linkify';
 import { RearrangeModal } from './components/modals/RearrangeModal';
 import { MergeConfirmationModal } from './components/modals/MergeConfirmationModal';
@@ -61,9 +63,6 @@ export default function App() {
   const portfolioBioRef = useRef<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [r2CleanupRunning, setR2CleanupRunning] = useState(false);
-  const [legacyDupCleanupRunning, setLegacyDupCleanupRunning] = useState(false);
-  const [redundancyCleanupRunning, setRedundancyCleanupRunning] = useState(false);
   const [selectedImage, setSelectedImage] = useState<any | null>(null);
   const [imageDimensions, setImageDimensions] = useState<Record<string, string>>({});
 
@@ -182,15 +181,9 @@ export default function App() {
     setIsFlickrFallback: (v: boolean) => setIsFlickrFallback(v),
     updatePosts: (np: any, ad: string = 'Aktion durchgeführt') => updatePosts(np, ad)
   });
-  const [showBackups, setShowBackups] = useState(false);
-  const [backupsList, setBackupsList] = useState<any[]>([]);
-  const [isResettingAll, setIsResettingAll] = useState(false);
-  const [isRestoring, setIsRestoring] = useState<string | null>(null);
-  const [restoreError, setRestoreError] = useState<string | null>(null);
-  const [lastRestoredFilename, setLastRestoredFilename] = useState<string | null>(
-    () => localStorage.getItem('portfolioLastRestoredBackup')
-  );
-    const { scrapeLogs, setScrapeLogs, isScraping, showLogs, setShowLogs, syncStatus, fullR2SyncStatus, uncertainMatches, showUncertain, setShowUncertain, handleFullR2Sync, handleScrape, handleHighResSync, handleConfirmMatch, handleRejectMatch } = useScrapeSync({ flickrPostsRef, updatePosts: (np: any, ad: string = 'Aktion durchgeführt') => updatePosts(np, ad), setFlickrPosts, setHasUnsyncedMedia, setIsFlickrFallback: (v: boolean) => setIsFlickrFallback(v) });const statusNoticeTimerRef = useRef<number | null>(null);
+  const { scrapeLogs, setScrapeLogs, isScraping, showLogs, setShowLogs, syncStatus, fullR2SyncStatus, uncertainMatches, showUncertain, setShowUncertain, handleFullR2Sync, handleScrape, handleHighResSync, handleConfirmMatch, handleRejectMatch } = useScrapeSync({ flickrPostsRef, updatePosts: (np: any, ad: string = 'Aktion durchgeführt') => updatePosts(np, ad), setFlickrPosts, setHasUnsyncedMedia, setIsFlickrFallback: (v: boolean) => setIsFlickrFallback(v) });
+
+  const statusNoticeTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     return () => {
@@ -240,34 +233,6 @@ export default function App() {
     pushStatusNotice('success', 'Media variants updated', 'Generated thumbnails were published and the editor state was refreshed.');
   };
 
-  const handleResetAll = async () => {
-    if (isResettingAll) return;
-    const confirm = window.confirm(
-      'ACHTUNG: Das leert den kompletten R2-Bucket und baut ihn danach aus den lokalen Daten neu auf.\n\n' +
-      'Lokale Dateien und Edits bleiben erhalten.\n\n' +
-      'Wirklich fortfahren?'
-    );
-    if (!confirm) return;
-
-    setIsResettingAll(true);
-    setError('');
-    try {
-      const response = await fetch('/api/reset-all', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirm: 'YES' })
-      });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || data.details || 'R2-Rebuild fehlgeschlagen');
-      }
-      window.location.reload();
-    } catch (e: any) {
-      setError(e?.message || 'R2-Rebuild fehlgeschlagen');
-      setIsResettingAll(false);
-    }
-  };
-  
   const reorderScrollRef = useRef<HTMLDivElement>(null!);
   const [portfolioTitle, setPortfolioTitle] = useState("Portfolio Gallery");
   const [portfolioSubtitle, setPortfolioSubtitle] = useState("My creative works");
@@ -692,6 +657,33 @@ export default function App() {
     setFlickrUrl
   });
 
+  const { showBackups, setShowBackups, backupsList, isRestoring, restoreError, lastRestoredFilename, loadBackups, handleRestoreBackup } = useBackups({
+    setFlickrPosts,
+    recordHistory,
+    setPortfolioTitle,
+    setPortfolioSubtitle,
+    setPortfolioBio,
+    setIgAccount,
+    setFlickrUrl,
+    ignoreCloudChangesRef,
+    setHasCloudChanges
+  });
+
+  const { r2CleanupRunning, legacyDupCleanupRunning, redundancyCleanupRunning, isResettingAll, handleResetAll, handleRedundancyCleanup, handlePurgeBak, handleR2Cleanup, handleLegacyDuplicateCleanup } = useR2Maintenance({
+    setError,
+    setShowLogs,
+    setScrapeLogs,
+    recordTrashUndo,
+    recordHistory,
+    loadTrashItems,
+    fetchCloudflareUsage
+  });
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    loadTrashItems().catch(() => {});
+  }, [isInitialized]);
+
   keyHandlersRef.current = { handleUndo, handleRedo, mediaSelection, clearMediaSelection };
 
   const handleToggleHidden = (postId: string) => {
@@ -1002,300 +994,6 @@ export default function App() {
 
   // Content-hash (SHA-1) duplicate scan across R2 and local media. Moves R2
   // duplicates to trash/ and archives local duplicates into bak/redundant/.
-  const handleRedundancyCleanup = async () => {
-    if (redundancyCleanupRunning) return;
-
-    setRedundancyCleanupRunning(true);
-    setError('');
-    setShowLogs(true);
-    setScrapeLogs(['Hashing R2 and local media (SHA-1)...']);
-
-    try {
-      const previewResponse = await fetch('/api/r2-redundancy/preview', { method: 'POST' });
-      const previewData = await previewResponse.json().catch(() => ({}));
-
-      if (!previewResponse.ok) {
-        throw new Error(
-          previewData.error ||
-          (previewData.warnings || []).join(' ') ||
-          'Redundancy preview failed'
-        );
-      }
-
-      const previewLogs = [
-        'Redundancy scan complete.',
-        `Files hashed: ${previewData.scannedCount || 0}`,
-        `Redundant copies: ${previewData.duplicateCount || 0}`,
-        `Potential bytes affected: ${formatBytes(previewData.totalBytes || 0)}`
-      ];
-
-      if (Array.isArray(previewData.sampleKeys) && previewData.sampleKeys.length > 0) {
-        previewLogs.push('Examples:');
-        previewData.sampleKeys.forEach((key: string) => previewLogs.push(`- ${key}`));
-      }
-
-      setScrapeLogs(previewLogs);
-
-      if (!previewData.duplicateCount) {
-        setRedundancyCleanupRunning(false);
-        return;
-      }
-
-      setTimeout(async () => {
-        try {
-          const confirmed = window.confirm(
-            `${previewData.duplicateCount} byte-identical duplicates found.\n` +
-            `Potential bytes affected: ${formatBytes(previewData.totalBytes || 0)}.\n\n` +
-            `R2 copies move to trash/ (undoable), local copies move to bak/redundant/.\n` +
-            `Referenced files are always kept as the surviving copy.\n\n` +
-            `Continue?`
-          );
-
-          if (!confirmed) {
-            setScrapeLogs(prev => [...prev, 'Redundancy cleanup cancelled.']);
-            setRedundancyCleanupRunning(false);
-            return;
-          }
-
-          setScrapeLogs(prev => [...prev, 'Moving redundant copies...']);
-          const executeResponse = await fetch('/api/r2-redundancy/execute', { method: 'POST' });
-          const executeData = await executeResponse.json().catch(() => ({}));
-
-          if (!executeResponse.ok) {
-            throw new Error(executeData.error || 'Redundancy cleanup failed');
-          }
-
-          setScrapeLogs(prev => [
-            ...prev,
-            'Redundancy cleanup complete.',
-            `Moved files: ${executeData.movedCount || 0}`,
-            `Bytes affected: ${formatBytes(executeData.movedBytes || 0)}`
-          ]);
-
-          recordTrashUndo(executeData.trashItems || [], 'Redundanz rückgängig');
-          if (Array.isArray(executeData.bakFiles) && executeData.bakFiles.length > 0) {
-            recordHistory({ posts: [], bakFiles: executeData.bakFiles, action: `Redundante lokale Dateien nach bak/ (${executeData.bakFiles.length})` });
-          }
-          await loadTrashItems(true);
-          await fetchCloudflareUsage();
-        } catch (err: any) {
-          const message = err.message || 'Redundancy cleanup failed';
-          setError(message);
-          setScrapeLogs(prev => [...prev, `ERROR: ${message}`]);
-        } finally {
-          setRedundancyCleanupRunning(false);
-        }
-      }, 100);
-    } catch (err: any) {
-      const message = err.message || 'Redundancy cleanup failed';
-      setError(message);
-      setScrapeLogs(prev => [...prev, `ERROR: ${message}`]);
-      setRedundancyCleanupRunning(false);
-    }
-  };
-
-  // Irreversible: empties the local bak/ archive. bak/ is the last safety net,
-  // so this needs an explicit typed confirmation.
-  const handlePurgeBak = async () => {
-    const typed = window.prompt(
-      'bak/ LEEREN?\n\nAlle lokal archivierten Dateien werden unwiderruflich gelöscht.\n' +
-      'Dies kann NICHT rückgängig gemacht werden.\n\nZum Bestätigen "LEEREN" eingeben:'
-    );
-    if (typed?.trim().toUpperCase() !== 'LEEREN') return;
-
-    setError('');
-    try {
-      const res = await fetch('/api/bak/purge', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error || 'bak/ konnte nicht geleert werden');
-      }
-      setScrapeLogs(prev => [
-        ...prev,
-        `bak/ geleert: ${data.deletedCount || 0} Dateien (${formatBytes(data.deletedBytes || 0)}).`
-      ]);
-      setShowLogs(true);
-    } catch (err: any) {
-      setError(err.message || 'bak/ konnte nicht geleert werden');
-    }
-  };
-
-
-  useEffect(() => {
-    if (!isInitialized) return;
-    loadTrashItems().catch(() => {});
-  }, [isInitialized]);
-
-  const handleR2Cleanup = async () => {
-    if (r2CleanupRunning) return;
-
-    setR2CleanupRunning(true);
-    setError('');
-    setShowLogs(true);
-    setScrapeLogs(['Scanning R2 for orphaned files...']);
-
-    try {
-      const previewResponse = await fetch('/api/r2-cleanup/preview', { method: 'POST' });
-      const previewData = await previewResponse.json().catch(() => ({}));
-
-      if (!previewResponse.ok) {
-        throw new Error(previewData.error || 'Cleanup preview failed');
-      }
-
-      const previewLogs = [
-        'R2 scan complete.',
-        `Files checked: ${previewData.scannedCount || 0}`,
-        `Orphaned files: ${previewData.orphanedCount || 0}`,
-        `Potential bytes affected: ${formatBytes(previewData.totalBytes || 0)}`
-      ];
-
-      if (Array.isArray(previewData.sampleKeys) && previewData.sampleKeys.length > 0) {
-        previewLogs.push('Examples:');
-        previewData.sampleKeys.forEach((key: string) => previewLogs.push(`- ${key}`));
-      }
-
-      setScrapeLogs(previewLogs);
-
-      if (!previewData.orphanedCount) {
-        setR2CleanupRunning(false);
-        return;
-      }
-
-      setTimeout(async () => {
-        try {
-          const confirmed = window.confirm(
-            `${previewData.orphanedCount} orphaned R2 files found.\n` +
-            `Potential bytes affected: ${formatBytes(previewData.totalBytes || 0)}.\n\n` +
-            `Move these files to the trash?`
-          );
-
-          if (!confirmed) {
-            setScrapeLogs(prev => [...prev, 'Move to trash cancelled.']);
-            setR2CleanupRunning(false);
-            return;
-          }
-
-          setScrapeLogs(prev => [...prev, 'Moving orphaned files to trash...']);
-          const executeResponse = await fetch('/api/r2-cleanup/execute', { method: 'POST' });
-          const executeData = await executeResponse.json().catch(() => ({}));
-
-          if (!executeResponse.ok) {
-            throw new Error(executeData.error || 'Cleanup failed');
-          }
-
-          setScrapeLogs(prev => [
-            ...prev,
-            'Move to trash complete.',
-            `Moved files: ${executeData.movedCount || 0}`,
-            `Bytes affected: ${formatBytes(executeData.movedBytes || 0)}`
-          ]);
-
-          recordTrashUndo(executeData.trashItems || [], 'R2-Cleanup rückgängig');
-          await loadTrashItems(true);
-          await fetchCloudflareUsage();
-        } catch (err: any) {
-          const message = err.message || 'Cleanup failed';
-          setError(message);
-          setScrapeLogs(prev => [...prev, `ERROR: ${message}`]);
-        } finally {
-          setR2CleanupRunning(false);
-        }
-      }, 100);
-    } catch (err: any) {
-      const message = err.message || 'Cleanup failed';
-      setError(message);
-      setScrapeLogs(prev => [...prev, `ERROR: ${message}`]);
-      setR2CleanupRunning(false);
-    }
-  };
-
-  const handleLegacyDuplicateCleanup = async () => {
-    if (legacyDupCleanupRunning) return;
-
-    setLegacyDupCleanupRunning(true);
-    setError('');
-    setShowLogs(true);
-    setScrapeLogs(['Scanning legacy uploads for duplicates...']);
-
-    try {
-      const previewResponse = await fetch('/api/r2-cleanup/preview-legacy-uploads', { method: 'POST' });
-      const previewData = await previewResponse.json().catch(() => ({}));
-
-      if (!previewResponse.ok) {
-        throw new Error(previewData.error || 'Duplicate preview failed');
-      }
-
-      const previewLogs = [
-        'Legacy duplicate scan complete.',
-        `Legacy files checked: ${previewData.scannedCount || 0}`,
-        `Safe duplicates: ${previewData.duplicateCount || 0}`,
-        `Potential bytes affected: ${formatBytes(previewData.totalBytes || 0)}`
-      ];
-
-      if (Array.isArray(previewData.sampleKeys) && previewData.sampleKeys.length > 0) {
-        previewLogs.push('Examples:');
-        previewData.sampleKeys.forEach((key: string) => previewLogs.push(`- ${key}`));
-      }
-
-      setScrapeLogs(previewLogs);
-
-      if (!previewData.duplicateCount) {
-        setLegacyDupCleanupRunning(false);
-        return;
-      }
-
-      setTimeout(async () => {
-        try {
-          const confirmed = window.confirm(
-            `${previewData.duplicateCount} safe legacy duplicates found.\n` +
-            `Potential bytes affected: ${formatBytes(previewData.totalBytes || 0)}.\n\n` +
-            `Move these legacy uploads to the trash?`
-          );
-
-          if (!confirmed) {
-            setScrapeLogs(prev => [...prev, 'Move to trash cancelled.']);
-            setLegacyDupCleanupRunning(false);
-            return;
-          }
-
-          setScrapeLogs(prev => [...prev, 'Moving legacy duplicates to trash...']);
-          const executeResponse = await fetch('/api/r2-cleanup/execute-legacy-uploads', { method: 'POST' });
-          const executeData = await executeResponse.json().catch(() => ({}));
-
-          if (!executeResponse.ok) {
-            throw new Error(executeData.error || 'Duplicate cleanup failed');
-          }
-
-          setScrapeLogs(prev => [
-            ...prev,
-            'Legacy duplicate move complete.',
-            `Moved files: ${executeData.movedCount || 0}`,
-            `Bytes affected: ${formatBytes(executeData.movedBytes || 0)}`
-          ]);
-
-          recordTrashUndo(executeData.trashItems || [], 'Legacy-Cleanup rückgängig');
-          await loadTrashItems(true);
-          await fetchCloudflareUsage();
-        } catch (err: any) {
-          const message = err.message || 'Duplicate cleanup failed';
-          setError(message);
-          setScrapeLogs(prev => [...prev, `ERROR: ${message}`]);
-        } finally {
-          setLegacyDupCleanupRunning(false);
-        }
-      }, 100);
-    } catch (err: any) {
-      const message = err.message || 'Duplicate cleanup failed';
-      setError(message);
-      setScrapeLogs(prev => [...prev, `ERROR: ${message}`]);
-      setLegacyDupCleanupRunning(false);
-    }
-  };
-
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -1322,85 +1020,7 @@ export default function App() {
     }
   };
 
-  const loadBackups = async () => {
-    try {
-      const res = await fetch('/api/backups');
-      const data = await res.json();
-      setBackupsList(data.files || []);
-      setShowBackups(true);
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const handleRestoreBackup = async (filename: string) => {
-    setIsRestoring(filename);
-    setRestoreError(null);
-    
-    try {
-      const res = await fetch(`/api/backups/${filename}`);
-      if (!res.ok) throw new Error(`Download fehlgeschlagen: ${res.statusText}`);
-      
-      let data: any = null;
-      const isJson = filename.endsWith('.json');
-      
-      if (isJson) {
-        data = await res.json();
-      } else {
-        const html = await res.text();
-        // Extract data from script tag (try editor full state first, fallback to public portfolio data)
-        const fullStateMatch = html.match(/<script id="editor-state-backup" type="application\/json">([\s\S]*?)<\/script>/);
-        const publicMatch = html.match(/<script id="portfolio-data" type="application\/json">([\s\S]*?)<\/script>/);
-        
-        const match = fullStateMatch || publicMatch;
-        if (match && match[1]) {
-          data = JSON.parse(match[1]);
-        }
-      }
-      
-      if (data) {
-        const items = data.items || data.posts;
-        if (items) {
-          // Use the functional update to ensure we have the latest state for history
-          setFlickrPosts(current => {
-            recordHistory({ posts: current, action: `Backup wiederhergestellt (${filename})` });
-            return items;
-          });
-          
-          if (data.title) setPortfolioTitle(data.title);
-          if (data.subtitle) setPortfolioSubtitle(data.subtitle);
-          if (data.bio) setPortfolioBio(data.bio);
-          if (data.scrapeConfig) {
-            if (data.scrapeConfig.igAccount) setIgAccount(data.scrapeConfig.igAccount);
-            if (data.scrapeConfig.flickrUrl) setFlickrUrl(data.scrapeConfig.flickrUrl);
-          }
-          
-          // Track last restored backup for visual indicator
-          setLastRestoredFilename(filename);
-          localStorage.setItem('portfolioLastRestoredBackup', filename);
-
-          // Close modal after a short delay to show success
-          setTimeout(() => {
-            setShowBackups(false);
-            setIsRestoring(null);
-          }, 500);
-          
-          ignoreCloudChangesRef.current = true;
-          setHasCloudChanges(false);
-        } else {
-          throw new Error("Keine Daten im Backup gefunden.");
-        }
-      } else {
-        throw new Error(isJson ? "JSON-Daten ungültig." : "Backup-Format ungültig (Script-Tag fehlt).");
-      }
-    } catch (e: any) {
-      console.error("Restore failed:", e);
-      setRestoreError(e.message || "Unbekannter Fehler");
-      setIsRestoring(null);
-    }
-  };
-
-  const handleLightboxDragStart = (e: React.DragEvent, index: number) => {
+    const handleLightboxDragStart = (e: React.DragEvent, index: number) => {
     e.stopPropagation();
     setLightboxDraggedIdx(index);
   };
