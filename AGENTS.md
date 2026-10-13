@@ -7,11 +7,12 @@ This file (`AGENTS.md`) is the Single Source of Truth for all AI coding assistan
 > AI models MUST manually read `.agents/skills/<name>.md` when a user uses tags like `#ask`, `#plan`, `#review`, `#exec`, `#deep-refactor`, etc., as defined in the IDE config files (`.clinerules`, `.windsurfrules`).
 
 ## Architecture & Constraints
-- **Frontend:** React 18, Vite, Tailwind CSS, Lucide React (Icons), dnd-kit (Drag & Drop).
+- **Frontend:** React 19, Vite, Tailwind CSS, Lucide React (Icons), dnd-kit (Drag & Drop).
 - **Backend:** Express.js (Node.js) running on port 3000.
 - **Storage:** Local file system (`/data` directory) for state and images.
 - **Cloud:** Cloudflare R2 for public hosting and image delivery.
 - **Cloudflare Credentials:** Stored securely in `.env`. DO NOT hardcode them.
+- **Canonical paths & ownership (deep-refactor 2026-10-13):** `App.tsx` is the orchestrator only; `src/hooks/` owns one state/effect/handler cluster per file (custom hooks may own state + effects + lifecycle); `src/utils/` holds pure logic; `src/components/` holds leaf UI. `updatePosts` (in `src/hooks/useUndoHistory.ts`) is the single central mutation point, returned to `App.tsx` and passed to consumers. Hooks receive dependencies declared later in `App.tsx` via closure adapters (`(v) => setX(v)`) or getters (`() => value`).
 
 ## Dual-Environment Constraint (CRITICAL)
 This application must run flawlessly in TWO environments:
@@ -34,6 +35,12 @@ To keep the AI agent fast, specific architectural rules have been extracted to `
 - `.agents/rules/bio-display.md`: Logic for displaying the bio section.
 - `.agents/rules/autorun.md`: Autorun execution rules.
 
+## Execution Mode (Auto-Pilot)
+- **Auto-Pilot: ENABLED** for `#deep-refactor` and `#exec` batch runs. Per `.agents/skills/deep-refactor/SKILL.md` Phase 3.4, proceed batch-to-batch WITHOUT waiting for user confirmation, as long as every batch passes `npm run lint` (`tsc --noEmit`) and `npm run build` (`vite build`) with **no new errors versus the baseline**.
+- **Always stop and wait** for: a batch that still fails after 3 targeted repair iterations; new material ambiguity (run `#grillme`); any irreversible or external action (git commit, any `.bat` file, R2/publish/Bunny calls); and each checkpoint defined by the active plan.
+- **Parity caveat:** a green compiler is not behavior parity. Mark browser/manual smoke items as `unverified` and carry them forward to the next checkpoint.
+- This directive governs execution flow only. It never overrides the encoding, file-size, terminal-safety, or manual-confirmation rules in this file.
+
 ## Context Hygiene (do NOT load unless asked)
 - `docs/` (e.g. `docs/HOWTOUSE.md` with all buttons and keyboard shortcuts) is human documentation. Read it only when the user explicitly asks about usage or shortcuts.
 - `prompts/` holds prompt templates the app sends to an LLM at runtime. They are app data, not rules for you.
@@ -45,6 +52,7 @@ To keep the AI agent fast, specific architectural rules have been extracted to `
 - **File Size & Refactoring Limits:**
   - **300–499 lines (Warning & Refactor Suggestion):** Actively warn the user that the file is approaching critical complexity and provide an actionable decomposition suggestion.
   - **500+ lines (Mandatory Pro Decomposition):** Strictly refactor. If extraction boundaries are fully clear, delegate to a `pro` subagent. Otherwise, trigger a `#grillme` interview.
+  - **Post-refactor follow-ups (2026-10-13):** `App.tsx` (was 5,213) is at 780 lines and still needs the final cutover to <500. Two extraction targets remain above the mandatory threshold and need decomposition: `src/hooks/useMediaUploads.ts` (~637 lines) and `src/utils/generatePortfolioHtml.ts` (~1,095 lines).
 - Strictly avoid omitting code or using placeholders like `// ...`. Retain all existing props, types, and logic unless explicitly instructed otherwise.
 - **Script Organization:** All one-off utility scripts, automated patches, python scrapers, and test scripts must be placed in the `scripts/` directory.
 
