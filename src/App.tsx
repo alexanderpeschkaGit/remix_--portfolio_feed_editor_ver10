@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { Loader2, ExternalLink, X, ImageIcon, RefreshCw, Instagram, CheckCircle } from 'lucide-react';
+import { Loader2, ExternalLink, CheckCircle } from 'lucide-react';
 import { PROJECT_STATES } from './constants';
 import { useRearrangeState } from './hooks/useRearrangeState';
 import { useLightboxState } from './hooks/useLightboxState';
@@ -20,6 +19,7 @@ import { usePostActions } from './hooks/usePostActions';
 import { usePostOrdering } from './hooks/usePostOrdering';
 import { useImageDimensions } from './hooks/useImageDimensions';
 import { useEditorLifecycle } from './hooks/useEditorLifecycle';
+import { useStatusNotice } from './hooks/useStatusNotice';
 import { linkifyToHtml } from './utils/linkify';
 import { RearrangeModal } from './components/modals/RearrangeModal';
 import { MergeConfirmationModal } from './components/modals/MergeConfirmationModal';
@@ -36,6 +36,9 @@ import { MediaVariantsModal } from './components/modals/MediaVariantsModal';
 import { ThumbnailGalleryGrid } from './components/gallery/ThumbnailGalleryGrid';
 import { AdminHeader } from './components/header/AdminHeader';
 import { CloudflareUsageDisplay } from './components/header/CloudflareUsageDisplay';
+import { FallbackBanner } from './components/FallbackBanner';
+import { ResolutionToast } from './components/ResolutionToast';
+import { StatusNotice } from './components/StatusNotice';
 import { formatDescription, isValidImageCandidate, getImageSrc, getVideoSrc, createGetDisplayImage } from './utils/mediaHelpers';
 
 // SortablePost component moved to src/components/feed/FeedPostCard.tsx
@@ -49,7 +52,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedImage, setSelectedImage] = useState<any | null>(null);
-    const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [mediaIndex, setMediaIndex] = useState(0);
   const [showResolutions, setShowResolutions] = useState(false);
   const [showResolutionToast, setShowResolutionToast] = useState(false);
@@ -73,7 +76,7 @@ export default function App() {
   const [showMediaVariantsModal, setShowMediaVariantsModal] = useState(false);
   const [hasUnpublishedChanges, setHasUnpublishedChanges] = useState(false);
 
-    const uploadingCount = Object.values(activeUploads).reduce((sum: number, count: number) => sum + count, 0);
+  const uploadingCount = Object.values(activeUploads).reduce((sum: number, count: number) => sum + count, 0);
 
   // ===== Hook: useRearrangeState für Rearrange/Merge/Delete Funktionalität =====
   const rearrangeState = useRearrangeState();
@@ -110,73 +113,26 @@ export default function App() {
   } = lightboxState;
 
   // ===== Ãœbrige States =====
-  const [statusNotice, setStatusNotice] = useState<{ kind: 'success' | 'info' | 'warning'; title: string; message: string } | null>(null);
+  const { statusNotice, pushStatusNotice, closeStatusNotice } = useStatusNotice();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeUploadId, setActiveUploadId] = useState<string | null>(null);
-    const { isInitialized, isR2Fallback, setIsR2Fallback, isFlickrFallback, setIsFlickrFallback, fallbackEnabled, setFallbackEnabled } = usePortfolioInit({
-    setPortfolioTitle: (v: string) => setPortfolioTitle(v),
-    setPortfolioSubtitle: (v: string) => setPortfolioSubtitle(v),
-    setPortfolioBio: (v: string) => setPortfolioBio(v),
-    setIgAccount: (v: string) => setIgAccount(v),
-    setFlickrUrl: (v: string) => setFlickrUrl(v),
-    setFlickrPosts,
-    setLoading,
-    setHasUnpublishedChanges,
-    setError,
-    setLocalLastUpdated: (v: string | null) => setLocalLastUpdated(v),
-    setPublicDomain: (v: string | null) => setPublicDomain(v),
-    setIsEmbeddedData: (v: boolean) => setIsEmbeddedData(v),
-    getPortfolioTitle: () => portfolioTitle,
-    getPortfolioSubtitle: () => portfolioSubtitle,
+  const { isInitialized, isR2Fallback, setIsR2Fallback, isFlickrFallback, setIsFlickrFallback, fallbackEnabled, setFallbackEnabled } = usePortfolioInit({
+    setPortfolioTitle: (v: string) => setPortfolioTitle(v), setPortfolioSubtitle: (v: string) => setPortfolioSubtitle(v), setPortfolioBio: (v: string) => setPortfolioBio(v),
+    setIgAccount: (v: string) => setIgAccount(v), setFlickrUrl: (v: string) => setFlickrUrl(v), setFlickrPosts, setLoading, setHasUnpublishedChanges, setError,
+    setLocalLastUpdated: (v: string | null) => setLocalLastUpdated(v), setPublicDomain: (v: string | null) => setPublicDomain(v), setIsEmbeddedData: (v: boolean) => setIsEmbeddedData(v),
+    getPortfolioTitle: () => portfolioTitle, getPortfolioSubtitle: () => portfolioSubtitle,
     getR2Config: () => R2_CONFIG
-  });const { localLastUpdated, hasCloudChanges, cloudSyncChanges, cloudSyncState, ignoreCloudChangesRef, setLocalLastUpdated, setHasCloudChanges, setCloudSyncState, setCloudSyncChanges, handleSyncFromCloudflare, handleCancelCloudSync, handleIgnoreCloudSync, handleApplyCloudSync } = useCloudSync({
-    isInitialized,
-    flickrPosts,
-    flickrPostsRef,
-    portfolioTitleRef,
-    portfolioSubtitleRef,
-    portfolioBioRef,
-    getPortfolioTitle: () => portfolioTitle,
-    getPortfolioSubtitle: () => portfolioSubtitle,
-    getPortfolioBio: () => portfolioBio,
-    setLoading,
-    setHasUnpublishedChanges,
-    setPortfolioTitle: (v: string) => setPortfolioTitle(v),
-    setPortfolioSubtitle: (v: string) => setPortfolioSubtitle(v),
-    setPortfolioBio: (v: string) => setPortfolioBio(v),
-    setIgAccount: (v: string) => setIgAccount(v),
-    setFlickrUrl: (v: string) => setFlickrUrl(v),
-    setIsR2Fallback: (v: boolean) => setIsR2Fallback(v),
-    setIsFlickrFallback: (v: boolean) => setIsFlickrFallback(v),
+  });
+  const { localLastUpdated, hasCloudChanges, cloudSyncChanges, cloudSyncState, ignoreCloudChangesRef, setLocalLastUpdated, setHasCloudChanges, setCloudSyncState, setCloudSyncChanges, handleSyncFromCloudflare, handleCancelCloudSync, handleIgnoreCloudSync, handleApplyCloudSync } = useCloudSync({
+    isInitialized, flickrPosts, flickrPostsRef, portfolioTitleRef, portfolioSubtitleRef, portfolioBioRef,
+    getPortfolioTitle: () => portfolioTitle, getPortfolioSubtitle: () => portfolioSubtitle, getPortfolioBio: () => portfolioBio,
+    setLoading, setHasUnpublishedChanges,
+    setPortfolioTitle: (v: string) => setPortfolioTitle(v), setPortfolioSubtitle: (v: string) => setPortfolioSubtitle(v), setPortfolioBio: (v: string) => setPortfolioBio(v),
+    setIgAccount: (v: string) => setIgAccount(v), setFlickrUrl: (v: string) => setFlickrUrl(v),
+    setIsR2Fallback: (v: boolean) => setIsR2Fallback(v), setIsFlickrFallback: (v: boolean) => setIsFlickrFallback(v),
     updatePosts: (np: any, ad: string = 'Aktion durchgeführt') => updatePosts(np, ad)
   });
   const { scrapeLogs, setScrapeLogs, isScraping, showLogs, setShowLogs, syncStatus, fullR2SyncStatus, uncertainMatches, showUncertain, setShowUncertain, handleFullR2Sync, handleScrape, handleHighResSync, handleConfirmMatch, handleRejectMatch } = useScrapeSync({ flickrPostsRef, updatePosts: (np: any, ad: string = 'Aktion durchgeführt') => updatePosts(np, ad), setFlickrPosts, setHasUnsyncedMedia, setIsFlickrFallback: (v: boolean) => setIsFlickrFallback(v) });
-
-  const statusNoticeTimerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (statusNoticeTimerRef.current) {
-        window.clearTimeout(statusNoticeTimerRef.current);
-      }
-    };
-  }, []);
-
-  const pushStatusNotice = (
-    kind: 'success' | 'info' | 'warning',
-    title: string,
-    message: string,
-    timeoutMs = 3500
-  ) => {
-    if (statusNoticeTimerRef.current) {
-      window.clearTimeout(statusNoticeTimerRef.current);
-    }
-    setStatusNotice({ kind, title, message });
-    statusNoticeTimerRef.current = window.setTimeout(() => {
-      setStatusNotice(null);
-      statusNoticeTimerRef.current = null;
-    }, timeoutMs);
-  };
 
   const refreshStateAfterMediaVariants = async () => {
     const response = await fetch(`/api/state?t=${Date.now()}`);
@@ -257,86 +213,35 @@ export default function App() {
 
   const { imageDimensions, handleImageLoad } = useImageDimensions({ flickrPosts, isR2Fallback, isEmbeddedData, getDisplayImage });
 
-    const describePost = (post: any) => {
+  const describePost = (post: any) => {
     const title = post?.title || 'Unbenannt';
     const network = post?.network_name;
     if (network && network !== 'Custom') return `${title} · ${network}`;
     return title;
   };
 
-  useStatePersistence({
-    isInitialized,
-    flickrPosts,
-    uploadingCount,
-    portfolioTitle,
-    portfolioSubtitle,
-    portfolioBio,
-    igAccount,
-    flickrUrl,
-    shouldPushStateToR2Ref
-  });
+  useStatePersistence({ isInitialized, flickrPosts, uploadingCount, portfolioTitle, portfolioSubtitle, portfolioBio, igAccount, flickrUrl, shouldPushStateToR2Ref });
 
-    const { past, future, recordHistory, updatePosts, recordTrashUndo, handleUndo, handleRedo } = useUndoHistory({
-    flickrPosts,
-    setFlickrPosts,
-    setHasUnpublishedChanges,
-    setError,
-    pushStatusNotice,
-    fetchCloudflareUsage,
-    loadTrashItems,
-    shouldPushStateToR2Ref
+  const { past, future, recordHistory, updatePosts, recordTrashUndo, handleUndo, handleRedo } = useUndoHistory({
+    flickrPosts, setFlickrPosts, setHasUnpublishedChanges, setError, pushStatusNotice, fetchCloudflareUsage, loadTrashItems, shouldPushStateToR2Ref
   });
 
   const { currentMergeGroup, isMergeModalOpen, activeMediaDrag, mediaSelection, clearMediaSelection, handleMediaDragStart, handleMediaDragEnd, handleMediaClick, handleMediaAltClick, confirmMerge, skipMerge, handleMergeSimilar, handleCrossPostMediaDrop } = useMediaInteraction({ flickrPosts, updatePosts, describePost });
 
   const { restoringLatestPublish, uploadProgress, uploadSuccess, uploading, handlePreview, handleUpload, handleRestoreLatestPublish } = usePublishing({
-    flickrPosts,
-    portfolioTitle,
-    portfolioSubtitle,
-    portfolioBio,
-    publicDomain,
-    R2_CONFIG,
-    igAccount,
-    flickrUrl,
-    setError,
-    setFlickrPosts,
-    flickrPostsRef,
-    recordHistory,
-    setLocalLastUpdated,
-    setHasCloudChanges,
-    setCloudSyncState,
-    setCloudSyncChanges,
-    setHasUnsyncedMedia,
-    setHasUnpublishedChanges,
-    setIsR2Fallback,
-    setIsFlickrFallback,
-    setPortfolioTitle,
-    setPortfolioSubtitle,
-    setPortfolioBio,
-    setIgAccount,
-    setFlickrUrl
+    flickrPosts, portfolioTitle, portfolioSubtitle, portfolioBio, publicDomain, R2_CONFIG, igAccount, flickrUrl,
+    setError, setFlickrPosts, flickrPostsRef, recordHistory, setLocalLastUpdated, setHasCloudChanges, setCloudSyncState, setCloudSyncChanges,
+    setHasUnsyncedMedia, setHasUnpublishedChanges, setIsR2Fallback, setIsFlickrFallback,
+    setPortfolioTitle, setPortfolioSubtitle, setPortfolioBio, setIgAccount, setFlickrUrl
   });
 
   const { showBackups, setShowBackups, backupsList, isRestoring, restoreError, lastRestoredFilename, loadBackups, handleRestoreBackup } = useBackups({
-    setFlickrPosts,
-    recordHistory,
-    setPortfolioTitle,
-    setPortfolioSubtitle,
-    setPortfolioBio,
-    setIgAccount,
-    setFlickrUrl,
-    ignoreCloudChangesRef,
-    setHasCloudChanges
+    setFlickrPosts, recordHistory, setPortfolioTitle, setPortfolioSubtitle, setPortfolioBio, setIgAccount, setFlickrUrl,
+    ignoreCloudChangesRef, setHasCloudChanges
   });
 
   const { r2CleanupRunning, legacyDupCleanupRunning, redundancyCleanupRunning, isResettingAll, handleResetAll, handleRedundancyCleanup, handlePurgeBak, handleR2Cleanup, handleLegacyDuplicateCleanup } = useR2Maintenance({
-    setError,
-    setShowLogs,
-    setScrapeLogs,
-    recordTrashUndo,
-    recordHistory,
-    loadTrashItems,
-    fetchCloudflareUsage
+    setError, setShowLogs, setScrapeLogs, recordTrashUndo, recordHistory, loadTrashItems, fetchCloudflareUsage
   });
 
   useEffect(() => {
@@ -344,215 +249,70 @@ export default function App() {
     loadTrashItems().catch(() => {});
   }, [isInitialized]);
 
-    const { handleToggleHidden, handleStateToggle, handlePostChange, handleAddNewPost, handleDeletePost, handleMergeDown, handleUpdatePostMedia, handleRemoveMedia, handleMoveToTarget, handleAddInstagramPost, handleAddFlickrPost, handleConfirmCommitPost } = usePostActions({
-    flickrPosts,
-    updatePosts,
-    describePost,
-    recordHistory,
-    setHasUnpublishedChanges,
-    setFlickrPosts,
-    setError,
-    pushStatusNotice,
-    shouldPushStateToR2Ref,
-    setIsEditing,
-    selectedThumbnails,
-    setSelectedThumbnails,
-    setIsMoving,
-    setLastSelectedId,
-    handleGetLatestInstagram,
-    handleGetLatestFlickr,
-    handleCommitPostToPortfolio
-  });// Content-hash (SHA-1) duplicate scan across R2 and local media. Moves R2
-  // duplicates to trash/ and archives local duplicates into bak/redundant/.
+  const { handleToggleHidden, handleStateToggle, handlePostChange, handleAddNewPost, handleDeletePost, handleMergeDown, handleUpdatePostMedia, handleRemoveMedia, handleMoveToTarget, handleAddInstagramPost, handleAddFlickrPost, handleConfirmCommitPost } = usePostActions({
+    flickrPosts, updatePosts, describePost, recordHistory, setHasUnpublishedChanges, setFlickrPosts, setError, pushStatusNotice, shouldPushStateToR2Ref,
+    setIsEditing, selectedThumbnails, setSelectedThumbnails, setIsMoving, setLastSelectedId,
+    handleGetLatestInstagram, handleGetLatestFlickr, handleCommitPostToPortfolio
+  });
   const { sensors, handleDragEnd, handleLightboxDragStart, handleLightboxDragOver, handleLightboxDrop, currentLightboxPost, handleMerge, handleBulkDelete } = usePostOrdering({
-    flickrPosts,
-    updatePosts,
-    describePost,
-    selectedThumbnails,
-    setSelectedThumbnails,
-    setActiveId,
-    lightboxDraggedIdx,
-    setLightboxDraggedIdx,
-    handleUpdatePostMedia,
-    selectedImage,
-    recordHistory,
-    setHasUnpublishedChanges,
-    setFlickrPosts
+    flickrPosts, updatePosts, describePost, selectedThumbnails, setSelectedThumbnails, setActiveId,
+    lightboxDraggedIdx, setLightboxDraggedIdx, handleUpdatePostMedia, selectedImage,
+    recordHistory, setHasUnpublishedChanges, setFlickrPosts
   });
 
   useEditorLifecycle({
-    setShowResolutions,
-    setShowResolutionToast,
-    setIsEditing,
-    setIsReorderView,
-    setSelectedThumbnails,
-    setSelectedImage,
-    setIsHoveringLightboxBg,
-    handleUndo,
-    handleRedo,
-    mediaSelection,
-    clearMediaSelection,
-    flickrPostsRef,
-    portfolioTitleRef,
-    portfolioSubtitleRef,
-    portfolioBioRef,
-    setHasUnpublishedChanges,
-    isInitialized,
-    portfolioTitle,
-    portfolioSubtitle,
-    portfolioBio,
-    logsEndRef,
-    scrapeLogs,
-    activeId,
-    isReorderView,
-    reorderScrollRef,
-    R2_CONFIG,
-    flickrPosts
+    setShowResolutions, setShowResolutionToast, setIsEditing, setIsReorderView, setSelectedThumbnails, setSelectedImage, setIsHoveringLightboxBg,
+    handleUndo, handleRedo, mediaSelection, clearMediaSelection, flickrPostsRef, portfolioTitleRef, portfolioSubtitleRef, portfolioBioRef,
+    setHasUnpublishedChanges, isInitialized, portfolioTitle, portfolioSubtitle, portfolioBio, logsEndRef, scrapeLogs,
+    activeId, isReorderView, reorderScrollRef, R2_CONFIG, flickrPosts
   });
 
   return (
     <div className="min-h-screen bg-black text-white p-4 md:p-12 font-sans">
       {/* Fallback Notification */}
       {(isR2Fallback || isEmbeddedData || isFlickrFallback) && (
-        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-2 px-4 py-2 ${isFlickrFallback ? 'bg-red-500/90 text-white' : 'bg-amber-500/90 text-black'} backdrop-blur-md text-[10px] sm:text-xs font-bold rounded-full shadow-lg border ${isFlickrFallback ? 'border-red-400' : 'border-amber-400'} animate-pulse`}>
-          <RefreshCw className="w-3 h-3 animate-spin" />
-          <span>
-            {isFlickrFallback ? "TESTDATEN (FLICKR) GELADEN - R2 SYNC FEHLGESCHLAGEN" : 
-             isEmbeddedData ? "DATEN AUS HTML GELADEN (STATIC)" : 
-             "FALLBACK: DATEN AUS CLOUDFLARE R2 GELADEN"}
-          </span>
-          <button 
-            onClick={() => { setIsR2Fallback(false); setIsEmbeddedData(false); setIsFlickrFallback(false); }}
-            className="ml-2 hover:opacity-70"
-          >
-            <X className="w-3 h-3" />
-          </button>
-          <button
-            onClick={() => {
-              const next = !fallbackEnabled;
-              setFallbackEnabled(next);
-              // If the user disables it, hide current fallback data.
-              if (!next) {
-                setIsR2Fallback(false);
-                setIsFlickrFallback(false);
-              }
-            }}
-            className="ml-1 inline-flex items-center gap-1 px-2 py-1 bg-white/30 hover:bg-white/40 border border-white/20 rounded text-[10px] font-bold text-white"
-            title="Persistently disable R2/Flickr fallback loading"
-          >
-            {fallbackEnabled ? 'Fallback aus' : 'Fallback an'}
-          </button>
-        </div>
+        <FallbackBanner
+          label={isFlickrFallback ? "TESTDATEN (FLICKR) GELADEN - R2 SYNC FEHLGESCHLAGEN" : isEmbeddedData ? "DATEN AUS HTML GELADEN (STATIC)" : "FALLBACK: DATEN AUS CLOUDFLARE R2 GELADEN"}
+          isError={isFlickrFallback}
+          fallbackEnabled={fallbackEnabled}
+          onDismiss={() => { setIsR2Fallback(false); setIsEmbeddedData(false); setIsFlickrFallback(false); }}
+          onToggleFallback={() => {
+            const next = !fallbackEnabled;
+            setFallbackEnabled(next);
+            // If the user disables it, hide current fallback data.
+            if (!next) {
+              setIsR2Fallback(false);
+              setIsFlickrFallback(false);
+            }
+          }}
+        />
       )}
 
       <MergeConfirmationModal isOpen={isMergeModalOpen} group={currentMergeGroup} onConfirm={confirmMerge} onSkip={skipMerge} />
 
-      <AnimatePresence>
-        {showResolutionToast && (
-          <motion.div 
-            initial={{ opacity: 0, y: 20, x: '-50%' }}
-            animate={{ opacity: 1, y: 0, x: '-50%' }}
-            exit={{ opacity: 0, y: 20, x: '-50%' }}
-            className="fixed bottom-10 left-1/2 z-[100] bg-white/30 text-white px-6 py-3 rounded-full shadow-2xl font-bold flex items-center gap-3 border border-white/20 backdrop-blur-md"
-          >
-            <ImageIcon className="w-5 h-5" />
-            <span>Auflösungs-Overlay: {showResolutions ? 'AN' : 'AUS'} (Strg+Alt+Y)</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <ResolutionToast show={showResolutionToast} resolutionsEnabled={showResolutions} />
 
       <AdminHeader
-        isEditing={isEditing}
-        setIsEditing={setIsEditing}
-        portfolioTitle={portfolioTitle}
-        setPortfolioTitle={setPortfolioTitle}
-        portfolioSubtitle={portfolioSubtitle}
-        setPortfolioSubtitle={setPortfolioSubtitle}
-        igAccount={igAccount}
-        setIgAccount={setIgAccount}
-        flickrUrl={flickrUrl}
-        setFlickrUrl={setFlickrUrl}
-        isScraping={isScraping}
-        syncStatus={syncStatus}
-        fullR2SyncStatus={fullR2SyncStatus}
-        isResettingAll={isResettingAll}
-        loading={loading}
-        restoringLatestPublish={restoringLatestPublish}
-        r2CleanupRunning={r2CleanupRunning}
-        legacyDupCleanupRunning={legacyDupCleanupRunning}
-        uploading={uploading}
-        uploadProgress={uploadProgress}
-        past={past}
-        future={future}
-        uncertainMatches={uncertainMatches}
-        publicDomain={publicDomain}
-        flickrPosts={flickrPosts}
+        isEditing={isEditing} setIsEditing={setIsEditing} portfolioTitle={portfolioTitle} setPortfolioTitle={setPortfolioTitle}
+        portfolioSubtitle={portfolioSubtitle} setPortfolioSubtitle={setPortfolioSubtitle} igAccount={igAccount} setIgAccount={setIgAccount}
+        flickrUrl={flickrUrl} setFlickrUrl={setFlickrUrl} isScraping={isScraping} syncStatus={syncStatus} fullR2SyncStatus={fullR2SyncStatus}
+        isResettingAll={isResettingAll} loading={loading} restoringLatestPublish={restoringLatestPublish} r2CleanupRunning={r2CleanupRunning}
+        legacyDupCleanupRunning={legacyDupCleanupRunning} uploading={uploading} uploadProgress={uploadProgress} past={past} future={future}
+        uncertainMatches={uncertainMatches} publicDomain={publicDomain} flickrPosts={flickrPosts}
         CloudflareUsageDisplay={() => <CloudflareUsageDisplay usage={cloudflareUsage} />}
-        handleScrape={handleScrape}
-        handleHighResSync={handleHighResSync}
-        handleFullR2Sync={handleFullR2Sync}
-        handleOpenMediaVariants={() => setShowMediaVariantsModal(true)}
-        handleSyncFromCloudflare={handleSyncFromCloudflare}
-        handleResetAll={handleResetAll}
-        handlePreview={handlePreview}
-        handleUpload={handleUpload}
-        handleRestoreLatestPublish={handleRestoreLatestPublish}
-        handleR2Cleanup={handleR2Cleanup}
-        handleLegacyDuplicateCleanup={handleLegacyDuplicateCleanup}
-        handleRedundancyCleanup={handleRedundancyCleanup}
-        handlePurgeBak={handlePurgeBak}
-        redundancyCleanupRunning={redundancyCleanupRunning}
-        handleOpenTrash={handleOpenTrash}
-        handleAddNewPost={handleAddNewPost}
-        handleUndo={handleUndo}
-        handleRedo={handleRedo}
-        handleMergeSimilar={handleMergeSimilar}
-        loadBackups={loadBackups}
-        setShowUncertain={setShowUncertain}
-        setIsReorderView={setIsReorderView}
-        isReorderView={isReorderView}
-        setShowBioEditor={setShowBioEditor}
-        handleGetLatestInstagram={handleAddInstagramPost}
-        handleGetLatestFlickr={handleAddFlickrPost}
-        hasCloudChanges={hasCloudChanges}
-        hasUnsyncedMedia={hasUnsyncedMedia}
-        hasUnpublishedChanges={hasUnpublishedChanges}
-        trashCount={trashItems.length}
-      /> 
+        handleScrape={handleScrape} handleHighResSync={handleHighResSync} handleFullR2Sync={handleFullR2Sync}
+        handleOpenMediaVariants={() => setShowMediaVariantsModal(true)} handleSyncFromCloudflare={handleSyncFromCloudflare}
+        handleResetAll={handleResetAll} handlePreview={handlePreview} handleUpload={handleUpload}
+        handleRestoreLatestPublish={handleRestoreLatestPublish} handleR2Cleanup={handleR2Cleanup}
+        handleLegacyDuplicateCleanup={handleLegacyDuplicateCleanup} handleRedundancyCleanup={handleRedundancyCleanup} handlePurgeBak={handlePurgeBak}
+        redundancyCleanupRunning={redundancyCleanupRunning} handleOpenTrash={handleOpenTrash} handleAddNewPost={handleAddNewPost}
+        handleUndo={handleUndo} handleRedo={handleRedo} handleMergeSimilar={handleMergeSimilar} loadBackups={loadBackups}
+        setShowUncertain={setShowUncertain} setIsReorderView={setIsReorderView} isReorderView={isReorderView} setShowBioEditor={setShowBioEditor}
+        handleGetLatestInstagram={handleAddInstagramPost} handleGetLatestFlickr={handleAddFlickrPost}
+        hasCloudChanges={hasCloudChanges} hasUnsyncedMedia={hasUnsyncedMedia} hasUnpublishedChanges={hasUnpublishedChanges} trashCount={trashItems.length}
+      />
 
-      {statusNotice && (
-        <div
-          className={`fixed top-4 right-4 z-[120] w-[min(92vw,420px)] rounded-2xl border px-4 py-3 shadow-2xl backdrop-blur-md ${
-            statusNotice.kind === 'success'
-              ? 'border-emerald-400/30 bg-emerald-500/15 text-emerald-50'
-              : statusNotice.kind === 'warning'
-                ? 'border-amber-400/30 bg-amber-500/15 text-amber-50'
-                : 'border-sky-400/30 bg-sky-500/15 text-sky-50'
-          }`}
-        >
-          <div className="flex items-start gap-3">
-            <CheckCircle className="mt-0.5 w-5 h-5 shrink-0" />
-            <div className="min-w-0 flex-1">
-              <div className="font-semibold tracking-tight">{statusNotice.title}</div>
-              <div className="text-sm opacity-90 mt-0.5">{statusNotice.message}</div>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                if (statusNoticeTimerRef.current) {
-                  window.clearTimeout(statusNoticeTimerRef.current);
-                  statusNoticeTimerRef.current = null;
-                }
-                setStatusNotice(null);
-              }}
-              className="shrink-0 text-current/70 hover:text-current transition-colors"
-              aria-label="Hinweis schließen"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
+      <StatusNotice notice={statusNotice} onClose={closeStatusNotice} />
 
       {uploadSuccess && (
         <div className="max-w-2xl mx-auto mb-8 p-4 bg-green-500/10 border border-green-500/20 rounded-lg flex items-start gap-3">
@@ -595,184 +355,90 @@ export default function App() {
 
       {!loading && flickrPosts.length > 0 && (
         <ThumbnailGalleryGrid
-          flickrPosts={flickrPosts}
-          isEditing={isEditing}
-          activeUploads={activeUploads}
-          showResolutions={showResolutions}
-          sensors={sensors}
-          imageDimensions={imageDimensions}
-          isR2Fallback={isR2Fallback}
-          isEmbeddedData={isEmbeddedData}
-          handleDragEnd={handleDragEnd}
-          handleImageUpload={handleImageUpload}
-          handleVideoFileUpload={handleVideoFileUpload}
-          handlePostChange={handlePostChange}
-          handleVideoLinkChange={handleVideoLinkChange}
-          handleDeletePost={handleDeletePost}
-          handleMergeDown={handleMergeDown}
-          handleUpdatePostMedia={handleUpdatePostMedia}
-          handleRemoveMedia={handleRemoveMedia}
-          setSelectedImage={setSelectedImage}
-          handleStateToggle={handleStateToggle}
-          handleToggleHidden={handleToggleHidden}
-          handleImageLoad={handleImageLoad}
-          getDisplayImage={getDisplayImage}
-          getImageSrc={getImageSrc}
-          getVideoSrc={getVideoSrc}
-          formatDescription={formatDescription}
-          isValidImageCandidate={isValidImageCandidate}
-          bunnyProgress={bunnyProgress}
-          // Cross-post media drag props
-          activeMediaDrag={activeMediaDrag}
-          onMediaDragStart={handleMediaDragStart}
-          onMediaDragEnd={handleMediaDragEnd}
-          onCrossPostMediaDrop={handleCrossPostMediaDrop}
-          // Multi-select click handlers
-          mediaSelection={mediaSelection}
-          onMediaClick={handleMediaClick}
-          onMediaAltClick={handleMediaAltClick}
-          clearMediaSelection={clearMediaSelection}
+          flickrPosts={flickrPosts} isEditing={isEditing} activeUploads={activeUploads} showResolutions={showResolutions}
+          sensors={sensors} imageDimensions={imageDimensions} isR2Fallback={isR2Fallback} isEmbeddedData={isEmbeddedData}
+          handleDragEnd={handleDragEnd} handleImageUpload={handleImageUpload} handleVideoFileUpload={handleVideoFileUpload}
+          handlePostChange={handlePostChange} handleVideoLinkChange={handleVideoLinkChange} handleDeletePost={handleDeletePost}
+          handleMergeDown={handleMergeDown} handleUpdatePostMedia={handleUpdatePostMedia} handleRemoveMedia={handleRemoveMedia}
+          setSelectedImage={setSelectedImage} handleStateToggle={handleStateToggle} handleToggleHidden={handleToggleHidden}
+          handleImageLoad={handleImageLoad} getDisplayImage={getDisplayImage} getImageSrc={getImageSrc} getVideoSrc={getVideoSrc}
+          formatDescription={formatDescription} isValidImageCandidate={isValidImageCandidate} bunnyProgress={bunnyProgress}
+          activeMediaDrag={activeMediaDrag} onMediaDragStart={handleMediaDragStart} onMediaDragEnd={handleMediaDragEnd}
+          onCrossPostMediaDrop={handleCrossPostMediaDrop} mediaSelection={mediaSelection} onMediaClick={handleMediaClick}
+          onMediaAltClick={handleMediaAltClick} clearMediaSelection={clearMediaSelection}
         />
       )}
 
       {/* Backups Modal */}
       <BackupsModal
-        isOpen={showBackups}
-        onClose={() => setShowBackups(false)}
-        backupsList={backupsList}
-        isRestoring={isRestoring}
-        restoreError={restoreError}
-        lastRestoredFilename={lastRestoredFilename}
-        onRestore={handleRestoreBackup}
+        isOpen={showBackups} onClose={() => setShowBackups(false)} backupsList={backupsList}
+        isRestoring={isRestoring} restoreError={restoreError} lastRestoredFilename={lastRestoredFilename} onRestore={handleRestoreBackup}
       />
 
       {/* Scraping Logs Modal */}
       <ScrapingLogsModal
-        isOpen={showLogs}
-        onClose={() => setShowLogs(false)}
-        logs={scrapeLogs}
-        isScraping={isScraping}
-        syncStatus={syncStatus}
-        fullR2SyncStatus={fullR2SyncStatus}
+        isOpen={showLogs} onClose={() => setShowLogs(false)} logs={scrapeLogs}
+        isScraping={isScraping} syncStatus={syncStatus} fullR2SyncStatus={fullR2SyncStatus}
         logsEndRef={logsEndRef as React.RefObject<HTMLDivElement>}
       />
 
       {/* Uncertain Matches Modal */}
       <UncertainMatchesModal
-        isOpen={showUncertain}
-        onClose={() => setShowUncertain(false)}
-        matches={uncertainMatches}
-        flickrPosts={flickrPosts}
-        getImageSrc={getImageSrc}
-        getDisplayImage={getDisplayImage}
-        isR2Fallback={isR2Fallback}
-        isEmbeddedData={isEmbeddedData}
-        onConfirmMatch={handleConfirmMatch}
-        onRejectMatch={handleRejectMatch}
+        isOpen={showUncertain} onClose={() => setShowUncertain(false)} matches={uncertainMatches} flickrPosts={flickrPosts}
+        getImageSrc={getImageSrc} getDisplayImage={getDisplayImage} isR2Fallback={isR2Fallback} isEmbeddedData={isEmbeddedData}
+        onConfirmMatch={handleConfirmMatch} onRejectMatch={handleRejectMatch}
       />
 
       {/* Bio Editor Modal */}
       <BioEditorModal
-        isOpen={showBioEditor}
-        bio={portfolioBio}
-        onClose={() => setShowBioEditor(false)}
-        onSave={setPortfolioBio}
+        isOpen={showBioEditor} bio={portfolioBio} onClose={() => setShowBioEditor(false)} onSave={setPortfolioBio}
       />
 
       {/* Post Commit Modal */}
       <PostCommitModal
-        isOpen={showPostCommitModal}
-        post={selectedPostForCommit}
-        source={commitPostSource}
-        onClose={resetCommitState}
-        onConfirm={handleConfirmCommitPost}
+        isOpen={showPostCommitModal} post={selectedPostForCommit} source={commitPostSource}
+        onClose={resetCommitState} onConfirm={handleConfirmCommitPost}
       />
 
       <ConfirmSyncModal
-        isOpen={cloudSyncState !== null}
-        onClose={handleCancelCloudSync}
-        onIgnore={handleIgnoreCloudSync}
-        onConfirm={handleApplyCloudSync}
-        changes={cloudSyncState?.changes || []}
+        isOpen={cloudSyncState !== null} onClose={handleCancelCloudSync} onIgnore={handleIgnoreCloudSync}
+        onConfirm={handleApplyCloudSync} changes={cloudSyncState?.changes || []}
       />
 
       <CloudSyncChangesModal
-        isOpen={cloudSyncChanges !== null}
-        onClose={() => setCloudSyncChanges(null)}
-        changes={cloudSyncChanges || []}
+        isOpen={cloudSyncChanges !== null} onClose={() => setCloudSyncChanges(null)} changes={cloudSyncChanges || []}
       />
 
       <TrashModal
-        isOpen={showTrashModal}
-        onClose={() => setShowTrashModal(false)}
-        items={trashItems}
-        loading={trashLoading}
-        error={trashError}
-        onRefresh={() => loadTrashItems()}
-        onRestore={handleRestoreTrashItems}
-        onDelete={handleDeleteTrashItems}
-        onDeletePermanently={handlePermanentlyDeleteTrashItems}
+        isOpen={showTrashModal} onClose={() => setShowTrashModal(false)} items={trashItems}
+        loading={trashLoading} error={trashError} onRefresh={() => loadTrashItems()} onRestore={handleRestoreTrashItems}
+        onDelete={handleDeleteTrashItems} onDeletePermanently={handlePermanentlyDeleteTrashItems}
       />
 
       <MediaVariantsModal
-        isOpen={showMediaVariantsModal}
-        onClose={() => setShowMediaVariantsModal(false)}
-        onStateUpdated={refreshStateAfterMediaVariants}
+        isOpen={showMediaVariantsModal} onClose={() => setShowMediaVariantsModal(false)} onStateUpdated={refreshStateAfterMediaVariants}
       />
 
       <LightboxModal
-        currentLightboxPost={currentLightboxPost}
-        lightboxMousePos={lightboxMousePos}
-        isHoveringLightboxBg={isHoveringLightboxBg}
-        lightboxDraggedIdx={lightboxDraggedIdx}
-        imageDimensions={imageDimensions}
-        setLightboxMousePos={setLightboxMousePos}
-        setIsHoveringLightboxBg={setIsHoveringLightboxBg}
-        setSelectedImage={setSelectedImage}
-        showResolutions={showResolutions}
-        isEditing={isEditing}
-        isR2Fallback={isR2Fallback}
-        isEmbeddedData={isEmbeddedData}
-        getImageSrc={getImageSrc}
-        getVideoSrc={getVideoSrc}
-        getDisplayImage={getDisplayImage}
-        handleImageLoad={handleImageLoad}
-        handleLightboxDragStart={handleLightboxDragStart}
-        handleLightboxDragOver={handleLightboxDragOver}
-        handleLightboxDrop={handleLightboxDrop}
-        handlePostChange={handlePostChange}
+        currentLightboxPost={currentLightboxPost} lightboxMousePos={lightboxMousePos} isHoveringLightboxBg={isHoveringLightboxBg}
+        lightboxDraggedIdx={lightboxDraggedIdx} imageDimensions={imageDimensions} setLightboxMousePos={setLightboxMousePos}
+        setIsHoveringLightboxBg={setIsHoveringLightboxBg} setSelectedImage={setSelectedImage} showResolutions={showResolutions}
+        isEditing={isEditing} isR2Fallback={isR2Fallback} isEmbeddedData={isEmbeddedData} getImageSrc={getImageSrc}
+        getVideoSrc={getVideoSrc} getDisplayImage={getDisplayImage} handleImageLoad={handleImageLoad}
+        handleLightboxDragStart={handleLightboxDragStart} handleLightboxDragOver={handleLightboxDragOver}
+        handleLightboxDrop={handleLightboxDrop} handlePostChange={handlePostChange}
       />
       <RearrangeModal
-        isReorderView={isReorderView}
-        setIsReorderView={setIsReorderView}
-        selectedThumbnails={selectedThumbnails}
-        setSelectedThumbnails={setSelectedThumbnails}
-        isMoving={isMoving}
-        setIsMoving={setIsMoving}
-        activeId={activeId}
-        setActiveId={setActiveId}
-        lastSelectedId={lastSelectedId}
-        setLastSelectedId={setLastSelectedId}
-        flickrPosts={flickrPosts}
-        past={past}
-        future={future}
-        sensors={sensors}
-        handleUndo={handleUndo}
-        handleRedo={handleRedo}
-        handleMerge={handleMerge}
-        handleBulkDelete={handleBulkDelete}
-        handleDragEnd={handleDragEnd}
-        handleMoveToTarget={handleMoveToTarget}
+        isReorderView={isReorderView} setIsReorderView={setIsReorderView} selectedThumbnails={selectedThumbnails}
+        setSelectedThumbnails={setSelectedThumbnails} isMoving={isMoving} setIsMoving={setIsMoving}
+        activeId={activeId} setActiveId={setActiveId} lastSelectedId={lastSelectedId} setLastSelectedId={setLastSelectedId}
+        flickrPosts={flickrPosts} past={past} future={future} sensors={sensors} handleUndo={handleUndo} handleRedo={handleRedo}
+        handleMerge={handleMerge} handleBulkDelete={handleBulkDelete} handleDragEnd={handleDragEnd} handleMoveToTarget={handleMoveToTarget}
         onSelect={(post: any, e: React.MouseEvent) => {
           toggleSelection(String(post.id), e.shiftKey, e.ctrlKey || e.metaKey, flickrPosts.map(p => String(p.id)));
         }}
-        reorderScrollRef={reorderScrollRef}
-        isR2Fallback={isR2Fallback}
-        isEmbeddedData={isEmbeddedData}
-        getImageSrc={getImageSrc}
-        getVideoSrc={getVideoSrc}
-        getDisplayImage={getDisplayImage}
-        setSelectedImage={setSelectedImage}
+        reorderScrollRef={reorderScrollRef} isR2Fallback={isR2Fallback} isEmbeddedData={isEmbeddedData}
+        getImageSrc={getImageSrc} getVideoSrc={getVideoSrc} getDisplayImage={getDisplayImage} setSelectedImage={setSelectedImage}
       />
     </div>
   );

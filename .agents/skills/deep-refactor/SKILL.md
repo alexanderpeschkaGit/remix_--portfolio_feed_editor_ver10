@@ -1,51 +1,99 @@
 ---
 name: deep-refactor
-description: Execute broad architectural refactoring across multiple files with deterministic validation and self-healing multiagent loops. Triggered by #deep-refactor, /deep-refactor, #deeprefactor, or /deeprefactor.
+description: "Plan and execute behavior-preserving deep refactors across multiple files with a clean-baseline check, strict batch limits, validation, and user approval checkpoints. Use for large refactors, mega-files, architectural decomposition, or when invoking #deep-refactor, /deep-refactor, #deeprefactor, or /deeprefactor."
 ---
 
 # Deep Refactor Workflow
 
-**Purpose:** Execute broad architectural refactoring across multiple files while preserving observable behavior. This uses a deterministic, self-healing multiagent loop combined with the `#delegate` workflow to prevent context bloat.
+**Purpose:** Deliver a behavior-preserving architectural refactor through small, reviewable stages. Do not equate fewer lines, more files, or a green compiler with a successful refactor.
 
-## Phase 1: Pre-inspection & Dependency Mapping (Coordinator)
-1. **Inspect:** Analyze callers, shared types, state ownership, and platform-specific behaviors.
-2. **Handle Ambiguity:** If requirements, state ownership, or edge cases are ambiguous, trigger a `#grillme` interview with the user to clarify boundaries before touching code.
-3. **Map Collisions:** Identify shared dependencies (e.g., a common React Context or TypeScript interface). If multiple files modify a highly coupled dependency, refactor that shared dependency sequentially *first*, or group those files under a single subagent to prevent concurrent overwrite collisions.
+## Phase 1: Baseline, Scope, and Plan
 
-## Phase 2: Dynamic Delegation (Scatter)
-1. **Artifact Generation:** For independent file edits, the Coordinator writes specific, step-by-step implementation instructions into separate Markdown artifacts (e.g., `plan-Header.md`, `plan-Sidebar.md`) in the artifact directory using `write_to_file`.
-   * Must provide `ArtifactMetadata` with `RequestFeedback: false`.
-2. **Mega-File Strategy (>1,000 lines):** If a file is exceptionally large (e.g., >1,000 lines), do NOT scatter-gather all extractions at once, and do NOT rewrite the parent in-place. Execute a strict sequential pipeline:
-   * **Step 1 (State & Context):** Extract shared Context providers and move global states to Zustand first. Validate.
-   * **Step 2 (Hooks):** Extract massive `useEffect` blocks and complex logic into pure custom hooks. Validate.
-   * **Step 3 (UI Subcomponents):** Push specific UI rendering logic down into leaf components, converting the parent into a simple router. Validate.
-   * **Step 4 (Parallel Rebuild & Cutover):** Once only a hollow orchestration shell remains, rebuild that shell as a NEW file under its final target name (never a `V2` suffix; e.g. `video/VideoPlayerCore.tsx`) that composes the pieces extracted in Steps 1–3. The new file must assemble the already-extracted hooks/stores/components — never rewrite logic from memory, otherwise behavior preservation is no longer guaranteed (rewrite, not refactor).
-     * Switch the imports of all callers to the new file only after it compiles cleanly on its own.
-     * The plan artifact must contain a **behavior-parity checklist** of the observable behaviors to verify after cutover (e.g., for the video player: autoplay-on-scroll, fullscreen, audio unlock, Bunny iframe/native switching). The checklist is part of Phase 3 validation.
-     * After parity is confirmed, MOVE the old mega-file into `backup_unused/` preserving its relative path (e.g., `backup_unused/src/components/VideoPlayer.tsx`) — never hard-delete it. `backup_unused/` is gitignored and serves as the local cross-check reference; it is pruned manually once parity is trusted.
-   * **Headless Orchestrator Rule (default):** The rebuilt orchestrator manages state/lifecycle and renders only the concrete player/router. All overlay and presentation UI moves into dumb leaf components that receive narrow, typed props or selective Zustand subscriptions — never a monolithic state blob (anti-pattern: `<Overlay state={entireVideoState} />`). Ref wiring to media elements, fullscreen containers, and capability gates count as orchestration and stay in the core. Deviations from this default must be justified in the plan artifact.
-   * **Threshold:** >1,000 lines triggers this pipeline by default. The Coordinator may deviate for smaller or trivially separable files, but must state the justification in the plan artifact.
-3. **Model Routing (Decision Logic):** The Coordinator must evaluate the target file's size and complexity to assign the correct subagent model:
-   * **Use `pro`** if: The file is >400 lines (to prevent truncation/omission as per AGENTS.md), contains complex cross-component state (Zustand), or handles subtle React hydration/lifecycle logic.
-   * **Use `flash`** if: The file is <400 lines AND involves purely mechanical extractions, UI leaf components, CSS/Tailwind restructuring, or simple utility/type moving.
-4. **Spawn Subagents:** Invoke multiple subagents concurrently (`invoke_subagent`).
-   * **Model:** Set dynamically based on the routing decision above (`pro` or `flash`).
-   * **Role:** Descriptive component-based title, e.g., `"${TargetName} Refactorer"` (e.g., `"Header Refactorer"`, `"Store Refactorer"`).
-   * **Prompt:** Extremely minimal: *"Read the execution plan located at [Absolute Path to Artifact] and implement all steps. Do not run shell commands. Stop when complete. Architectural Rules: wire cross-component state to Zustand (`src/store/`), lifecycle/observers to custom hooks (`src/hooks/`), and pure math/logic to utilities (`src/utils/`)."*
-5. **Execution Constraints:** Subagents must ONLY perform read/edit file operations. They are strictly forbidden from running shell commands to prevent terminal lock contention.
-6. **Handoff & Wait:** The Coordinator waits for all concurrent subagents to report back with a lightweight status string.
+### 1. Establish the source of truth
+- Treat the current repository state as the sole source of truth, including after a reset. Never discard or overwrite existing user changes.
+- Inspect `git status` before editing. Identify existing user changes and preserve them.
+- Never run reset, checkout, clean, or other destructive commands to prepare for the refactor.
+- Do not reuse or reapply implementation from a previous refactor unless the user explicitly requests it. Carry forward only verified behavior requirements, tests, risks, and architectural observations.
+- Exclude lockfiles, build output, vendor directories, and generated files from refactor edits. A lockfile may be updated only when an intentional dependency-manifest change requires it.
 
-## Phase 3: Deterministic Validation (Gather)
-1. **Sequential Check:** Once all subagents report success, the Coordinator executes a single sequential type-check and build (e.g., `tsc --noEmit`, Vite build, or relevant test suites).
-2. **Behavior Parity (Mega-File Cutovers only):** After a Step 4 cutover, the Coordinator additionally works through the behavior-parity checklist from the plan artifact. A green compiler alone does not prove that subtle behaviors (autoplay quirks, fullscreen fallbacks, platform workarounds) survived.
-3. **Evaluate:** The Coordinator evaluates the file system state purely based on the deterministic output of the compiler/linter plus the parity checklist. Do not rely on subjective review.
+### 2. Read project instructions and map behavior
+- Read the repository's canonical `AGENTS.md` and any applicable domain rules. Prioritize any supplementary domain checklists provided manually by the user.
+- Inspect relevant callers, shared types, current state and ref ownership, effects, platform-specific behavior, tests, and build configuration.
+- Identify the user-visible behaviors and contracts that must remain unchanged.
+- Record relevant baseline checks and any pre-existing failures.
 
-## Phase 4: Self-Correction Loop (The Fixer Pipeline)
-1. **Targeted Artifacts:** If the build fails, the Coordinator isolates the specific files throwing errors and writes a transient error artifact (e.g., `error-trace-[hash].md`) containing the exact compiler trace and previous file state.
-2. **Spawn Fixers:** The Coordinator spawns targeted "Fixer" subagents pointing exclusively to the error artifact.
-3. **Iteration Cap:** This error-correction loop has a strict maximum of **3 iterations**.
+### 3. Resolve ambiguity before editing
+- If requirements, state ownership, or API boundaries are ambiguous, ask focused questions before changing code.
+- Do not edit code until the user approves the proposed plan.
 
-## Phase 5: Revert & Report
-1. **Circuit Breaker:** If the build still fails after 3 Fixer iterations, or if requirements inherently conflict, the Coordinator automatically reverts the contested files to their pre-refactor state. After a failed Step 4 cutover this means: restore the caller imports to the legacy file (which still exists in place or in `backup_unused/` until parity is confirmed) and delete the new file. The loop is halted.
-2. **Final Summary:** The Coordinator summarizes the successful structural changes, validation results, and surfaces any unresolved behavioral conflicts or reverted files for the user to manually resolve. It does not reproduce complete files in the chat.
-3. **Documentation Evaluation & Prompt:** First, evaluate the refactor's impact. If the changes were purely cosmetic, strictly localized, or did not alter the overall system architecture, skip this step. However, if the refactor introduced new architectural patterns, modified global state, altered cross-component logic, or changed dependencies: (1) Read `AGENTS.md` and any relevant `.agents/rules/` files to analyze the current guidelines. (2) Strictly initiate a `#grillme`-style interview. Use your analysis to ask the prompter highly targeted, contextual questions about if and how these new patterns should modify the existing documentation.
+### 4. Present a concise plan
+Before implementation, present:
+- The intended scope and explicit exclusions.
+- Proposed responsibility boundaries and state/ref ownership.
+- A dependency-aware sequence of batches.
+- Observable behavior and parity checks.
+- Per-batch validation commands.
+
+**MANDATORY CHECKPOINT & MODEL HANDOFF:** 
+- Stop generation immediately after presenting the plan. 
+- Do NOT invoke file modification tools yet. 
+- Output this exact message: *"Plan complete. If you are using a heavy reasoning model (e.g., DeepSeek V4 or Gemini Advanced), you may now switch to a faster coding model (e.g., 4.1-Flash or Gemini Flash) for the execution batches. Type 'GO' or enable Auto-Pilot to begin Phase 2."*
+
+## Phase 2: Batch Design and Execution
+
+### 1. Batch limits
+- Change at most **3 implementation files per batch** as the default limit.
+- If a coherent step requires more tightly coupled files that cannot be safely split, explain why and ask the user to approve a specifically scoped exception before editing.
+- Count added, modified, moved, and deleted implementation files toward the limit.
+- Keep formatting-only changes and unrelated bug fixes out of scope.
+
+### 2. Refactor responsibilities & Code Integrity
+- Extract code only when the new boundary has a clear responsibility and ownership contract.
+- Do not create thin wrappers, duplicate state, or oversized parameter bags merely to shrink the original file.
+- Keep state local unless multiple consumers genuinely need shared ownership.
+- Custom hooks may own state, effects, and lifecycle behavior. They do not need to be pure, just focused.
+- Put reusable pure logic in utilities and presentation in leaf components.
+- **Environment-Aware Editing:** 
+  - If the environment (like Anti-Gravity) provides a `search_replace` or diff-based tool, use it to target only the modified lines.
+  - If you must write the full file (e.g. via `write_file`), you are STRICTLY FORBIDDEN from using lazy truncation (e.g., `// ... rest of code`, `// existing logic`). You must output the entire file content verbatim, maintaining exact parity for unmodified functions.
+
+### 3. Decomposition & Mega-file pipeline
+Project-specific rules take precedence. If the repository's `AGENTS.md` requires decomposition at a lower threshold (e.g., 500+ lines) or mandates specific subagent models or a `#grillme` interview depending on complexity, follow those guidelines first. For exceptionally large files or when instructed, apply the following sequential pipeline. Do not perform a one-shot rewrite or recreate behavior from memory.
+1. **Ownership:** Map state, refs, effects. Change ownership only where justified. Validate and pause.
+2. **Behavioral logic:** Extract focused lifecycle or domain logic. Validate and pause.
+3. **Presentation:** Extract specific UI into leaf components. Validate and pause.
+4. **Orchestrator cutover:** Compose validated extractions into the final orchestrator. Complete parity checklist before moving legacy implementation to `backup_unused/`.
+
+### 4. Delegation
+- Follow `AGENTS.md` for required subagent delegation.
+- Delegate only bounded work with clear file ownership and stop conditions.
+- Do not delegate concurrent edits to shared or highly coupled files.
+
+## Phase 3: Micro-Validation and User Checkpoints
+
+At the end of **each batch**:
+1. Inspect the diff to confirm it contains only approved changes.
+2. Run project-level type-checking and linting.
+3. Run relevant integration or behavior tests.
+4. **Communicative Stop & Auto-Pilot Resolution:**
+   - Check the environment state and `AGENTS.md`. 
+   - **If Auto-Pilot is explicitly enabled globally (e.g., via CLI flag or AGENTS.md directives):** Proceed automatically to the next batch as long as validation checks (lint/types) pass with no new errors compared to the baseline.
+   - **If Auto-Pilot is disabled or undefined:** You MUST halt execution entirely. Yield control back to the user without calling further tools. Do not pre-emptively start the next batch. Wait for the user to review the diff and send a confirmation command.
+5. **Long-Refactor Handoff:** If the approved plan contains more than 3 batches, after the 3rd successful batch pause and offer a handoff checkpoint. Provide a summary suitable for a fresh session (completed batches, remaining plan, next steps). Suggest a checkpoint commit and a session restart, but let the user decide how to proceed.
+
+## Phase 4: Behavior-Parity Checklist
+Maintain a checklist of observable behaviors relevant to the refactor based on the target domain or manually provided context files. Mark each item as tested, manually checked, N/A, or unverified. Do not claim parity based solely on compilation.
+
+## Phase 5: Failure Handling and Stop Conditions
+- Isolate failures and fix only issues caused by the current batch (max 3 targeted repair iterations).
+- If validation still fails, STOP, report the exact failure, and ask the user how to proceed.
+- Do not automatically reset or overwrite files to recover. Preserve the current state.
+
+## Phase 6: Completion and Documentation
+At completion, report structural changes, validation results, and unverified parity items. Ask the user before modifying `AGENTS.md` if new architectural patterns were introduced.
+
+
+
+<tagged_files>
+* y:\projekte2026\website\remix_--portfolio_feed_editor_ver10\.agents\skills\deep-refactor\SKILL.md (52 lines)
+</tagged_files>
