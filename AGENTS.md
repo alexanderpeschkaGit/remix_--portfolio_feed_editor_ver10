@@ -39,8 +39,9 @@ To keep the AI agent fast, specific architectural rules have been extracted to `
 - `.agents/rules/autorun.md`: Autorun execution rules.
 
 ## Execution Mode (Auto-Pilot)
-- **Auto-Pilot: ENABLED** for `#deep-refactor` and `#exec` batch runs. Per `.agents/skills/deep-refactor/SKILL.md` Phase 3.4, proceed batch-to-batch WITHOUT waiting for user confirmation, as long as every batch passes `npm run lint` (`tsc --noEmit`) and `npm run build` (`vite build`) with **no new errors versus the baseline**.
-- **Always stop and wait** for: a batch that still fails after 3 targeted repair iterations; new material ambiguity (run `#grillme`); any irreversible or external action (git commit, any `.bat` file, R2/publish/Bunny calls); and each checkpoint defined by the active plan.
+- **Auto-Pilot: ENABLED** for `#deep-refactor` and `#exec` batch runs. Per `.agents/skills/deep-refactor/SKILL.md` Phase 3, item 6 (*Communicative Stop & Auto-Pilot Resolution*), proceed batch-to-batch WITHOUT waiting for user confirmation, as long as every batch passes `npm run lint` (`tsc --noEmit`) and `npm run build` (`vite build`) with **no new errors versus the baseline**.
+- **Always stop and wait** for: a batch that still fails after 3 targeted repair iterations; new material ambiguity (run `#grillme`); any irreversible or external action that leaves the local working tree (`git push`, `git tag`, `git reset --hard`, any `.bat` file, R2/publish/Bunny calls); and each decision checkpoint defined by the active plan.
+- **Commit handling (conditional):** A local `git commit` is **not** an irreversible external action. Checkpoint commits authorized by an active plan or by Auto-Pilot (`#deep-refactor`, `#exec`) are pre-authorized and must proceed without a confirmation stop. Outside a plan, ask about committing only when **all** of these hold: the task changed files, no commit question was already answered in this session, and the working tree holds no unrelated changes that the commit would sweep in. Otherwise close the turn with a plain statement ("Next step: commit — not executed") instead of a question.
 - **Parity caveat:** a green compiler is not behavior parity. Mark browser/manual smoke items as `unverified` and carry them forward to the next checkpoint.
 - This directive governs execution flow only. It never overrides the encoding, file-size, terminal-safety, or manual-confirmation rules in this file.
 
@@ -66,5 +67,12 @@ To keep the AI agent fast, specific architectural rules have been extracted to `
   - **Structured Reasoning:** Keep internal reasoning concise and structured rather than generating long, reflective first-person prose during tool-execution loops.
 
 ## AI Assistant Meta-Rules
-- **Documentation Prompt:** After making important or architectural changes to the codebase, the AI MUST explicitly ask the prompter if those changes should be noted and documented in this `AGENTS.md` file (or its `.agents/rules/` counterparts).
+- **Single-Question Rule:** End a turn with at most **one** open question. If several decisions are pending, bundle them into that one question.
+- **Quiet Zone (no questions):** read-only workflows (`#ask`, `#plan`, `#review`); a question the user already answered in this session (stay with that answer); trivial single-file changes the user verifies by browser reload; and pure progress or checkpoint reports that contain no decision. When in doubt, act and state the outcome rather than asking.
+- **Documentation Prompt (conditional):** Ask the prompter whether a change should be documented in this `AGENTS.md` (or its `.agents/rules/` counterparts) **only** when the change actually alters durable, always-relevant facts or introduces a new convention:
+  - architecture/stack, storage conventions or canonical paths;
+  - file-size thresholds, dual-environment, encoding, delegation or tool-logic rules;
+  - a new/renamed `.agents/rules/*.md`, or a new custom skill or trigger tag (`.agents/WORKFLOWS.md`).
+  - Do **not** ask for bug fixes, UI tweaks, refactors that stay inside the existing architecture, or test-, copy- and script-only changes.
+  - Ask once, bundled at the end of the task — never per batch or per file — and skip the question when the task already edited the documentation files itself. If no trigger applies, state the result and move on.
 - **Skill Routing Registration:** Whenever creating a new custom skill inside `.agents/skills/`, the AI MUST automatically register its trigger tag (e.g., `#skillname`) in `.agents/WORKFLOWS.md`.
