@@ -47,3 +47,6 @@ scripts/patches_and_tests/
 
 # AI & Repomix Bundles
 *bundle*.txt
+repomix-output/
+repomix-output*
+repomix_*

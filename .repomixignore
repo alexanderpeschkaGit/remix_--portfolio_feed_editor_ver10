@@ -4,9 +4,14 @@ NochGeplant/**
 plans/**
 app/**
 *.zip
+live_state*.json
+modelExport*.json
 
 # Repomix Bundles
 *bundle*.txt
 repomix-output*
+repomix-output/**
+repomix_*
+repomix_*/**
 *-bundle.txt
 *-bundle.md

@@ -12,3 +12,4 @@ When a user request begins with a command, read the corresponding local skill fi
 - `#delegate` (or `#deligate`): `.agents/skills/delegate.md`
 - `#solve` (or `/solve`): `.agents/skills/solve/SKILL.md`
 - `#deep-refactor` (or `/deep-refactor`, `#refrag`): `.agents/skills/deep-refactor/SKILL.md`
+- `#bundle` (or `/bundle`, `#repomix-split`): `.agents/skills/bundle/SKILL.md`
