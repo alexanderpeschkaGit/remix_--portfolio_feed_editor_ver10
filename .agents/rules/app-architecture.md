@@ -75,3 +75,14 @@ The portfolio page template is split into section builders — `src/utils/portfo
 - Every path named in `AGENTS.md` and in this file must resolve in the working tree (the two deletions listed under "Removed in the Refactor" are the only exceptions); keep both files in sync when a module is renamed or split.
 - Published-HTML parity command: `npx tsx scripts/html-parity-fixture.ts <dir>` — compare hashes before/after editing the template files.
 - Refactor tooling: `scripts/html-parity-fixture.ts` is kept (parity gate); `scripts/splice-block.cjs` was the one-off verbatim block splicer.
+
+## Backend Architecture & Ownership (`server.ts` + `src/server/`)
+`server.ts` (~95 lines) is the Express + Vite orchestrator only. Domain services and route clusters live in `src/server/` (< 450 lines per file):
+- `serverContext.ts`: Directory constants (`DATA_DIR`, `DATA_V2_DIR`, etc.), `R2_CONFIG`, `BUNNY_CONFIG`, `s3Client`, `upload` (Multer), `usageStats`, `uploadToR2`, `ensureServerDirectories`.
+- `stateManager.ts`: Video dimension probing (`probeVideoDimensions`), Bunny metadata & schema normalization, `localTimestamp`, `backupState`, `extractPortfolioDataFromHtml`, `persistAcceptedState`.
+- `variantMaterializer.ts`: Image normalization, sharp variant materialization (`materializeVariantSet`), `uploadVariantSetToR2`, atomic revision promotion (`publishHtmlAndState`).
+- `scrapeService.ts` + `scrapeRoutes.ts`: Deleted-ID blacklist, smart scrape merging (`mergeScrapedData`), pHash Hamming distance, and `/api/scrape/*` + `/api/flickr` routes.
+- `r2StorageService.ts` + `r2TrashService.ts`: R2 reference keep-set, `.sync-manifest.json`, orphan/legacy/redundancy scanners, and R2 trash + `bak/` archive operations.
+- `mediaVariantsService.ts` + `mediaVariantsRoutes.ts`: Variant audit, source resolution, generation, and `/api/media-variants/*` + `/api/media-validation/audit` routes.
+- `syncRoutes.ts`, `stateRoutes.ts`, `kiEditRoutes.ts`, `mediaDeleteRoutes.ts`, `maintenanceRoutes.ts`, `uploadRoutes.ts`, `bunnyUploadRoutes.ts`, `bunnyRoutes.ts`, `videoResolveRoutes.ts`: Express route registrars (`register*Routes(app)`).
+
