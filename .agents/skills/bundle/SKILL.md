@@ -14,10 +14,19 @@ description: Bundle the codebase into clean AI-friendly XML chunks with a strict
 ### A. Default Bundling (`repomix-output/`)
 Pack the codebase into the default output directory `repomix-output/`:
 
+**PowerShell:**
+```powershell
+.\repomix
+# or:
+.\repomix.ps1
+```
+
+**CMD / Batch:**
 ```cmd
 repomix.bat
 ```
-or via npm:
+
+**NPM:**
 ```powershell
 npm run repomix
 ```
@@ -25,6 +34,14 @@ npm run repomix
 ### B. Custom Destination Folder (`repomix_<name>`)
 Specify a custom folder name as the first argument:
 
+**PowerShell:**
+```powershell
+.\repomix v1_release
+# or:
+.\repomix.ps1 v1_release
+```
+
+**CMD / Batch:**
 ```cmd
 repomix.bat v1_release
 ```
@@ -33,6 +50,13 @@ repomix.bat v1_release
 ### C. Additional Repomix Flags
 Pass any additional Repomix CLI flags after the folder name (or as the first argument if starting with `--`):
 
+**PowerShell:**
+```powershell
+.\repomix my_chunk --no-security-check
+.\repomix --no-security-check
+```
+
+**CMD / Batch:**
 ```cmd
 repomix.bat my_chunk --no-security-check
 repomix.bat --no-security-check
