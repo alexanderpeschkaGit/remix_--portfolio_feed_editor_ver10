@@ -21,7 +21,7 @@ description: Plans a solution and immediately delegates the execution to a subag
   - Immediately after creating the artifact, use the `invoke_subagent` tool.
   - **Model:** Default to `inherit` (so it matches the parent session). *Note: The model can be explicitly overridden by the user prompt (e.g., "use flash" or "use pro").*
   - **Role:** `Artifact Executor`
-  - **Prompt:** "Read the execution plan located at `[Absolute Path to Artifact]` and implement all steps thoroughly. Do not stop until all steps are complete."
+  - **Prompt:** "Read the execution plan located at `[Absolute Path to Artifact]` and implement all steps thoroughly. Verify whether any referenced rule file in `.agents/rules/` requires synchronization with the new exports/components, and include it in the final verification step. Do not stop until all steps are complete."
 
 - **Step 4: Handoff**
   - Inform the user that the plan artifact has been generated and the subagent is running in the background.

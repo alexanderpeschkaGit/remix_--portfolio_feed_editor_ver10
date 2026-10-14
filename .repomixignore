@@ -4,3 +4,9 @@ NochGeplant/**
 plans/**
 app/**
 *.zip
+
+# Repomix Bundles
+*bundle*.txt
+repomix-output*
+*-bundle.txt
+*-bundle.md

@@ -14,8 +14,36 @@ data_v2/
 bak/
 .cache/
 
+# Backup files
+*.bak
+*.backup.tsx
+
+# IDE and Editor Cache / Telemetry
+.vscode/*
+.windsurf/*
+.cursor/*
+.trae/*
+.idea/
+.fleet/
+.history/
+*.code-workspace
+
+# Allow specific IDE configuration and rules
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.windsurf/rules/
+!.cursor/rules/
+!.trae/rules/
+!.github/copilot-instructions.md
+
 # Archive & temporäre Dumps
 *.zip
 *.diff
 .tmp-*
+tmp/parity/
 scripts/patches_and_tests/
+
+# AI & Repomix Bundles
+*bundle*.txt
