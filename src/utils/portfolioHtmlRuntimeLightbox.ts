@@ -1,10 +1,10 @@
 export const buildPortfolioRuntimeLightbox = (): string =>
 `    function renderGallery() {
           const galleryRoot = document.getElementById('gallery-root');
-          if (!galleryRoot || !window.your-r2-bucket) return;
-          const sourcePosts = (window.your-r2-bucket.posts && window.your-r2-bucket.posts.length > 0)
-            ? window.your-r2-bucket.posts
-            : (window.your-r2-bucket.items || []);
+          if (!galleryRoot || !window.portfolioData) return;
+          const sourcePosts = (window.portfolioData.posts && window.portfolioData.posts.length > 0)
+            ? window.portfolioData.posts
+            : (window.portfolioData.items || []);
           galleryRoot.innerHTML = sourcePosts.filter(p => !p.hidden).map(renderCard).join('');
           startFeedVideoPreviews(galleryRoot);
         }
@@ -25,7 +25,7 @@ export const buildPortfolioRuntimeLightbox = (): string =>
             
             cards.forEach(card => {
               const postId = card.getAttribute('data-post-id');
-              const post = window.your-r2-bucket.posts.find(p => String(p.id) === String(postId));
+              const post = window.portfolioData.posts.find(p => String(p.id) === String(postId));
               const postStatesLower = post && post.states ? post.states.map(s => String(s).toLowerCase()) : [];
               
               if (filter === 'all') {
@@ -82,9 +82,9 @@ export const buildPortfolioRuntimeLightbox = (): string =>
         console.log('Cards found:', galleryRoot ? galleryRoot.querySelectorAll('.card').length : 0);
         const openLightboxForPostId = (postId) => {
           if (!postId) return;
-          if (!window.your-r2-bucket || !window.your-r2-bucket.posts) return;
+          if (!window.portfolioData || !window.portfolioData.posts) return;
 
-          currentPost = window.your-r2-bucket.posts.find(p => String(p.id) === String(postId));
+          currentPost = window.portfolioData.posts.find(p => String(p.id) === String(postId));
           if (!currentPost) return;
 
           currentPostMedia = [];
@@ -102,9 +102,9 @@ export const buildPortfolioRuntimeLightbox = (): string =>
           lightboxTitle.textContent = currentPost.title || '';
           lightboxDescription.innerHTML = currentPost.description ? currentPost.description.replace(/\\n/g, '<br/>') : '';
 
-          if (currentPost.states && currentPost.states.length > 0 && window.your-r2-bucket.projectStates) {
+          if (currentPost.states && currentPost.states.length > 0 && window.portfolioData.projectStates) {
             lightboxTags.innerHTML = currentPost.states.map(stateId => {
-              const state = window.your-r2-bucket.projectStates.find(s => String(s.id).toLowerCase() === String(stateId).toLowerCase());
+              const state = window.portfolioData.projectStates.find(s => String(s.id).toLowerCase() === String(stateId).toLowerCase());
               return state ? \`<span class="tag-label" style="background-color: \${state.muted}; border: 1px solid \${state.bright}; color: #fff; margin-right: 4px; margin-bottom: 4px; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">\${state.label}</span>\` : '';
             }).join('');
             lightboxTags.style.display = 'flex';
@@ -288,10 +288,10 @@ export const buildPortfolioRuntimeLightbox = (): string =>
             
             currentPostMedia = items;
             
-            // Update the post in window.your-r2-bucket
-            const postIdx = window.your-r2-bucket.posts.findIndex(p => String(p.id) === String(currentPost.id));
+            // Update the post in window.portfolioData
+            const postIdx = window.portfolioData.posts.findIndex(p => String(p.id) === String(currentPost.id));
             if (postIdx !== -1) {
-              const updatedPost = { ...window.your-r2-bucket.posts[postIdx], mergedMedia: currentPostMedia };
+              const updatedPost = { ...window.portfolioData.posts[postIdx], mergedMedia: currentPostMedia };
               const primaryMedia = currentPostMedia[0];
               if (primaryMedia) {
                 updatedPost.type = primaryMedia.type || updatedPost.type;
@@ -300,7 +300,7 @@ export const buildPortfolioRuntimeLightbox = (): string =>
                 updatedPost.url = primaryMedia.url || primaryMedia.link || updatedPost.url;
                 updatedPost.youtubeId = primaryMedia.youtubeId || updatedPost.youtubeId;
               }
-              window.your-r2-bucket.posts[postIdx] = updatedPost;
+              window.portfolioData.posts[postIdx] = updatedPost;
             }
             
             renderReorderGrid();
@@ -315,11 +315,11 @@ export const buildPortfolioRuntimeLightbox = (): string =>
 
         btnSaveOrder.addEventListener('click', () => {
           // Normalize media state before embedding into the exported HTML
-          window.your-r2-bucket = normalizePortfolioState(window.your-r2-bucket);
+          window.portfolioData = normalizePortfolioState(window.portfolioData);
 
           // Update the script tag content
           const scriptTag = document.getElementById('portfolio-data');
-          scriptTag.textContent = JSON.stringify(window.your-r2-bucket);
+          scriptTag.textContent = JSON.stringify(window.portfolioData);
           
           // Generate new HTML content
           const html = document.documentElement.outerHTML;

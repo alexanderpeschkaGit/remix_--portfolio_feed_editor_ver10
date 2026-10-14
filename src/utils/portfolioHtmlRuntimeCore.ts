@@ -5,28 +5,28 @@ export const buildPortfolioRuntimeCore = (): string =>
         let publicDomain = "https://your-r2-public-domain.example.invalid";
         try {
           console.log('Init starting...');
-          const your-r2-bucketEl = document.getElementById('portfolio-data');
-          if (!your-r2-bucketEl) {
+          const portfolioDataEl = document.getElementById('portfolio-data');
+          if (!portfolioDataEl) {
             console.error('portfolio-data element not found');
             // Continue anyway, maybe some things still work
           } else {
-            console.log('your-r2-bucketEl found');
+            console.log('portfolioDataEl found');
             try {
-              window.your-r2-bucket = JSON.parse(your-r2-bucketEl.textContent);
-              if (window.your-r2-bucket.items && !window.your-r2-bucket.posts) {
-                window.your-r2-bucket.posts = window.your-r2-bucket.items.filter(p => !p.hidden);
+              window.portfolioData = JSON.parse(portfolioDataEl.textContent);
+              if (window.portfolioData.items && !window.portfolioData.posts) {
+                window.portfolioData.posts = window.portfolioData.items.filter(p => !p.hidden);
               }
-              console.log('Portfolio data parsed:', window.your-r2-bucket);
-              if (window.your-r2-bucket && window.your-r2-bucket.publicDomain) {
-                publicDomain = window.your-r2-bucket.publicDomain;
+              console.log('Portfolio data parsed:', window.portfolioData);
+              if (window.portfolioData && window.portfolioData.publicDomain) {
+                publicDomain = window.portfolioData.publicDomain;
               }
               
               // Live Update Check
               fetch('state.json')
                 .then(res => res.json())
                 .then(newData => {
-                  if (newData && newData.lastUpdated && window.your-r2-bucket.lastUpdated) {
-                    if (new Date(newData.lastUpdated) > new Date(window.your-r2-bucket.lastUpdated)) {
+                  if (newData && newData.lastUpdated && window.portfolioData.lastUpdated) {
+                    if (new Date(newData.lastUpdated) > new Date(window.portfolioData.lastUpdated)) {
                       console.log('Newer state found! Updating live view...', newData.lastUpdated);
                       
                       // 1. Update Title and Bio if changed
@@ -82,7 +82,7 @@ export const buildPortfolioRuntimeCore = (): string =>
                       
                       // 3. Update global window object for Lightbox sync
                       newData.posts = newData.items.filter(p => !p.hidden); // Map items back to posts property for Lightbox
-                      window.your-r2-bucket = newData;
+                      window.portfolioData = newData;
                       renderGallery();
                     }
                   }
@@ -91,7 +91,7 @@ export const buildPortfolioRuntimeCore = (): string =>
                 
             } catch (jsonErr) {
               console.error('JSON parse failed:', jsonErr);
-              console.log('Raw data length:', your-r2-bucketEl.textContent.length);
+              console.log('Raw data length:', portfolioDataEl.textContent.length);
             }
           }
         } catch (e) {
@@ -325,8 +325,8 @@ export const buildPortfolioRuntimeCore = (): string =>
           if (cleanUrl.startsWith('/')) cleanUrl = cleanUrl.substring(1);
           if (cleanUrl.startsWith('data_v2/')) cleanUrl = cleanUrl.substring('data_v2/'.length);
           
-          // Fallback domain if window.your-r2-bucket.publicDomain is not available
-          const domain = (window.your-r2-bucket && window.your-r2-bucket.publicDomain) ? window.your-r2-bucket.publicDomain : publicDomain;
+          // Fallback domain if window.portfolioData.publicDomain is not available
+          const domain = (window.portfolioData && window.portfolioData.publicDomain) ? window.portfolioData.publicDomain : publicDomain;
           const safeDomain = domain.endsWith('/') ? domain.slice(0, -1) : domain;
 
           if (isLocalFile) {
@@ -408,7 +408,7 @@ export const buildPortfolioRuntimeCore = (): string =>
           const mediaHtml = renderMediaMarkup(post);
           const descriptionHtml = post.description ? '<p>' + post.description + '</p>' : '';
           const tagsHtml = post.states && post.states.length > 0 ? '<div class="tags" style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px;">' + post.states.map(stateId => {
-            const state = window.your-r2-bucket.projectStates.find(s => String(s.id).toLowerCase() === String(stateId).toLowerCase());
+            const state = window.portfolioData.projectStates.find(s => String(s.id).toLowerCase() === String(stateId).toLowerCase());
             return state ? '<span class="tag-label" style="background-color: ' + state.bright + '; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">' + state.label + '</span>' : '';
           }).join('') + '</div>' : '';
           const linksHtml = post.mergedMedia ? '<div class="links">' + post.mergedMedia.map((m, i) => (m.url || m.link) ? '<a href="' + (m.url || m.link) + '" target="_blank">Link ' + (i + 1) + '</a>' : '').join(' ') + '</div>' : '';
