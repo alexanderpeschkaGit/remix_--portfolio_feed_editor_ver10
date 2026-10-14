@@ -1,23 +1,12 @@
-// components/modals/LightboxModal.tsx
-/**
- * LightboxModal Component
- * Eingekapselte Lightbox-Logik für große Bilder und Medien
- * Funktionalität von App.tsx extrahiert
- */
-import React from 'react';
-import { X, ArrowLeft, GripVertical, Youtube, ExternalLink, Image as ImageIcon, Play, ChevronLeft, ChevronRight, Film, Loader2, Sparkles, Undo2 } from 'lucide-react';
-import { PROJECT_STATES } from '../../constants';
-
-interface Media {
-  type?: string;
-  youtubeId?: string;
-  image?: string;
-  url?: string;
-  link?: string;
-  image_large?: string;
-  image_3k?: string;
-  [key: string]: any;
-}
+import React, { useEffect, useRef, useState } from "react";
+import { ArrowLeft, X } from "lucide-react";
+import { useKiCaseStudyEdit } from "../../hooks/useKiCaseStudyEdit";
+import {
+  getAsString,
+  isRenderableMediaItem,
+} from "../../utils/postMediaHelpers";
+import { LightboxMediaStage } from "./lightbox/LightboxMediaStage";
+import { LightboxSidebar } from "./lightbox/LightboxSidebar";
 
 interface LightboxModalProps {
   currentLightboxPost: any | null;
@@ -25,26 +14,37 @@ interface LightboxModalProps {
   isHoveringLightboxBg: boolean;
   lightboxDraggedIdx: number | null;
   imageDimensions: Record<string, string>;
-  
+
   // State setters
   setLightboxMousePos: (pos: { x: number; y: number }) => void;
   setIsHoveringLightboxBg: (v: boolean) => void;
   setSelectedImage: (post: any) => void;
-  
+
   // Display flags
   showResolutions: boolean;
   isEditing: boolean;
   isR2Fallback: boolean;
   isEmbeddedData: boolean;
-  
+
   // Functions
   getImageSrc: (media: any, preferLarge?: boolean) => string | undefined;
   getVideoSrc: (media: any, preferLarge?: boolean) => string | undefined;
-  getDisplayImage: (url: string | undefined, r2: boolean, embedded: boolean) => string | undefined;
-  handleImageLoad: (id: string, e: React.SyntheticEvent<HTMLImageElement>) => void;
+  getDisplayImage: (
+    url: string | undefined,
+    r2: boolean,
+    embedded: boolean,
+  ) => string | undefined;
+  handleImageLoad: (
+    id: string,
+    e: React.SyntheticEvent<HTMLImageElement>,
+  ) => void;
   handleLightboxDragStart: (e: React.DragEvent, i: number) => void;
   handleLightboxDragOver: (e: React.DragEvent) => void;
-  handleLightboxDrop: (e: React.DragEvent, index: number, postId: string) => void;
+  handleLightboxDrop: (
+    e: React.DragEvent,
+    index: number,
+    postId: string,
+  ) => void;
   handlePostChange: (id: string, field: string, value: string) => void;
 }
 
@@ -53,7 +53,6 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
   lightboxMousePos,
   isHoveringLightboxBg,
   lightboxDraggedIdx,
-  imageDimensions,
   setLightboxMousePos,
   setIsHoveringLightboxBg,
   setSelectedImage,
@@ -72,171 +71,59 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
 }) => {
   if (!currentLightboxPost) return null;
 
-  const getAsString = (val: any) => {
-    if (!val) return "";
-    if (typeof val === 'string') return val;
-    if (typeof val === 'object') return val.description || val.title || JSON.stringify(val);
-    return String(val);
-  };
+  const rawMediaList =
+    currentLightboxPost.mergedMedia &&
+    currentLightboxPost.mergedMedia.length > 0
+      ? currentLightboxPost.mergedMedia
+      : [currentLightboxPost];
 
-  const isRenderableMedia = (media: any) => {
-    if (!media) return false;
-    const hasImage = !!(media.image || media.image_thumb || media.image_1k || media.image_2k || media.image_large || media.image_preview || media.image_3k || media.image_original);
-    const hasUrl = !!(media.url || media.link);
-    if (media.type === 'youtube') return !!(media.youtubeId || media.youtubeUrl || hasImage || hasUrl);
-    if (media.type === 'bunny') return true;
-    return hasImage || hasUrl || !!media.youtubeId;
-  };
+  const mediaList = isEditing
+    ? rawMediaList
+    : rawMediaList.filter((m) => isRenderableMediaItem(m));
 
-  const rawMediaList = (currentLightboxPost.mergedMedia && currentLightboxPost.mergedMedia.length > 0)
-    ? currentLightboxPost.mergedMedia
-    : [currentLightboxPost];
+  const [activeMediaIndex, setActiveMediaIndex] = useState(0);
+  const [shouldPlayActiveMedia, setShouldPlayActiveMedia] = useState(false);
+  const [loadedPlayers, setLoadedPlayers] = useState<Set<number>>(new Set());
+  const activeVideoRef = useRef<HTMLVideoElement | null>(null);
 
-  const mediaList = isEditing ? rawMediaList : rawMediaList.filter(isRenderableMedia);
-  const isVideoFileMedia = (media: any) => {
-    if (!media) return false;
-    const candidates = [
-      media.image,
-      media.url,
-      media.link,
-      getVideoSrc(media, true),
-      getVideoSrc(media),
-    ];
-    return media.type === 'video' || candidates.some((value) => typeof value === 'string' && /\.(mp4|webm|mov)(\?.*)?$/i.test(value));
-  };
+  const { isGenerating, undoText, resetKiEditState, handleUndo, handleKiEdit } =
+    useKiCaseStudyEdit({
+      mediaItems: mediaList,
+      getImageSrc,
+      getDisplayImage,
+      isR2Fallback,
+      isEmbeddedData,
+      getCurrentTitle: () => getAsString(currentLightboxPost.title),
+      getCurrentDescription: () => getAsString(currentLightboxPost.description),
+      onApplyDescription: (newDescription) => {
+        handlePostChange(currentLightboxPost.id, "description", newDescription);
+      },
+    });
 
-  const getMediaPosterSrc = (media: any) => {
-    if (!media) return undefined;
-
-    if (media.type === 'youtube' && media.youtubeId) {
-      const youtubePoster = getImageSrc(media, true) || media.image || `https://img.youtube.com/vi/${media.youtubeId}/maxresdefault.jpg`;
-      return getDisplayImage(youtubePoster, isR2Fallback, isEmbeddedData);
-    }
-
-    const imageSrc = media.custom_thumb || getImageSrc(media, true) || media.image || media.image_preview;
-    return getDisplayImage(imageSrc, isR2Fallback, isEmbeddedData);
-  };
-
-  const [activeMediaIndex, setActiveMediaIndex] = React.useState(0);
-  const [shouldPlayActiveMedia, setShouldPlayActiveMedia] = React.useState(false);
-  const [loadedPlayers, setLoadedPlayers] = React.useState<Set<number>>(new Set());
-  const [isGenerating, setIsGenerating] = React.useState(false);
-  const [undoText, setUndoText] = React.useState<string | null>(null);
-  const activeVideoRef = React.useRef<HTMLVideoElement | null>(null);
-
-  React.useEffect(() => {
+  useEffect(() => {
     setActiveMediaIndex(0);
     setShouldPlayActiveMedia(false);
     setLoadedPlayers(new Set());
-    setUndoText(null);
-    setIsGenerating(false);
-  }, [currentLightboxPost.id]);
+    resetKiEditState();
+  }, [currentLightboxPost.id, resetKiEditState]);
 
-  const handleUndo = () => {
-    if (undoText !== null) {
-      handlePostChange(currentLightboxPost.id, 'description', undoText);
-      setUndoText(null);
-    }
-  };
-
-  const handleKiEdit = async () => {
-    if (isGenerating) return;
-    setIsGenerating(true);
-    try {
-      const currentDesc = getAsString(currentLightboxPost.description);
-      const currentTitle = getAsString(currentLightboxPost.title);
-
-      if (undoText === null) {
-        setUndoText(currentDesc);
-      }
-
-      // Gather candidate thumbnails from mediaList
-      const imageCandidates: string[] = [];
-      for (const m of mediaList) {
-        const thumb = m.image_thumb || m.custom_thumb || m.image_preview || m.image || getImageSrc(m, false);
-        if (thumb && typeof thumb === 'string') {
-          imageCandidates.push(thumb);
-        }
-      }
-      const selectedThumbs = imageCandidates.slice(0, 5);
-
-      // Attempt to convert thumbnails to base64
-      const base64Images: Array<{ data: string; mimeType: string }> = [];
-      for (const rawUrl of selectedThumbs) {
-        try {
-          const resolvedUrl = getDisplayImage(rawUrl, isR2Fallback, isEmbeddedData) || rawUrl;
-          if (resolvedUrl.startsWith('data:')) {
-            const match = resolvedUrl.match(/^data:([^;]+);base64,(.+)$/);
-            if (match) {
-              base64Images.push({ mimeType: match[1], data: match[2] });
-              continue;
-            }
-          }
-          const resp = await fetch(resolvedUrl);
-          if (resp.ok) {
-            const blob = await resp.blob();
-            const b64 = await new Promise<{ data: string; mimeType: string } | null>((resolve) => {
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                const resStr = reader.result as string;
-                const match = resStr.match(/^data:([^;]+);base64,(.+)$/);
-                if (match) resolve({ mimeType: match[1], data: match[2] });
-                else resolve(null);
-              };
-              reader.onerror = () => resolve(null);
-              reader.readAsDataURL(blob);
-            });
-            if (b64) base64Images.push(b64);
-          }
-        } catch (err) {
-          console.warn('Could not convert thumb to base64 in browser:', rawUrl, err);
-        }
-      }
-
-      const response = await fetch('/api/ki-edit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: currentTitle,
-          description: currentDesc,
-          images: base64Images,
-          imageUrls: selectedThumbs,
-        }),
-      });
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Fehler beim KI-Edit');
-      }
-
-      if (data.text) {
-        handlePostChange(currentLightboxPost.id, 'description', data.text);
-      }
-    } catch (error: any) {
-      console.error('KI-Edit fehlgeschlagen:', error);
-      alert(`KI-Edit fehlgeschlagen: ${error.message || 'Unbekannter Fehler'}`);
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  React.useEffect(() => {
+  useEffect(() => {
     if (activeMediaIndex >= mediaList.length) {
       setActiveMediaIndex(Math.max(0, mediaList.length - 1));
     }
   }, [activeMediaIndex, mediaList.length]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     setShouldPlayActiveMedia(false);
   }, [activeMediaIndex]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     const activeVideo = activeVideoRef.current;
     if (!activeVideo || isEditing) return;
 
     if (shouldPlayActiveMedia) {
       const playPromise = activeVideo.play();
-      if (playPromise && typeof playPromise.catch === 'function') {
+      if (playPromise && typeof playPromise.catch === "function") {
         playPromise.catch(() => {});
       }
       return;
@@ -246,41 +133,20 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
   }, [activeMediaIndex, isEditing, shouldPlayActiveMedia]);
 
   const activeMedia = mediaList[activeMediaIndex] || mediaList[0] || null;
-  const activeMediaPosterSrc = getMediaPosterSrc(activeMedia);
-  const showEmbeddedPreview = !!activeMedia && !isEditing && (activeMedia.type === 'youtube' || activeMedia.type === 'bunny') && !shouldPlayActiveMedia;
 
-  const getResolutionVariants = (media: any) => {
-    if (!media) return [];
-
-    if (media.type === 'youtube') {
-      return [{ key: 'youtube', label: 'YT' }];
-    }
-
-    const orderedVariants = [
-      { key: 'custom_thumb', label: 'CT' },
-      { key: 'image_thumb', label: 'TH' },
-      { key: 'image_preview', label: 'PV' },
-      { key: 'image_1k', label: '1K' },
-      { key: 'image_2k', label: '2K' },
-      { key: 'image_3k', label: '3K' },
-      { key: 'image_large', label: 'LG' },
-      { key: 'image_original', label: 'OR' },
-      { key: 'image', label: 'IMG' },
-    ];
-
-    const seen = new Set<string>();
-    return orderedVariants.filter(({ key }) => {
-      const value = media[key];
-      if (!value) return false;
-      if (seen.has(value)) return false;
-      seen.add(value);
-      return true;
+  const handleActivatePlayer = (index: number) => {
+    setLoadedPlayers((prev) => {
+      const next = new Set(prev);
+      next.add(index);
+      return next;
     });
   };
 
   return (
-    <div 
-      className={`fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-4 md:p-8 backdrop-blur-sm ${isHoveringLightboxBg ? 'cursor-none' : ''}`}
+    <div
+      className={`fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-4 md:p-8 backdrop-blur-sm ${
+        isHoveringLightboxBg ? "cursor-none" : ""
+      }`}
       onClick={(e) => {
         if (e.target === e.currentTarget) {
           setSelectedImage(null);
@@ -298,14 +164,17 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
       onMouseLeave={() => setIsHoveringLightboxBg(false)}
     >
       {isHoveringLightboxBg && (
-        <div 
+        <div
           className="fixed pointer-events-none z-50 flex items-center justify-center w-12 h-12 bg-white/10 backdrop-blur-md rounded-full text-white transition-opacity duration-200"
-          style={{ left: lightboxMousePos.x - 24, top: lightboxMousePos.y - 24 }}
+          style={{
+            left: lightboxMousePos.x - 24,
+            top: lightboxMousePos.y - 24,
+          }}
         >
           <ArrowLeft className="w-6 h-6" />
         </div>
       )}
-      <button 
+      <button
         className="absolute top-6 right-6 text-white/50 hover:text-white transition-colors bg-black/50 p-2 rounded-full z-10"
         onClick={() => {
           setSelectedImage(null);
@@ -315,447 +184,61 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
       >
         <X className="w-6 h-6" />
       </button>
-      
-      <div 
-        className={`w-full ${isEditing ? 'max-w-[1500px]' : 'max-w-7xl'} max-h-full flex flex-col md:flex-row gap-6 items-center justify-center`} 
+
+      <div
+        className={`w-full ${
+          isEditing ? "max-w-[1500px]" : "max-w-7xl"
+        } max-h-full flex flex-col md:flex-row gap-6 items-center justify-center`}
         onClick={(e) => e.stopPropagation()}
         onMouseEnter={() => setIsHoveringLightboxBg(false)}
       >
-        <div className={`relative flex-1 flex flex-col items-center justify-start min-h-0 w-full max-h-[85vh] ${isEditing ? 'overflow-y-auto gap-4 custom-scrollbar pr-2' : 'overflow-hidden'}`}>
-          {isEditing ? mediaList.map((media: Media, i: number) => (
-            <div 
-              key={i} 
-              className="group w-full flex justify-center relative cursor-grab active:cursor-grabbing border-2 border-transparent hover:border-white/20 rounded-lg p-2"
-              draggable={isEditing}
-              onDragStart={(e) => isEditing && handleLightboxDragStart(e, i)}
-              onDragOver={(e) => isEditing && handleLightboxDragOver(e)}
-              onDrop={(e) => isEditing && handleLightboxDrop(e, i, currentLightboxPost.id)}
-            >
-              {isEditing && (
-                <div className="absolute top-4 left-4 z-10 bg-black/50 p-2 rounded text-white/50 pointer-events-none">
-                  <GripVertical className="w-6 h-6" />
-                </div>
-              )}
-              {isEditing && showResolutions && getResolutionVariants(media).length > 0 && (
-                <div className="absolute top-4 left-4 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
-                  <div className="flex flex-wrap gap-1 max-w-[calc(100%-1rem)]">
-                    {getResolutionVariants(media).map(({ key, label }) => (
-                      <span
-                        key={`${currentLightboxPost.id}-${i}-${key}`}
-                        className="inline-flex items-center gap-1 rounded-full bg-black/70 border border-white/15 px-2 py-0.5 text-[8px] font-bold tracking-wide text-white/90 backdrop-blur-md shadow-lg"
-                      >
-                        <ImageIcon className="w-2.5 h-2.5" />
-                        <span>{label}</span>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {media.type === 'bunny' && media.videoId && media.libraryId ? (
-                <div className={`w-full max-w-5xl aspect-video rounded-lg overflow-hidden shadow-2xl shrink-0 ${lightboxDraggedIdx !== null ? 'pointer-events-none' : ''}`}>
-                  <iframe 
-                    src={`https://iframe.mediadelivery.net/embed/${media.libraryId}/${media.videoId}?autoplay=false&loop=false&muted=false&playsinline=true&preload=true&responsive=true`}
-                    loading="lazy"
-                    className="w-full h-full border-0"
-                    allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
-                    allowFullScreen
-                  ></iframe>
-                </div>
-              ) : media.type === 'youtube' && media.youtubeId ? (
-                <div className={`w-full max-w-5xl aspect-video rounded-lg overflow-hidden shadow-2xl shrink-0 ${lightboxDraggedIdx !== null ? 'pointer-events-none' : ''}`}>
-                  <iframe 
-                    src={`https://www.youtube.com/embed/${media.youtubeId}?autoplay=0&mute=0`} 
-                    className="w-full h-full"
-                    frameBorder="0" 
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                    allowFullScreen
-                  ></iframe>
-                </div>
-              ) : isVideoFileMedia(media) ? (
-                <div className="relative w-full h-full flex items-center justify-center">
-                  <video 
-                    src={getDisplayImage(getVideoSrc(media, true), isR2Fallback, isEmbeddedData)} 
-                    className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl shrink-0"
-                    controls
-                    muted
-                    playsInline
-                    preload="metadata"
-                  />
-                </div>
-              ) : (
-                <div className="relative w-full h-full flex items-center justify-center">
-                  <img 
-                    src={getDisplayImage(getImageSrc(media, true), isR2Fallback, isEmbeddedData)} 
-                    alt={currentLightboxPost.title} 
-                    className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl shrink-0"
-                    referrerPolicy="no-referrer"
-                    onLoad={(e) => handleImageLoad(`${currentLightboxPost.id}-${i}`, e)}
-                    onError={(e) => {
-                      const target = e.currentTarget as HTMLImageElement;
-                      if (target.src.includes('maxresdefault.jpg')) {
-                        target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
-                      } else if (media.image && target.src !== getDisplayImage(media.image, isR2Fallback, isEmbeddedData) && target.src !== media.image) {
-                        target.src = getDisplayImage(media.image, isR2Fallback, isEmbeddedData) || '';
-                      }
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-          )) : !isEditing && mediaList.length > 1 ? (
-            <div className="w-full max-h-[85vh] overflow-y-auto custom-scrollbar pr-2 space-y-4">
-              {mediaList.map((media: Media, i: number) => (
-                <article
-                  key={`${currentLightboxPost.id}-${i}`}
-                  className="group relative min-h-[min(72vh,720px)] w-full"
-                  onClick={() => setActiveMediaIndex(i)}
-                >
-                  <div className="flex min-h-[calc(min(72vh,720px)-1.5rem)] w-full items-center justify-center">
-                    {((media.type === 'bunny' && media.videoId && media.libraryId) || (media.type === 'youtube' && media.youtubeId)) ? (
-                      loadedPlayers.has(i) ? (
-                        <div className="w-full max-w-5xl aspect-video overflow-hidden rounded-lg shadow-2xl shrink-0" onClick={(event) => event.stopPropagation()}>
-                          {media.type === 'bunny' ? (
-                            <iframe
-                              src={`https://iframe.mediadelivery.net/embed/${media.libraryId}/${media.videoId}?autoplay=1&loop=false&muted=false&playsinline=true&preload=true&responsive=true`}
-                              loading="lazy"
-                              className="w-full h-full border-0"
-                              allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
-                              allowFullScreen
-                              title={`${currentLightboxPost.title} – Bunny video ${i + 1}`}
-                            />
-                          ) : (
-                            <iframe
-                              src={`https://www.youtube.com/embed/${media.youtubeId}?autoplay=1&mute=0&playsinline=1`}
-                              className="w-full h-full border-0"
-                              frameBorder="0"
-                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                              allowFullScreen
-                              title={`${currentLightboxPost.title} – YouTube video ${i + 1}`}
-                            />
-                          )}
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          className="relative block w-full max-w-5xl aspect-video overflow-hidden rounded-lg shadow-2xl shrink-0"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setLoadedPlayers((prev) => {
-                              const next = new Set(prev);
-                              next.add(i);
-                              return next;
-                            });
-                          }}
-                          aria-label="Video abspielen"
-                        >
-                          {getMediaPosterSrc(media) ? (
-                            <img
-                              src={getMediaPosterSrc(media)}
-                              alt={currentLightboxPost.title}
-                              className="absolute inset-0 h-full w-full object-cover"
-                              referrerPolicy="no-referrer"
-                              onError={(event) => {
-                                const target = event.currentTarget;
-                                if (target.src.includes('maxresdefault.jpg')) target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
-                              }}
-                            />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center bg-white/5">
-                              <Youtube className="h-12 w-12 text-white/50" />
-                            </div>
-                          )}
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-black/60 text-white shadow-lg backdrop-blur-sm">
-                              <Play className="ml-1 h-7 w-7" />
-                            </div>
-                          </div>
-                        </button>
-                      )
-                    ) : isVideoFileMedia(media) ? (
-                      <video
-                        src={getDisplayImage(getVideoSrc(media, true), isR2Fallback, isEmbeddedData)}
-                        className="max-w-full max-h-[68vh] object-contain rounded-lg shadow-2xl shrink-0"
-                        controls
-                        playsInline
-                        preload="metadata"
-                        poster={getMediaPosterSrc(media)}
-                        onClick={(event) => event.stopPropagation()}
-                      />
-                    ) : (
-                      <img
-                        src={getDisplayImage(getImageSrc(media, true), isR2Fallback, isEmbeddedData)}
-                        alt={currentLightboxPost.title}
-                        className="max-w-full max-h-[68vh] object-contain rounded-lg shadow-2xl shrink-0"
-                        referrerPolicy="no-referrer"
-                        onLoad={(event) => handleImageLoad(`${currentLightboxPost.id}-${i}`, event)}
-                        onError={(event) => {
-                          const target = event.currentTarget;
-                          if (target.src.includes('maxresdefault.jpg')) target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
-                        }}
-                      />
-                    )}
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : activeMedia ? (
-            <div
-              className="group relative w-full h-full flex items-center justify-center"
-              onMouseEnter={() => setShouldPlayActiveMedia(true)}
-              onMouseLeave={() => setShouldPlayActiveMedia(false)}
-            >
-              {mediaList.length > 1 && (
-                <>
-                  <button
-                    type="button"
-                    className="absolute left-3 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/60 p-2 text-white/70 transition-colors hover:text-white"
-                    onClick={() => setActiveMediaIndex((prev) => (prev - 1 + mediaList.length) % mediaList.length)}
-                    aria-label="Vorheriges Medium"
-                  >
-                    <ChevronLeft className="w-5 h-5" />
-                  </button>
-                  <button
-                    type="button"
-                    className="absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/60 p-2 text-white/70 transition-colors hover:text-white"
-                    onClick={() => setActiveMediaIndex((prev) => (prev + 1) % mediaList.length)}
-                    aria-label="Nächstes Medium"
-                  >
-                    <ChevronRight className="w-5 h-5" />
-                  </button>
-                </>
-              )}
-              {showEmbeddedPreview ? (
-                <button
-                  type="button"
-                  className="relative flex items-center justify-center"
-                  onClick={() => setShouldPlayActiveMedia(true)}
-                  aria-label="Video starten"
-                >
-                  {activeMediaPosterSrc ? (
-                    <img
-                      src={activeMediaPosterSrc}
-                      alt={currentLightboxPost.title}
-                      className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl shrink-0"
-                      referrerPolicy="no-referrer"
-                      onLoad={(e) => handleImageLoad(`${currentLightboxPost.id}-${activeMediaIndex}`, e)}
-                      onError={(e) => {
-                        const target = e.currentTarget as HTMLImageElement;
-                        if (target.src.includes('maxresdefault.jpg')) {
-                          target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
-                        }
-                      }}
-                    />
-                  ) : (
-                    <div className="flex aspect-video w-full max-w-5xl items-center justify-center rounded-lg bg-white/5 shadow-2xl">
-                      <Youtube className="w-12 h-12 text-white/50" />
-                    </div>
-                  )}
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-black/60 text-white shadow-lg backdrop-blur-sm">
-                      <Play className="ml-1 h-7 w-7" />
-                    </div>
-                  </div>
-                </button>
-              ) : activeMedia.type === 'bunny' && activeMedia.videoId && activeMedia.libraryId ? (
-                <div className="w-full max-w-5xl aspect-video rounded-lg overflow-hidden shadow-2xl shrink-0">
-                  <iframe 
-                    src={`https://iframe.mediadelivery.net/embed/${activeMedia.libraryId}/${activeMedia.videoId}?autoplay=${shouldPlayActiveMedia ? 'true' : 'false'}&loop=false&muted=false&playsinline=true&preload=true&responsive=true`}
-                    loading="lazy"
-                    className="w-full h-full border-0"
-                    allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
-                    allowFullScreen
-                  ></iframe>
-                </div>
-              ) : activeMedia.type === 'youtube' && activeMedia.youtubeId ? (
-                <div className="w-full max-w-5xl aspect-video rounded-lg overflow-hidden shadow-2xl shrink-0">
-                  <iframe 
-                    src={`https://www.youtube.com/embed/${activeMedia.youtubeId}?autoplay=${shouldPlayActiveMedia ? 1 : 0}&mute=1`} 
-                    className="w-full h-full"
-                    frameBorder="0" 
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                    allowFullScreen
-                  ></iframe>
-                </div>
-              ) : isVideoFileMedia(activeMedia) ? (
-                <div className="relative w-full h-full flex items-center justify-center">
-                  <video 
-                    ref={activeVideoRef}
-                    src={getDisplayImage(getVideoSrc(activeMedia, true), isR2Fallback, isEmbeddedData)} 
-                    className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl shrink-0"
-                    controls
-                    muted
-                    playsInline
-                    preload="metadata"
-                    poster={activeMediaPosterSrc}
-                  />
-                </div>
-              ) : (
-                <div className="relative w-full h-full flex items-center justify-center">
-                  <img 
-                    src={getDisplayImage(getImageSrc(activeMedia, true), isR2Fallback, isEmbeddedData)} 
-                    alt={currentLightboxPost.title} 
-                    className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl shrink-0"
-                    referrerPolicy="no-referrer"
-                    onLoad={(e) => handleImageLoad(`${currentLightboxPost.id}-${activeMediaIndex}`, e)}
-                    onError={(e) => {
-                      const target = e.currentTarget as HTMLImageElement;
-                      if (target.src.includes('maxresdefault.jpg')) {
-                        target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
-                      } else if (activeMedia.image && target.src !== getDisplayImage(activeMedia.image, isR2Fallback, isEmbeddedData) && target.src !== activeMedia.image) {
-                        target.src = getDisplayImage(activeMedia.image, isR2Fallback, isEmbeddedData) || '';
-                      }
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-          ) : null}
-        </div>
-        
-        <div className={`w-full ${isEditing ? 'md:w-[600px]' : 'md:w-80'} bg-[#111] p-6 rounded-xl border border-white/10 shrink-0 max-h-[80vh] overflow-y-auto custom-scrollbar transition-all duration-200`}>
-          {isEditing ? (
-            <input 
-              className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-lg font-medium text-white mb-4 focus:border-blue-500 focus:outline-none"
-              value={getAsString(currentLightboxPost.title)}
-              onChange={(e) => handlePostChange(currentLightboxPost.id, 'title', e.target.value)}
-              placeholder="Titel..."
-            />
-          ) : (
-            <h2 className="text-xl font-medium text-white mb-4">{getAsString(currentLightboxPost.title)}</h2>
-          )}
-          
-          {currentLightboxPost.states && currentLightboxPost.states.length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-4">
-              {currentLightboxPost.states.map((stateId: string, idx: number) => {
-                const state = PROJECT_STATES.find(s => String(s.id).toLowerCase() === String(stateId).toLowerCase());
-                return state ? (
-                  <span 
-                    key={`${stateId}-${idx}`}
-                    className="px-3 py-1 rounded-full text-xs font-medium text-white"
-                    style={{ backgroundColor: state.muted, border: `1px solid ${state.bright}` }}
-                  >
-                    {state.label}
-                  </span>
-                ) : null;
-              })}
-            </div>
-          )}
-          
-          {isEditing ? (
-            <>
-              <textarea 
-                className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white/80 mb-3 focus:border-blue-500 focus:outline-none min-h-[360px] custom-scrollbar resize-y leading-relaxed"
-                value={getAsString(currentLightboxPost.description)}
-                onChange={(e) => handlePostChange(currentLightboxPost.id, 'description', e.target.value)}
-                placeholder="Beschreibung..."
-              />
-              <div className="flex items-center gap-2 mb-6">
-                <button
-                  type="button"
-                  onClick={handleKiEdit}
-                  disabled={isGenerating}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                  title="Generiert eine strukturierte, SEO-optimierte Case Study mit KI"
-                >
-                  {isGenerating ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>KI generiert...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-3.5 h-3.5" />
-                      <span>✨ KI-Edit</span>
-                    </>
-                  )}
-                </button>
-                {undoText !== null && (
-                  <button
-                    type="button"
-                    onClick={handleUndo}
-                    disabled={isGenerating}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white/10 hover:bg-white/20 text-white/90 border border-white/10 transition-colors disabled:opacity-50 cursor-pointer"
-                    title="Originaltext wiederherstellen"
-                  >
-                    <Undo2 className="w-3.5 h-3.5" />
-                    <span>↩️ Undo</span>
-                  </button>
-                )}
-              </div>
-            </>
-          ) : currentLightboxPost.description && (
-            <div 
-              className="text-sm text-white/70 space-y-2 mb-6"
-              dangerouslySetInnerHTML={{ __html: getAsString(currentLightboxPost.description).replace(/\n/g, '<br/>') }}
-            />
-          )}
-          <div className="flex flex-col gap-2">
-            <div className="text-xs text-white/40 uppercase tracking-wider mb-2">
-              {isEditing ? 'Medien sortieren (Drag & Drop)' : 'Medien'}
-            </div>
-            <div className="grid grid-cols-4 gap-2 mb-6">
-              {mediaList.map((media: Media, i: number) => (
-                <div 
-                  key={i}
-                  draggable={isEditing}
-                  onDragStart={(e) => isEditing && handleLightboxDragStart(e, i)}
-                  onDragOver={(e) => isEditing && handleLightboxDragOver(e)}
-                  onDrop={(e) => isEditing && handleLightboxDrop(e, i, currentLightboxPost.id)}
-                  onClick={() => {
-                    if (!isEditing) {
-                      setActiveMediaIndex(i);
-                    }
-                  }}
-                  className={`aspect-square rounded bg-white/5 border overflow-hidden transition-colors ${isEditing ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} ${activeMediaIndex === i ? 'border-blue-500 ring-1 ring-blue-400/60' : lightboxDraggedIdx === i ? 'opacity-50 border-blue-500' : 'border-white/10 hover:border-white/30'}`}
-                >
-                  {media.type === 'bunny' ? (
-                    <div className="w-full h-full relative">
-                      {(() => {
-                        const src = getDisplayImage(getImageSrc(media), isR2Fallback, isEmbeddedData);
-                        return src ? (
-                          <>
-                            <img src={src} className="w-full h-full object-cover" />
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-                              <Play className="w-3.5 h-3.5 text-white fill-white" />
-                            </div>
-                          </>
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center bg-blue-900/20">
-                            <Film className="w-4 h-4 text-blue-400" />
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  ) : media.type === 'youtube' && media.youtubeId ? (
-                    <div className="w-full h-full flex items-center justify-center bg-red-900/20">
-                      <Youtube className="w-4 h-4 text-red-500" />
-                    </div>
-                  ) : isVideoFileMedia(media) ? (
-                    <video src={getDisplayImage(getVideoSrc(media), isR2Fallback, isEmbeddedData)} className="w-full h-full object-cover" muted />
-                  ) : (
-                    <img src={getDisplayImage(getImageSrc(media), isR2Fallback, isEmbeddedData)} className="w-full h-full object-cover" />
-                  )}
-                </div>
-              ))}
-            </div>
+        <LightboxMediaStage
+          postId={currentLightboxPost.id}
+          postTitle={getAsString(currentLightboxPost.title)}
+          mediaList={mediaList}
+          activeMedia={activeMedia}
+          activeMediaIndex={activeMediaIndex}
+          setActiveMediaIndex={setActiveMediaIndex}
+          shouldPlayActiveMedia={shouldPlayActiveMedia}
+          setShouldPlayActiveMedia={setShouldPlayActiveMedia}
+          loadedPlayers={loadedPlayers}
+          onActivatePlayer={handleActivatePlayer}
+          activeVideoRef={activeVideoRef}
+          isEditing={isEditing}
+          showResolutions={showResolutions}
+          lightboxDraggedIdx={lightboxDraggedIdx}
+          isR2Fallback={isR2Fallback}
+          isEmbeddedData={isEmbeddedData}
+          getImageSrc={getImageSrc}
+          getVideoSrc={getVideoSrc}
+          getDisplayImage={getDisplayImage}
+          handleImageLoad={handleImageLoad}
+          handleLightboxDragStart={handleLightboxDragStart}
+          handleLightboxDragOver={handleLightboxDragOver}
+          handleLightboxDrop={handleLightboxDrop}
+        />
 
-            <div className="text-xs text-white/40 uppercase tracking-wider mb-2">Links</div>
-            {mediaList.map((media: Media, i: number) => (
-              media.url || media.link ? (
-                <a 
-                  key={i}
-                  href={media.url || media.link} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 text-sm text-white/50 hover:text-white transition-colors"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  Link {i + 1} ansehen
-                </a>
-              ) : null
-            ))}
-          </div>
-        </div>
+        <LightboxSidebar
+          currentLightboxPost={currentLightboxPost}
+          isEditing={isEditing}
+          mediaList={mediaList}
+          activeMediaIndex={activeMediaIndex}
+          setActiveMediaIndex={setActiveMediaIndex}
+          lightboxDraggedIdx={lightboxDraggedIdx}
+          isGenerating={isGenerating}
+          undoText={undoText}
+          handleKiEdit={handleKiEdit}
+          handleUndo={handleUndo}
+          handlePostChange={handlePostChange}
+          handleLightboxDragStart={handleLightboxDragStart}
+          handleLightboxDragOver={handleLightboxDragOver}
+          handleLightboxDrop={handleLightboxDrop}
+          getImageSrc={getImageSrc}
+          getVideoSrc={getVideoSrc}
+          getDisplayImage={getDisplayImage}
+          isR2Fallback={isR2Fallback}
+          isEmbeddedData={isEmbeddedData}
+        />
       </div>
     </div>
   );
