@@ -1,0 +1,6 @@
+# In Git behalten, aber aus dem AI-Bundle ausschließen
+scripts/patches_and_tests/**
+NochGeplant/**
+plans/**
+app/**
+*.zip

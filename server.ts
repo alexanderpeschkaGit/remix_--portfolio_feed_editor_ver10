@@ -1164,22 +1164,31 @@ async function startServer() {
       cleanUrl = decodeURIComponent(cleanUrl);
     } catch (e) {}
 
-    if (cleanUrl.startsWith('/data_v2/')) {
+    const normalized = cleanUrl.replace(/^\/+/, '');
+    if (normalized.startsWith('v2/data/')) {
+      const relPath = normalized.slice('v2/data/'.length);
       return {
-        localPath: path.join(process.cwd(), cleanUrl.replace(/^\/data_v2\//, 'data_v2/')),
-        r2Key: `${V2_PREFIX}/${toPosix(cleanUrl.replace(/^\/data_v2\//, ''))}`
+        localPath: path.join(DATA_V2_DIR, relPath),
+        r2Key: `${V2_PREFIX}/${toPosix(relPath)}`
       };
     }
-    if (cleanUrl.startsWith('/data/')) {
+    if (normalized.startsWith('data_v2/')) {
+      const relPath = normalized.slice('data_v2/'.length);
       return {
-        localPath: path.join(DATA_DIR, cleanUrl.replace('/data/', '')),
-        r2Key: cleanUrl.replace(/^\/+/, '')
+        localPath: path.join(DATA_V2_DIR, relPath),
+        r2Key: `${V2_PREFIX}/${toPosix(relPath)}`
       };
     }
-    if (cleanUrl.startsWith('/originals/')) {
+    if (normalized.startsWith('data/')) {
       return {
-        localPath: path.join(ORIGINALS_DIR, cleanUrl.replace('/originals/', '')),
-        r2Key: cleanUrl.replace(/^\/+/, '')
+        localPath: path.join(DATA_DIR, normalized.slice('data/'.length)),
+        r2Key: `data/${toPosix(normalized.slice('data/'.length))}`
+      };
+    }
+    if (normalized.startsWith('originals/')) {
+      return {
+        localPath: path.join(ORIGINALS_DIR, normalized.slice('originals/'.length)),
+        r2Key: `originals/${toPosix(normalized.slice('originals/'.length))}`
       };
     }
     return null;

@@ -13,3 +13,9 @@ backups_app/
 data_v2/
 bak/
 .cache/
+
+# Archive & temporäre Dumps
+*.zip
+*.diff
+.tmp-*
+scripts/patches_and_tests/
