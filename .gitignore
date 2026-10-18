@@ -50,3 +50,9 @@ scripts/patches_and_tests/
 repomix-output/
 repomix-output*
 repomix_*
+
+# Python cache & OS shortcuts
+__pycache__/
+*.pyc
+*.lnk
+
