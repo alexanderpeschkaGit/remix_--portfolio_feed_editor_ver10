@@ -102,7 +102,7 @@ The portfolio page template is split into section builders — `src/utils/portfo
 `App.tsx` is orchestrator-only now (~446 lines, was 5,213) ✓; the mandatory `useMediaUploads` and `generatePortfolioHtml` decompositions are done ✓. The AGENTS.md thresholds (300–499 warn, 500+ mandatory) apply to everything the refactor created:
 
 - 300–499 band: `portfolioHtmlRuntimeCore.ts` (~437), `uploadVideoFlow.ts` (~381), `portfolioHtmlRuntimeLightbox.ts` (~380), `useR2Maintenance.ts` (~355), `usePostActions.ts` (~322), `mediaHelpers.ts` (~309), `useCloudSync.ts` (~304). Split at a function boundary when they grow; the two runtime halves must keep the byte-parity rule above.
-- Pre-existing >500 files: `components/modals/LightboxModal.tsx` (and `LightboxMediaStage.tsx`), `components/modals/MediaVariantsModal.tsx`, `components/feed/FeedPostCard.tsx`, and `components/header/AdminHeader.tsx` decomposed into modular hooks and leaf components (<280 lines each) ✓.
+- Pre-existing >500 files and complex modals: `components/modals/LightboxModal.tsx` (and `LightboxMediaStage.tsx`), `components/modals/RearrangeModal.tsx` (decomposed into `rearrangeThumbHelpers.ts` and `SortablePostTile.tsx`), `components/modals/MediaVariantsModal.tsx`, `components/feed/FeedPostCard.tsx`, and `components/header/AdminHeader.tsx` decomposed into modular hooks and leaf components (<280 lines each) ✓.
 
 ## Verifying References
 
