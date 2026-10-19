@@ -4,8 +4,9 @@ import path from 'path';
 import { GetObjectCommand, PutObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { r2KeyToLocalPath } from './mediaDeletion.ts';
 import { buildRedundancyReport, listLocalMediaFiles, hashLocalFile, hashR2Body, groupCandidatesBySize, loadHashCache, saveHashCache, type HashedEntry, type RedundancyReport, type CandidateItem } from './redundancyScan.ts';
-import { DATA_DIR, DATA_V2_DIR, ORIGINALS_DIR, R2_CONFIG, SYNC_MANIFEST_KEY, V2_PREFIX, s3Client } from './serverContext.ts';
-import { extractPortfolioDataFromHtml } from './stateManager.ts';
+import { DATA_DIR, DATA_V2_DIR, ORIGINALS_DIR, R2_CONFIG, R2_STORAGE_KEYS, SYNC_MANIFEST_KEY, V2_PREFIX, getContentTypeForPath, isR2Configured, s3Client } from './serverContext.ts';
+import { extractPortfolioDataFromHtml, liftLegacyDataV2UrlsInState, loadState } from './stateManager.ts';
+export { liftLegacyDataV2UrlsInState };
 import { toPosix } from './variantMaterializer.ts';
 
   export const visitMediaReferences = (referencedKeys: Set<string>, media: any) => {
@@ -119,7 +120,9 @@ import { toPosix } from './variantMaterializer.ts';
     return stem;
   };
 
-  export const loadSyncManifest = async () => {
+
+
+export const loadSyncManifest = async () => {
     try {
       const result = await s3Client.send(new GetObjectCommand({
         Bucket: R2_CONFIG.bucketName,
@@ -305,17 +308,18 @@ import { toPosix } from './variantMaterializer.ts';
     const referencedKeys = new Set<string>();
     const warnings: string[] = [];
     let refsComplete = true;
-    const publicBaseUrl = R2_CONFIG.publicDomain.startsWith('http')
-      ? R2_CONFIG.publicDomain.replace(/\/+$/, '')
-      : `https://${R2_CONFIG.publicDomain}`.replace(/\/+$/, '');
+    const publicBaseUrl = (R2_CONFIG.publicUrl || R2_CONFIG.publicDomain || '').replace(/\/+$/, '');
+
+    referencedKeys.add('state.json');
+    referencedKeys.add(R2_STORAGE_KEYS.SYNC_MANIFEST);
 
     try {
-      const stateData = await fs.readFile(path.join(DATA_DIR, 'state.json'), 'utf-8');
-      collectReferencedR2KeysFromPortfolioData(referencedKeys, JSON.parse(stateData));
+      const stateObj = await loadState();
+      collectReferencedR2KeysFromPortfolioData(referencedKeys, stateObj);
     } catch (e) {
       refsComplete = false;
-      warnings.push('Lokale data/state.json konnte nicht gelesen werden.');
-      console.error('Failed to collect referenced R2 keys:', e);
+      warnings.push('State konnte nicht geladen werden.');
+      console.error('Failed to collect referenced R2 keys from state:', e);
     }
 
     try {
@@ -349,6 +353,20 @@ import { toPosix } from './variantMaterializer.ts';
       }
     } catch (error) {
       console.error('Failed to fetch published index.html while collecting references:', error);
+    }
+
+    // Protect all v2/data variants for every referenced key
+    const currentKeys = Array.from(referencedKeys);
+    for (const key of currentKeys) {
+      const v2Match = key.match(/^v2\/data\/([^\/]+)\/([^\/]+)\/(.+?)(?:_(?:thumb|1k|2k|3k|original))?\.([^.]+)$/);
+      if (v2Match) {
+        const [, grp, , stem, ext] = v2Match;
+        for (const v of ['thumbs400', '1k', '2k', '3k']) {
+          const sfx = v === 'thumbs400' ? 'thumb' : v;
+          referencedKeys.add(`v2/data/${grp}/${v}/${stem}_${sfx}.jpg`);
+        }
+        referencedKeys.add(`v2/data/${grp}/originals/${stem}_original.${ext}`);
+      }
     }
 
     return { referencedKeys, warnings, refsComplete };
@@ -396,6 +414,16 @@ import { toPosix } from './variantMaterializer.ts';
     );
 
     const orphaned = r2Objects.filter((obj) => {
+      if (
+        obj.key === 'state.json' ||
+        obj.key === R2_STORAGE_KEYS.SYNC_MANIFEST ||
+        obj.key.startsWith(R2_STORAGE_KEYS.BACKUP_PREFIX) ||
+        obj.key.startsWith(R2_STORAGE_KEYS.TRASH_PREFIX) ||
+        obj.key.startsWith('bak/') ||
+        obj.key.startsWith('trash/')
+      ) {
+        return false;
+      }
       if (referencedKeys.has(obj.key)) return false;
 
       if (isImageR2Key(obj.key) && allVideoStems.has(toCanonicalMediaStem(obj.key))) {

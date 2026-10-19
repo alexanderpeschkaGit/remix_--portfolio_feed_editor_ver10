@@ -12,6 +12,8 @@ interface UseStatePersistenceParams {
   igAccount: string;
   flickrUrl: string;
   shouldPushStateToR2Ref: { current: boolean };
+  setLocalLastUpdated?: (v: string | null) => void;
+  isSavingRef?: { current: boolean };
 }
 
 export function useStatePersistence({
@@ -23,7 +25,9 @@ export function useStatePersistence({
   portfolioBio,
   igAccount,
   flickrUrl,
-  shouldPushStateToR2Ref
+  shouldPushStateToR2Ref,
+  setLocalLastUpdated,
+  isSavingRef
 }: UseStatePersistenceParams) {
   // Auto-save state
   useEffect(() => {
@@ -31,8 +35,8 @@ export function useStatePersistence({
       // Clean state for server: remove blob URLs and image_preview
       const cleanPosts = cleanPostsForServer(flickrPosts);
 
-      const pushToR2 = shouldPushStateToR2Ref.current;
-      if (pushToR2) {
+      const pushToR2 = true;
+      if (shouldPushStateToR2Ref.current) {
         shouldPushStateToR2Ref.current = false;
       }
 
@@ -42,8 +46,12 @@ export function useStatePersistence({
       );
       if (stuckBunnyItems.length > 0) {
         console.warn(`[state-guard] Deferring save: ${stuckBunnyItems.length} Bunny upload(s) still pending videoId.`);
-        // Don't save yet — the items are still in flight; polling will update them soon
         return;
+      }
+
+      const lastUpdatedIso = new Date().toISOString();
+      if (isSavingRef) {
+        isSavingRef.current = true;
       }
 
       fetch('/api/state', {
@@ -59,9 +67,23 @@ export function useStatePersistence({
             igAccount,
             flickrUrl
           },
-          pushToR2
+          lastUpdated: lastUpdatedIso,
+          pushToR2: pushToR2 ?? true
         })
-      }).catch(console.error);
+      })
+        .then(res => res.json())
+        .then(data => {
+          const savedTimestamp = data?.lastUpdated || lastUpdatedIso;
+          if (setLocalLastUpdated) {
+            setLocalLastUpdated(savedTimestamp);
+          }
+        })
+        .catch(console.error)
+        .finally(() => {
+          if (isSavingRef) {
+            isSavingRef.current = false;
+          }
+        });
     }
   }, [flickrPosts, portfolioTitle, portfolioSubtitle, portfolioBio, igAccount, flickrUrl, isInitialized, uploadingCount]);
 }

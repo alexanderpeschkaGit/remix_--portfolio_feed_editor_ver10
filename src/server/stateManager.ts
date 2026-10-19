@@ -1,9 +1,141 @@
 import fetch from 'node-fetch';
 import fs from 'fs/promises';
 import path from 'path';
+import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { normalizeState } from './mediaNormalization.ts';
 import { assertStateAcceptable } from './statePublishing.ts';
-import { BUNNY_CONFIG, DATA_BACKUPS_DIR, DATA_DIR, execAsync } from './serverContext.ts';
+import {
+  BUNNY_CONFIG,
+  DATA_BACKUPS_DIR,
+  DATA_DIR,
+  DATA_V2_DIR,
+  execAsync,
+  getContentTypeForPath,
+  isR2Configured,
+  R2_CONFIG,
+  R2_STORAGE_KEYS,
+  s3Client,
+} from './serverContext.ts';
+
+let inMemoryState: any = null;
+let lastR2FetchMs = 0;
+let lastCloudBackupMs = 0;
+let r2StateVerified = false;
+let activeWritePromise: Promise<void> = Promise.resolve();
+
+const R2_READ_TTL_MS = 2_000;
+const CLOUD_BACKUP_MIN_INTERVAL_MS = 60_000;
+
+export async function liftLegacyDataV2UrlsInState(stateObj: any): Promise<void> {
+  if (!stateObj || typeof stateObj !== 'object') return;
+  const baseUrl = (R2_CONFIG.publicUrl || R2_CONFIG.publicDomain || '').replace(/\/+$/, '');
+
+  async function walk(target: any) {
+    if (!target || typeof target !== 'object') return;
+
+    for (const key of Object.keys(target)) {
+      const val = target[key];
+      if (typeof val === 'string') {
+        const clean = val.trim().replace(/\\/g, '/');
+        if (clean.startsWith('/data_v2/') || clean.startsWith('data_v2/')) {
+          const relativeSubpath = clean.replace(/^\/?data_v2\//, '');
+          const localPath = path.join(DATA_V2_DIR, relativeSubpath);
+          const r2Key = `v2/data/${relativeSubpath}`;
+
+          if (isR2Configured() && s3Client) {
+            try {
+              const buf = await fs.readFile(localPath);
+              const contentType = getContentTypeForPath(localPath);
+              await s3Client.send(
+                new PutObjectCommand({
+                  Bucket: R2_CONFIG.bucketName,
+                  Key: r2Key,
+                  Body: buf,
+                  ContentType: contentType,
+                  CacheControl: 'public, max-age=31536000, immutable',
+                })
+              );
+            } catch {
+              // Local file might not exist or already be on R2
+            }
+          }
+
+          if (baseUrl) {
+            target[key] = `${baseUrl}/${r2Key}`;
+          }
+        }
+      } else if (typeof val === 'object' && val !== null) {
+        await walk(val);
+      }
+    }
+  }
+
+  await walk(stateObj);
+}
+
+export async function loadState(options?: { forceRefresh?: boolean }): Promise<any> {
+  const now = Date.now();
+  const shouldQueryR2 =
+    isR2Configured() &&
+    s3Client &&
+    (options?.forceRefresh || !inMemoryState || now - lastR2FetchMs > R2_READ_TTL_MS);
+
+  if (shouldQueryR2 && s3Client) {
+    try {
+      const response = await s3Client.send(
+        new GetObjectCommand({
+          Bucket: R2_CONFIG.bucketName,
+          Key: R2_STORAGE_KEYS.STATE_FILE,
+        })
+      );
+      const rawJson = await response.Body?.transformToString('utf-8');
+      if (rawJson) {
+        const parsed = JSON.parse(rawJson);
+        if (!parsed.lastUpdated || typeof parsed.lastUpdated !== 'string') {
+          parsed.lastUpdated = new Date().toISOString();
+        }
+        inMemoryState = parsed;
+        lastR2FetchMs = now;
+        r2StateVerified = true;
+        return inMemoryState;
+      }
+    } catch (err: any) {
+      const isNotFound = err?.name === 'NoSuchKey' || err?.$metadata?.httpStatusCode === 404;
+      if (isNotFound) {
+        r2StateVerified = true;
+      } else {
+        console.warn('[stateManager] R2 GetObject Warnung, nutze Fallback:', err?.message || err);
+      }
+    }
+  }
+
+  if (inMemoryState) {
+    return inMemoryState;
+  }
+
+  try {
+    const localStatePath = path.join(DATA_DIR, 'state.json');
+    const localRaw = await fs.readFile(localStatePath, 'utf-8');
+    const localParsed = JSON.parse(localRaw);
+    if (!localParsed.lastUpdated || typeof localParsed.lastUpdated !== 'string') {
+      localParsed.lastUpdated = new Date().toISOString();
+    }
+    inMemoryState = localParsed;
+    if (Array.isArray(localParsed.items) && localParsed.items.length > 0) {
+      r2StateVerified = true;
+    }
+    return inMemoryState;
+  } catch {
+    // Lokale Datei existiert nicht -> nutze In-Memory-Default
+  }
+
+  inMemoryState = {
+    items: [],
+    settings: {},
+    lastUpdated: new Date().toISOString(),
+  };
+  return inMemoryState;
+}
 
   export async function probeVideoDimensions(videoPathOrUrl: string): Promise<{ width: number; height: number } | null> {
     if (!videoPathOrUrl) return null;
@@ -219,7 +351,35 @@ import { BUNNY_CONFIG, DATA_BACKUPS_DIR, DATA_DIR, execAsync } from './serverCon
     return `${y}-${M}-${d}T${h}-${m}-${s}-${ms}`;
   }
 
-  export async function backupState() {
+  export async function backupState(stateObj?: any) {
+    const dataToBackup = stateObj || inMemoryState;
+
+    if (isR2Configured() && s3Client) {
+      try {
+        let contentStr = '';
+        if (dataToBackup) {
+          contentStr = typeof dataToBackup === 'string' ? dataToBackup : JSON.stringify(dataToBackup, null, 2);
+        } else {
+          try {
+            contentStr = await fs.readFile(path.join(DATA_DIR, 'state.json'), 'utf-8');
+          } catch {}
+        }
+        if (contentStr) {
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          await s3Client.send(
+            new PutObjectCommand({
+              Bucket: R2_CONFIG.bucketName,
+              Key: `${R2_STORAGE_KEYS.BACKUP_PREFIX}state-${timestamp}.json`,
+              Body: Buffer.from(contentStr),
+              ContentType: 'application/json; charset=utf-8',
+            })
+          );
+        }
+      } catch (err: any) {
+        console.warn('[stateManager] Cloud backup failed:', err?.message || err);
+      }
+    }
+
     try {
       const statePath = path.join(DATA_DIR, 'state.json');
       const stats = await fs.stat(statePath).catch(() => null);
@@ -227,19 +387,23 @@ import { BUNNY_CONFIG, DATA_BACKUPS_DIR, DATA_DIR, execAsync } from './serverCon
         const timestamp = localTimestamp();
         const backupPath = path.join(DATA_BACKUPS_DIR, `state_${timestamp}.json`);
         await fs.copyFile(statePath, backupPath);
-        
-        // Keep only last 50 data backups
-        const files = await fs.readdir(DATA_BACKUPS_DIR);
+
+        // Keep only last 100 data backups
+        const files = await fs.readdir(DATA_BACKUPS_DIR).catch(() => []);
         const backups = files.filter(f => f.startsWith('state_') && f.endsWith('.json')).sort().reverse();
-        if (backups.length > 100) { // Increased to 100 for more safety
+        if (backups.length > 100) {
           for (const f of backups.slice(100)) {
             await fs.unlink(path.join(DATA_BACKUPS_DIR, f)).catch(() => {});
           }
         }
+      } else if (dataToBackup) {
+        const timestamp = localTimestamp();
+        const backupPath = path.join(DATA_BACKUPS_DIR, `state_${timestamp}.json`);
+        const contentStr = typeof dataToBackup === 'string' ? dataToBackup : JSON.stringify(dataToBackup, null, 2);
+        await fs.writeFile(backupPath, contentStr, 'utf-8').catch(() => {});
       }
-    } catch (e) {
-      console.error("Backup failed:", e);
-      throw e;
+    } catch (e: any) {
+      console.warn('[stateManager] Local backup failed:', e?.message || e);
     }
   }
 
@@ -275,10 +439,67 @@ import { BUNNY_CONFIG, DATA_BACKUPS_DIR, DATA_DIR, execAsync } from './serverCon
     state = normalized;
     await ensureStateVideoDimensions(state);
     normalizeStateBunnyMedia(state);
+    await liftLegacyDataV2UrlsInState(state);
     await assertStateAcceptable(state, { rootDir: process.cwd(), allowNetwork: true });
-    if (createBackup) await backupState();
+
+    state.lastUpdated = new Date().toISOString();
+    inMemoryState = state;
+    lastR2FetchMs = Date.now();
+
     const stateString = JSON.stringify(state, null, 2);
-    await fs.writeFile(statePath, stateString, 'utf-8');
+    const itemsList = Array.isArray(state.items) ? state.items : Array.isArray(state.posts) ? state.posts : [];
+    const canSafelyWriteR2 = r2StateVerified || itemsList.length > 0;
+
+    const writeTask = async () => {
+      if (createBackup && canSafelyWriteR2) {
+        await backupState(state);
+      }
+
+      if (isR2Configured() && s3Client && canSafelyWriteR2) {
+        try {
+          await s3Client.send(
+            new PutObjectCommand({
+              Bucket: R2_CONFIG.bucketName,
+              Key: R2_STORAGE_KEYS.STATE_FILE,
+              Body: Buffer.from(stateString, 'utf-8'),
+              CacheControl: 'no-cache, no-store, must-revalidate',
+              ContentType: 'application/json; charset=utf-8',
+            })
+          );
+          r2StateVerified = true;
+        } catch (err: any) {
+          console.warn('[stateManager] Failed to put state.json to R2:', err?.message || err);
+        }
+
+        const now = Date.now();
+        if (now - lastCloudBackupMs >= CLOUD_BACKUP_MIN_INTERVAL_MS) {
+          lastCloudBackupMs = now;
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          s3Client
+            .send(
+              new PutObjectCommand({
+                Bucket: R2_CONFIG.bucketName,
+                Key: `${R2_STORAGE_KEYS.BACKUP_PREFIX}state-${timestamp}.json`,
+                Body: Buffer.from(stateString, 'utf-8'),
+                ContentType: 'application/json; charset=utf-8',
+              })
+            )
+            .catch((err: any) => console.warn('[stateManager] Cloud backup throttled save failed:', err?.message || err));
+        }
+      } else if (!canSafelyWriteR2) {
+        console.warn('[stateManager] Blocked R2 overwrite: Cold-start fallback state is empty and R2 state was not verified.');
+      }
+
+      try {
+        await fs.writeFile(statePath, stateString, 'utf-8');
+      } catch (err: any) {
+        console.warn(`[stateManager] Local state write failed to ${statePath}:`, err?.message || err);
+      }
+    };
+
+    activeWritePromise = activeWritePromise.then(writeTask, writeTask);
+    await activeWritePromise;
+
     return stateString;
   }
 

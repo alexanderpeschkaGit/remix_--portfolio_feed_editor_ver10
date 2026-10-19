@@ -23,6 +23,7 @@ interface UseCloudSyncParams {
   setIsR2Fallback: (v: boolean) => void;
   setIsFlickrFallback: (v: boolean) => void;
   updatePosts: (newPosts: any[] | ((p: any[]) => any[]), actionDescription?: string) => void;
+  isSavingRef?: MutableRefObject<boolean>;
 }
 
 export function useCloudSync({
@@ -44,7 +45,8 @@ export function useCloudSync({
   setFlickrUrl,
   setIsR2Fallback,
   setIsFlickrFallback,
-  updatePosts
+  updatePosts,
+  isSavingRef
 }: UseCloudSyncParams) {
 const [localLastUpdated, setLocalLastUpdated] = useState<string | null>(null);
   const [hasCloudChanges, setHasCloudChanges] = useState(false);
@@ -57,11 +59,14 @@ const [localLastUpdated, setLocalLastUpdated] = useState<string | null>(null);
     
     const checkCloudChanges = async () => {
       try {
-        const res = await fetch(`/api/r2-state?t=${Date.now()}`);
+        if (isSavingRef?.current) return;
+        const res = await fetch(`/api/r2-state?t=${Date.now()}`, { cache: 'no-store' });
         if (res.ok) {
           const cloudData = await res.json();
-          // Trigger flash if cloud has a timestamp and it differs from local (or local has none)
-          if (cloudData.lastUpdated && cloudData.lastUpdated !== localLastUpdated) {
+          // Trigger flash if cloud has a timestamp and it differs from local, no save in progress, and cloud is newer
+          const isSaveInProgress = isSavingRef?.current || false;
+          const isCloudNewer = !localLastUpdated || cloudData.lastUpdated > localLastUpdated;
+          if (cloudData.lastUpdated && cloudData.lastUpdated !== localLastUpdated && !isSaveInProgress && isCloudNewer) {
             // Validate that actual content has changed, not just the timestamp
             const cloudItems = cloudData.items || cloudData.posts || [];
             

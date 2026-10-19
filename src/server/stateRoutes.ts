@@ -5,14 +5,15 @@ import path from 'path';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { assertStateAcceptable, stateValidationHttpPayload } from './statePublishing.ts';
 import { DATA_DIR, DATA_V2_DIR, ORIGINALS_DIR, R2_CONFIG, s3Client } from './serverContext.ts';
-import { backupState, ensureStateVideoDimensions, normalizeStateBunnyMedia, persistAcceptedState } from './stateManager.ts';
+import { backupState, ensureStateVideoDimensions, loadState, normalizeStateBunnyMedia, persistAcceptedState } from './stateManager.ts';
 
 export function registerStateRoutes(app: Express) {
   // API route to get saved state
   app.get("/api/state", async (req, res) => {
     try {
-      const data = await fs.readFile(path.join(DATA_DIR, 'state.json'), 'utf-8');
-      res.json(JSON.parse(data));
+      const state = await loadState({ forceRefresh: req.query.fresh === 'true' });
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+      res.json(state);
     } catch (e) {
       res.json({ items: [] });
     }
@@ -128,7 +129,7 @@ export function registerStateRoutes(app: Express) {
         console.log("[R2 Sync] Pushing state.json to R2 completed successfully.");
       }
 
-      res.json({ success: true });
+      res.json({ success: true, lastUpdated: state.lastUpdated });
     } catch (e: any) {
       console.error("Failed to save state:", e);
       const validationError = stateValidationHttpPayload(e);
