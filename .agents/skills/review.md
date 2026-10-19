@@ -1,6 +1,8 @@
 ---
 name: review
-description: Audit the code in context without modifying it. Triggered when the user uses the `#review` tag or `/review` command.
+description: >-
+  Audit the code in context without modifying it.
+  Triggered when the user uses the #review tag or /review command.
 ---
 
 # Review Workflow

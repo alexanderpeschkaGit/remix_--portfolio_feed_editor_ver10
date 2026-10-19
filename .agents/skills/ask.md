@@ -1,6 +1,8 @@
 ---
 name: ask
-description: Explain or investigate without modifying files. Triggered when the user uses the `#ask` tag or `/ask` command.
+description: >-
+  Explain or investigate without modifying files.
+  Triggered when the user uses the #ask tag or /ask command.
 ---
 
 # Ask Workflow

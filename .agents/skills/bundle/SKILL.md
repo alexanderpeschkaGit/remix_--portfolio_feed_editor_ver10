@@ -1,6 +1,8 @@
 ---
 name: bundle
-description: Bundle the codebase into clean AI-friendly XML chunks with a strict maximum limit of 130,000 characters per file, grouped by directory boundaries, followed by an automated character audit. Triggered by #bundle, /bundle, #repomix-split, or requests to package the codebase into chunks.
+description: >-
+  Bundle the codebase into clean AI-friendly XML chunks with a strict maximum limit of 130,000 characters per file, grouped by directory boundaries, followed by an automated character audit.
+  Triggered by #bundle, /bundle, #repomix-split, /repomix-split, or requests to package the codebase into chunks.
 ---
 
 # Codebase Bundling & 130k-Chunking Workflow (`#bundle`)
@@ -70,4 +72,4 @@ repomix.bat --no-security-check
 - **Chunk Size Budget:** 120,000 bytes (`output.splitOutput: 120000` in `repomix.config.json`).
 - **Atomic Integrity:** Top-level directory grouping ensures functions, classes, and components are never cut midway.
 - **Self-Contained Chunks:** Each chunk includes a `<file_summary>`, directory structure tree, and properly closed XML tags (`</file>`, `</files>`).
-- **Automated Verification:** The runner immediately executes `scripts/repomix-audit.ps1` to inspect every generated file and report character counts and `[OK] <= 130k` status.
+- **Automated Verification:** The runner immediately executes `scripts/patches_and_tests/repomix-audit.ps1` to inspect every generated file and report character counts and `[OK] <= 130k` status.
