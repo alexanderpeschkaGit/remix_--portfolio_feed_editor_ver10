@@ -32,6 +32,10 @@ Leaf UI (`src/components/`, props only, no state):
 | `modals/lightbox/LightboxMediaStage.tsx`              | Media display stage (image, video, YouTube, Bunny) and reordering preview.                                           |
 | `modals/lightbox/LightboxSidebar.tsx`                 | Lightbox title, states, description, AI-edit, thumbnail sorting, links.                                              |
 | `header/CloudflareUsageDisplay.tsx`                   | `usage`; passed to `AdminHeader` as a render prop.                                                                   |
+| `header/AdminButton.tsx`                              | Reusable styled action button with tooltip (`onClick`, `disabled`, `tooltip`, `active`).                             |
+| `header/AdminHeaderMetadataSection.tsx`               | Title/subtitle display & edit mode inputs with scraping source fields (`portfolioTitle`, `igAccount`, etc.).         |
+| `header/AdminHeaderMaintenanceBlock.tsx`              | 5-button maintenance cluster: R2 cleanup, dupes, redundancy, trash & purge bak.                                      |
+| `header/AdminHeaderPublishSection.tsx`                | Undo, Redo, Preview, Undo Publish, Publish and Live link button row.                                                |
 | `StatusNotice.tsx`                                    | `notice`, `onClose`; `StatusNoticeData` is owned by `useStatusNotice`.                                               |
 | `FallbackBanner.tsx`                                  | `label`, `isError`, `fallbackEnabled`, `onDismiss`, `onToggleFallback`.                                              |
 | `ResolutionToast.tsx`                                 | `show`, `resolutionsEnabled`.                                                                                        |
@@ -95,7 +99,7 @@ The portfolio page template is split into section builders — `src/utils/portfo
 `App.tsx` is orchestrator-only now (~446 lines, was 5,213) ✓; the mandatory `useMediaUploads` and `generatePortfolioHtml` decompositions are done ✓. The AGENTS.md thresholds (300–499 warn, 500+ mandatory) apply to everything the refactor created:
 
 - 300–499 band: `portfolioHtmlRuntimeCore.ts` (~437), `uploadVideoFlow.ts` (~381), `portfolioHtmlRuntimeLightbox.ts` (~380), `useR2Maintenance.ts` (~355), `usePostActions.ts` (~322), `mediaHelpers.ts` (~309), `useCloudSync.ts` (~304). Split at a function boundary when they grow; the two runtime halves must keep the byte-parity rule above.
-- Pre-existing >500 files: `components/modals/LightboxModal.tsx`, `components/modals/MediaVariantsModal.tsx`, and `components/feed/FeedPostCard.tsx` decomposed into modular hooks and leaf components (<260 lines each) ✓. Remaining next in line: `components/header/AdminHeader.tsx` (~516).
+- Pre-existing >500 files: `components/modals/LightboxModal.tsx`, `components/modals/MediaVariantsModal.tsx`, `components/feed/FeedPostCard.tsx`, and `components/header/AdminHeader.tsx` decomposed into modular hooks and leaf components (<310 lines each) ✓.
 
 ## Verifying References
 
