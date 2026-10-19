@@ -105,12 +105,13 @@ The portfolio page template is split into section builders — `src/utils/portfo
 
 ## Backend Architecture & Ownership (`server.ts` + `src/server/`)
 
-`server.ts` (~95 lines) is the Express + Vite orchestrator only. Domain services and route clusters live in `src/server/` (< 450 lines per file):
+`server.ts` (~105 lines) is the Express + Vite orchestrator only, with static mounts and R2 fallback 302 redirects (`resolveR2PublicUrl`). Domain services and route clusters live in `src/server/` (< 450 lines per file):
 
-- `serverContext.ts`: Directory constants (`DATA_DIR`, `DATA_V2_DIR`, etc.), `R2_CONFIG`, `BUNNY_CONFIG`, `s3Client`, `upload` (Multer), `usageStats`, `uploadToR2`, `ensureServerDirectories`.
-- `stateManager.ts`: Video dimension probing (`probeVideoDimensions`), Bunny metadata & schema normalization, `localTimestamp`, `backupState`, `extractPortfolioDataFromHtml`, `persistAcceptedState`.
+- `serverContext.ts`: Directory constants (`DATA_DIR`, `DATA_V2_DIR`, etc.), `R2_CONFIG`, `R2_STORAGE_KEYS`, `isR2Configured`, `resolveR2PublicUrl`, `BUNNY_CONFIG`, `s3Client`, `upload` (Multer), `usageStats`, `uploadToR2`, `ensureServerDirectories`.
+- `stateManager.ts`: Bunny schema normalization, `localTimestamp`, `loadState` (in-memory cache + R2/disk fallback), `backupState`, `extractPortfolioDataFromHtml`, `persistAcceptedState` (~372 lines). Re-exports video dimension routines from `videoDimensionsService.ts`.
+- `videoDimensionsService.ts`: Probe local & HTTP video dimensions (`ffprobe` via `execAsync`), fetch Bunny metadata (`fetchBunnyVideoMetadata`), and auto-correct fallback dimensions (`ensureStateVideoDimensions`) (~150 lines).
 - `variantMaterializer.ts`: Image normalization, sharp variant materialization (`materializeVariantSet`), `uploadVariantSetToR2`, atomic revision promotion (`publishHtmlAndState`).
 - `scrapeService.ts` + `scrapeRoutes.ts`: Deleted-ID blacklist, smart scrape merging (`mergeScrapedData`), pHash Hamming distance, and `/api/scrape/*` + `/api/flickr` routes.
-- `r2StorageService.ts` + `r2TrashService.ts`: R2 reference keep-set, `.sync-manifest.json`, orphan/legacy/redundancy scanners, and R2 trash + `bak/` archive operations.
-- `mediaVariantsService.ts` + `mediaVariantsRoutes.ts`: Variant audit, source resolution, generation, and `/api/media-variants/*` + `/api/media-validation/audit` routes.
+- `r2StorageService.ts` + `r2TrashService.ts`: R2 reference keep-set, `liftLegacyDataV2UrlsInState`, `.sync-manifest.json`, orphan/legacy/redundancy scanners, and R2 trash + `bak/` archive operations.
+- `mediaVariantsService.ts` + `mediaVariantsRoutes.ts`: Variant audit, source resolution (with R2 GetObject fallback), generation, and `/api/media-variants/*` + `/api/media-validation/audit` routes.
 - `syncRoutes.ts`, `stateRoutes.ts`, `kiEditRoutes.ts`, `mediaDeleteRoutes.ts`, `maintenanceRoutes.ts`, `uploadRoutes.ts`, `bunnyUploadRoutes.ts`, `bunnyRoutes.ts`, `videoResolveRoutes.ts`: Express route registrars (`register*Routes(app)`).
