@@ -3,10 +3,10 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import sharp from 'sharp';
-import { HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { firstExistingLocalMediaPath, resolveMediaAssetLocation } from './mediaAssets.ts';
 import { assertStateAcceptable } from './statePublishing.ts';
-import { BUNNY_CONFIG, DATA_DIR, R2_CONFIG, V2_MEDIA_GROUPS, execAsync, s3Client } from './serverContext.ts';
+import { BUNNY_CONFIG, DATA_DIR, R2_CONFIG, V2_MEDIA_GROUPS, execAsync, isR2Configured, s3Client } from './serverContext.ts';
 import { backupState, ensureStateVideoDimensions, fetchBunnyVideoMetadata, normalizeStateBunnyMedia, persistAcceptedState } from './stateManager.ts';
 import { materializeVariantSet, normalizeExt } from './variantMaterializer.ts';
 import { isImageR2Key, normalizePossibleR2Key, updateSyncManifestEntries } from './r2StorageService.ts';
@@ -378,18 +378,45 @@ import { isImageR2Key, normalizePossibleR2Key, updateSyncManifestEntries } from 
     if (!value || typeof value !== 'string') return null;
     const localPath = await localPathFromMediaUrl(value);
     if (localPath) {
-      return {
-        buffer: await fs.readFile(localPath),
-        path: localPath,
-        ext: normalizeExt(path.extname(localPath).slice(1)),
-      };
+      try {
+        return {
+          buffer: await fs.readFile(localPath),
+          path: localPath,
+          ext: normalizeExt(path.extname(localPath).slice(1)),
+        };
+      } catch {}
     }
     if (/^https?:\/\//i.test(value)) {
-      return {
-        buffer: await fetchBufferFromUrl(value),
-        path: '',
-        ext: normalizeExt(path.extname(getUrlPathname(value)).slice(1)),
-      };
+      try {
+        return {
+          buffer: await fetchBufferFromUrl(value),
+          path: '',
+          ext: normalizeExt(path.extname(getUrlPathname(value)).slice(1)),
+        };
+      } catch {}
+    }
+    if (isR2Configured() && s3Client) {
+      const r2Key = normalizePossibleR2Key(value);
+      if (r2Key) {
+        try {
+          const res = await s3Client.send(
+            new GetObjectCommand({
+              Bucket: R2_CONFIG.bucketName,
+              Key: r2Key,
+            })
+          );
+          const byteArray = await res.Body?.transformToByteArray();
+          if (byteArray) {
+            return {
+              buffer: Buffer.from(byteArray),
+              path: '',
+              ext: normalizeExt(path.extname(r2Key).slice(1)) || 'jpg',
+            };
+          }
+        } catch (err: any) {
+          // Object not in R2
+        }
+      }
     }
     return null;
   };
@@ -524,6 +551,30 @@ import { isImageR2Key, normalizePossibleR2Key, updateSyncManifestEntries } from 
           }
         }
       } catch {}
+
+      if (isR2Configured() && s3Client) {
+        const r2Key = normalizePossibleR2Key(String(value));
+        if (r2Key) {
+          const r2Dir = path.dirname(r2Key).replace(/\\/g, '/');
+          const baseName = path.basename(r2Key, path.extname(r2Key));
+          for (const ext of ['.jpg', '.jpeg', '.png', '.webp']) {
+            const siblingKey = `${r2Dir}/${baseName}${ext}`;
+            try {
+              const res = await s3Client.send(
+                new GetObjectCommand({
+                  Bucket: R2_CONFIG.bucketName,
+                  Key: siblingKey,
+                })
+              );
+              const byteArray = await res.Body?.transformToByteArray();
+              if (byteArray && byteArray.length > 0) {
+                logMediaVariantStatus(`Found R2 sibling thumbnail: ${siblingKey}`);
+                return { buffer: Buffer.from(byteArray), ext: normalizeExt(ext.slice(1)) || 'jpg' };
+              }
+            } catch {}
+          }
+        }
+      }
     }
 
     const bunnyThumb = await resolveBunnyThumbnail(media);

@@ -6,7 +6,7 @@ import { imageHash } from 'image-hash';
 import { ListObjectsV2Command, DeleteObjectsCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { assertStateAcceptable } from './statePublishing.ts';
 import { BACKUPS_DIR, DATA_DIR, ORIGINALS_DIR, R2_CONFIG, SYNC_DIR, V2_MEDIA_GROUPS, V2_PREFIX, getBufferSha1, getContentTypeForPath, s3Client, syncStorageSize, uploadToR2 } from './serverContext.ts';
-import { backupState, persistAcceptedState } from './stateManager.ts';
+import { backupState, loadState, persistAcceptedState } from './stateManager.ts';
 import { materializeVariantSet, publishHtmlAndState, toPosix } from './variantMaterializer.ts';
 import { hammingDistance } from './scrapeService.ts';
 import { collectReferencedSyncTargets, loadSyncManifest, saveSyncManifest, updateSyncManifestEntries } from './r2StorageService.ts';
@@ -27,9 +27,7 @@ export function registerSyncRoutes(app: Express) {
 
     (async () => {
       try {
-        const statePath = path.join(DATA_DIR, 'state.json');
-        const stateData = await fs.readFile(statePath, 'utf-8');
-        const state = JSON.parse(stateData);
+        const state = await loadState();
         const items = state.items || [];
 
         syncStatus.logs.push(`CWD: ${process.cwd()}`);
@@ -67,7 +65,7 @@ export function registerSyncRoutes(app: Express) {
         }
 
         if (stateChanged) {
-          await persistAcceptedState(state, statePath);
+          await persistAcceptedState(state, path.join(DATA_DIR, 'state.json'));
           syncStatus.logs.push("state.json mit Hashes aktualisiert.");
         }
 
@@ -153,15 +151,17 @@ export function registerSyncRoutes(app: Express) {
         }
 
         if (matchesFound > 0) {
-          await backupState();
-          await persistAcceptedState(state, statePath);
+          await persistAcceptedState(state, path.join(DATA_DIR, 'state.json'), true);
           syncStatus.logs.push(`${matchesFound} High-Res Bilder automatisch verknüpft.`);
         } else if (uncertainMatches.length === 0) {
           syncStatus.logs.push(`Keine automatischen Übereinstimmungen für die ${imageFiles.length} Dateien gefunden.`);
         }
 
         if (uncertainMatches.length > 0) {
-          await fs.writeFile(path.join(SYNC_DIR, 'uncertain_matches.json'), JSON.stringify(uncertainMatches, null, 2));
+          try {
+            await fs.mkdir(SYNC_DIR, { recursive: true }).catch(() => {});
+            await fs.writeFile(path.join(SYNC_DIR, 'uncertain_matches.json'), JSON.stringify(uncertainMatches, null, 2));
+          } catch {}
           syncStatus.logs.push(`${uncertainMatches.length} unsichere Treffer zur Überprüfung gespeichert.`);
         }
 
@@ -261,19 +261,23 @@ export function registerSyncRoutes(app: Express) {
 
       const newManifest: Record<string, any> = {};
       for (const target of uploadTargets) {
-        const buffer = await fs.readFile(target.localPath);
-        await uploadToR2(buffer, target.r2Key, getContentTypeForPath(target.localPath));
-        newManifest[target.r2Key] = {
-          hash: getBufferSha1(buffer),
-          size: buffer.length,
-          syncedAt: new Date().toISOString()
-        };
+        try {
+          const buffer = await fs.readFile(target.localPath);
+          await uploadToR2(buffer, target.r2Key, getContentTypeForPath(target.localPath));
+          newManifest[target.r2Key] = {
+            hash: getBufferSha1(buffer),
+            size: buffer.length,
+            syncedAt: new Date().toISOString()
+          };
+        } catch (e: any) {
+          console.warn(`[syncRoutes] Skipping missing local file ${target.localPath}:`, e?.message || e);
+        }
       }
       await saveSyncManifest(newManifest);
 
       // 3) Republish state.json and, if available, index.html
-      const statePath = path.join(DATA_DIR, 'state.json');
-      const stateData = await fs.readFile(statePath, 'utf-8').catch(() => JSON.stringify({ items: [] }, null, 2));
+      const state = await loadState();
+      const stateData = JSON.stringify(state, null, 2);
       await assertStateAcceptable(stateData, { rootDir: process.cwd(), allowNetwork: true });
 
       let htmlContent: string | null = null;
@@ -330,11 +334,8 @@ export function registerSyncRoutes(app: Express) {
   app.post("/api/sync/confirm", async (req, res) => {
     const { postId, originalPath, baseName } = req.body;
     try {
-      const statePath = path.join(DATA_DIR, 'state.json');
-      const stateData = await fs.readFile(statePath, 'utf-8');
-      const state = JSON.parse(stateData);
-      
-      const item = state.items.find((i: any) => i.id === postId);
+      const state = await loadState({ forceRefresh: true });
+      const item = (state.items || []).find((i: any) => i.id === postId);
       if (item) {
         const originalBuffer = await fs.readFile(originalPath);
         const variantSet = await materializeVariantSet(originalPath, {
@@ -357,8 +358,7 @@ export function registerSyncRoutes(app: Express) {
           await updateSyncManifestEntries(variantSet.manifestEntries);
         }
         
-        await backupState();
-        await persistAcceptedState(state, statePath);
+        await persistAcceptedState(state, path.join(DATA_DIR, 'state.json'), true);
         
         // Remove from uncertain matches
         const uncertainPath = path.join(SYNC_DIR, 'uncertain_matches.json');
@@ -366,7 +366,7 @@ export function registerSyncRoutes(app: Express) {
           const uncertainData = await fs.readFile(uncertainPath, 'utf-8');
           let uncertain = JSON.parse(uncertainData);
           uncertain = uncertain.filter((u: any) => u.postId !== postId);
-          await fs.writeFile(uncertainPath, JSON.stringify(uncertain, null, 2));
+          await fs.writeFile(uncertainPath, JSON.stringify(uncertain, null, 2)).catch(() => {});
         } catch (e) {}
         
         res.json({ success: true, url: item.image_3k || item.image_2k || item.image_1k || item.image_thumb });
@@ -382,10 +382,10 @@ export function registerSyncRoutes(app: Express) {
     const { postId } = req.body;
     try {
       const uncertainPath = path.join(SYNC_DIR, 'uncertain_matches.json');
-      const uncertainData = await fs.readFile(uncertainPath, 'utf-8');
+      const uncertainData = await fs.readFile(uncertainPath, 'utf-8').catch(() => '[]');
       let uncertain = JSON.parse(uncertainData);
       uncertain = uncertain.filter((u: any) => u.postId !== postId);
-      await fs.writeFile(uncertainPath, JSON.stringify(uncertain, null, 2));
+      await fs.writeFile(uncertainPath, JSON.stringify(uncertain, null, 2)).catch(() => {});
       res.json({ success: true });
     } catch (e: any) {
       res.status(500).json({ error: e.message });

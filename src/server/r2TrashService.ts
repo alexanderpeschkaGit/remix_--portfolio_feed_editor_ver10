@@ -262,7 +262,12 @@ import { listR2ObjectsForPrefixes, loadSyncManifest, saveSyncManifest } from './
           Key: trashKey
         }));
         const originalKey = head.Metadata?.originalkey || extractFallbackOriginalKey(trashKey);
-        const destPath = await resolveBakArchiveTarget(trashKey, originalKey, process.cwd());
+        let destPath: string | null = null;
+        try {
+          destPath = await resolveBakArchiveTarget(trashKey, originalKey, process.cwd());
+        } catch (e: any) {
+          console.warn('[r2TrashService] resolveBakArchiveTarget failed:', e?.message || e);
+        }
         if (!destPath) {
           console.error(`Refusing to archive ${trashKey}: unsafe originalKey "${originalKey}"`);
           skippedKeys.push(trashKey);

@@ -114,6 +114,7 @@ export default function App() {
 
   // ===== Ãœbrige States =====
   const { statusNotice, pushStatusNotice, closeStatusNotice } = useStatusNotice();
+  const isSavingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeUploadId, setActiveUploadId] = useState<string | null>(null);
   const { isInitialized, isR2Fallback, setIsR2Fallback, isFlickrFallback, setIsFlickrFallback, fallbackEnabled, setFallbackEnabled } = usePortfolioInit({
@@ -130,7 +131,8 @@ export default function App() {
     setPortfolioTitle: (v: string) => setPortfolioTitle(v), setPortfolioSubtitle: (v: string) => setPortfolioSubtitle(v), setPortfolioBio: (v: string) => setPortfolioBio(v),
     setIgAccount: (v: string) => setIgAccount(v), setFlickrUrl: (v: string) => setFlickrUrl(v),
     setIsR2Fallback: (v: boolean) => setIsR2Fallback(v), setIsFlickrFallback: (v: boolean) => setIsFlickrFallback(v),
-    updatePosts: (np: any, ad: string = 'Aktion durchgeführt') => updatePosts(np, ad)
+    updatePosts: (np: any, ad: string = 'Aktion durchgeführt') => updatePosts(np, ad),
+    isSavingRef
   });
   const { scrapeLogs, setScrapeLogs, isScraping, showLogs, setShowLogs, syncStatus, fullR2SyncStatus, uncertainMatches, showUncertain, setShowUncertain, handleFullR2Sync, handleScrape, handleHighResSync, handleConfirmMatch, handleRejectMatch } = useScrapeSync({ flickrPostsRef, updatePosts: (np: any, ad: string = 'Aktion durchgeführt') => updatePosts(np, ad), setFlickrPosts, setHasUnsyncedMedia, setIsFlickrFallback: (v: boolean) => setIsFlickrFallback(v) });
 
@@ -220,7 +222,7 @@ export default function App() {
     return title;
   };
 
-  useStatePersistence({ isInitialized, flickrPosts, uploadingCount, portfolioTitle, portfolioSubtitle, portfolioBio, igAccount, flickrUrl, shouldPushStateToR2Ref });
+  useStatePersistence({ isInitialized, flickrPosts, uploadingCount, portfolioTitle, portfolioSubtitle, portfolioBio, igAccount, flickrUrl, shouldPushStateToR2Ref, setLocalLastUpdated, isSavingRef });
 
   const { past, future, recordHistory, updatePosts, recordTrashUndo, handleUndo, handleRedo } = useUndoHistory({
     flickrPosts, setFlickrPosts, setHasUnpublishedChanges, setError, pushStatusNotice, fetchCloudflareUsage, loadTrashItems, shouldPushStateToR2Ref

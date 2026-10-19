@@ -102,6 +102,12 @@ export async function loadState(options?: { forceRefresh?: boolean }): Promise<a
         if (!parsed.lastUpdated || typeof parsed.lastUpdated !== 'string') {
           parsed.lastUpdated = new Date().toISOString();
         }
+        if (!Array.isArray(parsed.items) && Array.isArray(parsed.posts)) {
+          parsed.items = parsed.posts;
+        }
+        if (!Array.isArray(parsed.items)) {
+          parsed.items = [];
+        }
         inMemoryState = parsed;
         lastR2FetchMs = now;
         r2StateVerified = true;
@@ -127,6 +133,12 @@ export async function loadState(options?: { forceRefresh?: boolean }): Promise<a
     const localParsed = JSON.parse(localRaw);
     if (!localParsed.lastUpdated || typeof localParsed.lastUpdated !== 'string') {
       localParsed.lastUpdated = new Date().toISOString();
+    }
+    if (!Array.isArray(localParsed.items) && Array.isArray(localParsed.posts)) {
+      localParsed.items = localParsed.posts;
+    }
+    if (!Array.isArray(localParsed.items)) {
+      localParsed.items = [];
     }
     inMemoryState = localParsed;
     if (Array.isArray(localParsed.items) && localParsed.items.length > 0) {
@@ -304,6 +316,12 @@ export async function loadState(options?: { forceRefresh?: boolean }): Promise<a
     let state = typeof stateData === 'string' ? JSON.parse(stateData) : stateData;
     const { state: normalized } = normalizeState(state, { rootDir: process.cwd(), checkDiskAssets: true });
     state = normalized;
+    if (!Array.isArray(state.items) && Array.isArray(state.posts)) {
+      state.items = state.posts;
+    }
+    if (!Array.isArray(state.items)) {
+      state.items = [];
+    }
     await ensureStateVideoDimensions(state);
     normalizeStateBunnyMedia(state);
     await liftLegacyDataV2UrlsInState(state);
@@ -314,7 +332,7 @@ export async function loadState(options?: { forceRefresh?: boolean }): Promise<a
     lastR2FetchMs = Date.now();
 
     const stateString = JSON.stringify(state, null, 2);
-    const itemsList = Array.isArray(state.items) ? state.items : Array.isArray(state.posts) ? state.posts : [];
+    const itemsList = state.items;
     const canSafelyWriteR2 = r2StateVerified || itemsList.length > 0;
 
     const writeTask = async () => {

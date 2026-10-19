@@ -21,8 +21,8 @@ description: >-
        - **Complexity `> 6` (Complex multi-package architecture, ambiguous root causes):** Set `Model: 'pro'` / `'inherit'`.
     3. **Default / Fallback:** Default to `inherit` (strictly preserves the user's currently selected IDE model, e.g. Flash High, rather than overriding with a heavy model).
   - **Role:** `Artifact Executor`
-  - **Prompt:** Keep the prompt extremely minimal. Do NOT pass the plan inline. Example: _"Read the execution plan located at `[Absolute Path to Artifact]` and implement all steps thoroughly. Follow the Single-Action Protocol from `flash/SKILL.md` (no `&&` or `;` command chaining, sequential verification). Verify whether any referenced rule file in `.agents/rules/` requires synchronization with the new exports/components, and include it in the final verification step. Do not stop until all steps are complete."_
+  - **Prompt:** Keep the prompt extremely minimal. Do NOT pass the plan inline. Example: *"Read the execution plan located at `[Absolute Path to Artifact]` and implement all steps thoroughly. Follow the Single-Action Protocol from `flash/SKILL.md` (no `&&` or `;` command chaining, sequential verification). Verify whether any referenced rule file in `.agents/rules/` requires synchronization with the new exports/components, and include it in the final verification step. Do not stop until all steps are complete."*
 - **Step 3: Handoff:**
   - Inform the user that the artifact has been generated and the subagent is currently running in the background.
-  - You MUST provide a clickable link to the subagent's isolated session using the exact format: `[View Subagent Stream](conversation://<subagent-conversation-id>)`. This allows the user to open the subagent UI directly without bloating the main chat.
+  - You MUST provide a clickable link to the subagent's isolated session using the exact format: `[View Subagent Stream](conversation://<subagent-conversation-id>)`. Note: Live progress can also be monitored via the IDE's subagent status pill / background task panel.
   - Stop calling tools and wait for the subagent to report back.

@@ -253,8 +253,7 @@ export const loadSyncManifest = async () => {
 
   export const collectReferencedSyncTargets = async () => {
     try {
-      const stateData = await fs.readFile(path.join(DATA_DIR, 'state.json'), 'utf-8');
-      const state = JSON.parse(stateData);
+      const state = await loadState();
       const candidates = new Map<string, { localPath: string; r2Key: string }>();
       const seen = new Set<string>();
 

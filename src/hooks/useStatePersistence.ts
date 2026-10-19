@@ -73,7 +73,7 @@ export function useStatePersistence({
       })
         .then(res => res.json())
         .then(data => {
-          const savedTimestamp = data?.lastUpdated || lastUpdatedIso;
+          const savedTimestamp = typeof data?.lastUpdated === 'string' && data.lastUpdated ? data.lastUpdated : lastUpdatedIso;
           if (setLocalLastUpdated) {
             setLocalLastUpdated(savedTimestamp);
           }

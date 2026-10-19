@@ -49,38 +49,101 @@ export const MEDIA_VARIANTS = [
 ] as const;
 
 export async function ensureServerDirectories() {
-  await fs.mkdir(DATA_DIR, { recursive: true }).catch(() => {});
-  await fs.mkdir(DATA_V2_DIR, { recursive: true }).catch(() => {});
-  await fs.mkdir(BACKUPS_DIR, { recursive: true }).catch(() => {});
-  await fs.mkdir(DATA_BACKUPS_DIR, { recursive: true }).catch(() => {});
-  await fs.mkdir(ORIGINALS_DIR, { recursive: true }).catch(() => {});
-  await fs.mkdir(BAK_DIR, { recursive: true }).catch(() => {});
-  await fs.mkdir(UPLOADS_DIR, { recursive: true }).catch(() => {});
-  await fs.mkdir(UPLOADS_ORIGINALS_DIR, { recursive: true }).catch(() => {});
-  await fs.mkdir(UPLOADS_2K_DIR, { recursive: true }).catch(() => {});
-  await fs.mkdir(UPLOADS_3K_DIR, { recursive: true }).catch(() => {});
-  await fs.mkdir(UPLOADS_THUMBS_DIR, { recursive: true }).catch(() => {});
-  await fs.mkdir(SYNC_DIR, { recursive: true }).catch(() => {});
-  await fs.mkdir(HIGHRES_DIR, { recursive: true }).catch(() => {});
-  await fs.mkdir(PREVIEWS_DIR, { recursive: true }).catch(() => {});
+  const dirs = [
+    DATA_DIR,
+    DATA_V2_DIR,
+    BACKUPS_DIR,
+    DATA_BACKUPS_DIR,
+    ORIGINALS_DIR,
+    BAK_DIR,
+    UPLOADS_DIR,
+    UPLOADS_ORIGINALS_DIR,
+    UPLOADS_2K_DIR,
+    UPLOADS_3K_DIR,
+    UPLOADS_THUMBS_DIR,
+    SYNC_DIR,
+    HIGHRES_DIR,
+    PREVIEWS_DIR,
+  ];
+
+  for (const dir of dirs) {
+    try {
+      await fs.mkdir(dir, { recursive: true });
+    } catch (err: any) {
+      console.warn(`[serverContext] Could not create directory ${dir}:`, err?.message || err);
+    }
+  }
+
   for (const groupDir of Object.values(V2_MEDIA_GROUPS)) {
-    await fs.mkdir(groupDir, { recursive: true }).catch(() => {});
-    await fs.mkdir(path.join(groupDir, 'originals'), { recursive: true }).catch(() => {});
+    try {
+      await fs.mkdir(groupDir, { recursive: true });
+    } catch (err: any) {
+      console.warn(`[serverContext] Could not create directory ${groupDir}:`, err?.message || err);
+    }
+    try {
+      await fs.mkdir(path.join(groupDir, 'originals'), { recursive: true });
+    } catch (err: any) {
+      console.warn(`[serverContext] Could not create directory ${path.join(groupDir, 'originals')}:`, err?.message || err);
+    }
     for (const variant of MEDIA_VARIANTS) {
-      await fs.mkdir(path.join(groupDir, variant.dir), { recursive: true }).catch(() => {});
+      try {
+        await fs.mkdir(path.join(groupDir, variant.dir), { recursive: true });
+      } catch (err: any) {
+        console.warn(`[serverContext] Could not create directory ${path.join(groupDir, variant.dir)}:`, err?.message || err);
+      }
     }
   }
 }
+
+const resolvedPublicUrl = process.env.CLOUDFLARE_PUBLIC_DOMAIN
+  ? (process.env.CLOUDFLARE_PUBLIC_DOMAIN.startsWith('http') ? process.env.CLOUDFLARE_PUBLIC_DOMAIN : `https://${process.env.CLOUDFLARE_PUBLIC_DOMAIN}`)
+  : "https://pub-85bb68a84f3b4ba6b512b3d165c96497.r2.dev";
 
 export const R2_CONFIG = {
   accountId: process.env.CLOUDFLARE_ACCOUNT_ID || "9b109aa9587252172ccb60f664f603f0",
   accessKeyId: process.env.CLOUDFLARE_ACCESS_KEY_ID || "0e11678f19a97c193c9a5647f7c4b37b",
   secretAccessKey: process.env.CLOUDFLARE_SECRET_ACCESS_KEY || "54bcb9d673d5d53aa6e07b5be67963a01c4b90b7121ca5e1d5ac974e37c8f25d",
   bucketName: process.env.CLOUDFLARE_BUCKET_NAME || "portfoliodata",
-  publicDomain: process.env.CLOUDFLARE_PUBLIC_DOMAIN
-    ? (process.env.CLOUDFLARE_PUBLIC_DOMAIN.startsWith('http') ? process.env.CLOUDFLARE_PUBLIC_DOMAIN : `https://${process.env.CLOUDFLARE_PUBLIC_DOMAIN}`)
-    : "https://pub-85bb68a84f3b4ba6b512b3d165c96497.r2.dev"
+  publicDomain: resolvedPublicUrl,
+  publicUrl: resolvedPublicUrl,
 };
+
+export const R2_STORAGE_KEYS = {
+  STATE_FILE: process.env.R2_STATE_KEY || 'state.json',
+  SYNC_MANIFEST: '.sync-manifest.json',
+  BACKUP_PREFIX: 'bak/',
+  TRASH_PREFIX: 'trash/',
+  V2_DATA_PREFIX: 'v2/data',
+} as const;
+
+export function isR2Configured(): boolean {
+  return Boolean(
+    R2_CONFIG.accountId &&
+    R2_CONFIG.accessKeyId &&
+    R2_CONFIG.secretAccessKey &&
+    R2_CONFIG.bucketName
+  );
+}
+
+export function resolveR2PublicUrl(keyOrLocalPath: string): string | null {
+  const baseUrl = (R2_CONFIG.publicUrl || '').replace(/\/+$/, '');
+  if (!baseUrl) return null;
+
+  const clean = keyOrLocalPath.replace(/\\/g, '/').replace(/^\/+/, '');
+  if (clean === 'data/state.json' || clean === 'state.json') {
+    return `${baseUrl}/state.json`;
+  }
+  if (clean.startsWith('data_v2/')) {
+    return `${baseUrl}/v2/data/${clean.slice('data_v2/'.length)}`;
+  }
+  if (clean.startsWith('data/')) {
+    return `${baseUrl}/v2/${clean}`;
+  }
+  if (clean.startsWith('originals/')) {
+    return `${baseUrl}/v2/data/uploads/${clean}`;
+  }
+  return `${baseUrl}/${clean}`;
+}
 
 export const BUNNY_CONFIG = {
   apiKey: process.env.BUNNY_API_KEY || "",
@@ -184,9 +247,10 @@ export async function uploadToR2(buffer: Buffer, filename: string, contentType: 
     Key: filename,
     Body: buffer,
     ContentType: contentType,
+    CacheControl: 'public, max-age=31536000, immutable',
   }));
 
-  const baseUrl = R2_CONFIG.publicDomain || `https://${R2_CONFIG.bucketName}.${R2_CONFIG.accountId}.r2.cloudflarestorage.com`;
+  const baseUrl = R2_CONFIG.publicUrl || R2_CONFIG.publicDomain || `https://${R2_CONFIG.bucketName}.${R2_CONFIG.accountId}.r2.cloudflarestorage.com`;
   const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
   return `${cleanBaseUrl}/${filename.replace(/^\/+/, '')}`;
 }

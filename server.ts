@@ -8,6 +8,7 @@ import {
   ORIGINALS_DIR,
   ensureServerDirectories,
   loadUsage,
+  resolveR2PublicUrl,
   syncStorageSize,
 } from "./src/server/serverContext.ts";
 import { registerSyncRoutes } from "./src/server/syncRoutes.ts";
@@ -39,6 +40,17 @@ async function startServer() {
   app.use('/data_v2', express.static(DATA_V2_DIR));
   app.use('/originals', express.static(ORIGINALS_DIR));
   app.use('/backups', express.static(BACKUPS_DIR));
+
+  app.use(['/data_v2', '/data', '/originals'], (req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      return next();
+    }
+    const r2TargetUrl = resolveR2PublicUrl(req.originalUrl.split('?')[0]);
+    if (r2TargetUrl) {
+      return res.redirect(302, r2TargetUrl);
+    }
+    return next();
+  });
 
   await ensureServerDirectories();
 

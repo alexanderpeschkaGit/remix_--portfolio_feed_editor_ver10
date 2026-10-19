@@ -64,9 +64,10 @@ const [localLastUpdated, setLocalLastUpdated] = useState<string | null>(null);
         if (res.ok) {
           const cloudData = await res.json();
           // Trigger flash if cloud has a timestamp and it differs from local, no save in progress, and cloud is newer
+          const cloudLastUpdated = typeof cloudData.lastUpdated === 'string' ? cloudData.lastUpdated : null;
           const isSaveInProgress = isSavingRef?.current || false;
-          const isCloudNewer = !localLastUpdated || cloudData.lastUpdated > localLastUpdated;
-          if (cloudData.lastUpdated && cloudData.lastUpdated !== localLastUpdated && !isSaveInProgress && isCloudNewer) {
+          const isCloudNewer = Boolean(cloudLastUpdated && (!localLastUpdated || cloudLastUpdated > localLastUpdated));
+          if (cloudLastUpdated && cloudLastUpdated !== localLastUpdated && !isSaveInProgress && isCloudNewer) {
             // Validate that actual content has changed, not just the timestamp
             const cloudItems = cloudData.items || cloudData.posts || [];
             
@@ -89,7 +90,7 @@ const [localLastUpdated, setLocalLastUpdated] = useState<string | null>(null);
               }
             } else {
               // Automatically sync the timestamp locally if content matches to avoid further polling checks
-              setLocalLastUpdated(cloudData.lastUpdated);
+              setLocalLastUpdated(cloudLastUpdated);
             }
           }
         }

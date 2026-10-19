@@ -80,8 +80,12 @@ import { updateSyncManifestEntries } from './r2StorageService.ts';
       const originalFilename = `${options.baseName}_original.${normalizeExt(options.originalExt)}`;
       const originalPath = getVariantLocalPath(options.group, 'originals', originalFilename);
       if (options.writeFiles !== false) {
-        await fs.writeFile(originalPath, options.originalBuffer);
-        localPaths.image_original = originalPath;
+        try {
+          await fs.writeFile(originalPath, options.originalBuffer);
+          localPaths.image_original = originalPath;
+        } catch (err: any) {
+          console.warn(`[variantMaterializer] Local write skipped for ${originalPath}:`, err?.message || err);
+        }
       }
       localUrls.image_original = getVariantLocalUrl(options.group, 'originals', originalFilename);
 
@@ -101,13 +105,17 @@ import { updateSyncManifestEntries } from './r2StorageService.ts';
       const filename = `${options.baseName}_${variant.suffix}.jpg`;
       const buffer = await sharp(orientedBuffer, { failOn: 'none' })
         .resize(variant.maxSide, variant.maxSide, { fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: variant.quality })
+        .jpeg({ quality: variant.quality, mozjpeg: true })
         .toBuffer();
 
       const localPath = getVariantLocalPath(options.group, variant.dir, filename);
       if (options.writeFiles !== false) {
-        await fs.writeFile(localPath, buffer);
-        localPaths[variant.field] = localPath;
+        try {
+          await fs.writeFile(localPath, buffer);
+          localPaths[variant.field] = localPath;
+        } catch (err: any) {
+          console.warn(`[variantMaterializer] Local write skipped for ${localPath}:`, err?.message || err);
+        }
       }
       localUrls[variant.field] = getVariantLocalUrl(options.group, variant.dir, filename);
 

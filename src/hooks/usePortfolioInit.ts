@@ -16,6 +16,7 @@ interface UsePortfolioInitParams {
   getPortfolioTitle: () => string;
   getPortfolioSubtitle: () => string;
   getR2Config: () => { publicDomain: string };
+  isSavingRef?: { current: boolean };
 }
 
 export function usePortfolioInit({
@@ -33,7 +34,8 @@ export function usePortfolioInit({
   setIsEmbeddedData,
   getPortfolioTitle,
   getPortfolioSubtitle,
-  getR2Config
+  getR2Config,
+  isSavingRef
 }: UsePortfolioInitParams) {
 const [isInitialized, setIsInitialized] = useState(false);
 
@@ -82,6 +84,7 @@ const [isInitialized, setIsInitialized] = useState(false);
             setFlickrPosts(data.posts);
             setLoading(false);
             setIsInitialized(true);
+            setLocalLastUpdated(typeof data.lastUpdated === 'string' && data.lastUpdated ? data.lastUpdated : new Date().toISOString());
             setHasUnpublishedChanges(false);
             return;
           }
@@ -91,7 +94,7 @@ const [isInitialized, setIsInitialized] = useState(false);
       }
 
       try {
-        const stateRes = await fetch('/api/state');
+        const stateRes = await fetch('/api/state', { cache: 'no-store' });
         if (!stateRes.ok) throw new Error('API not available');
         const stateData = await stateRes.json();
         if (stateData.title) {
@@ -109,7 +112,8 @@ const [isInitialized, setIsInitialized] = useState(false);
         }
         if (stateData.items && stateData.items.length > 0) {
           setFlickrPosts(stateData.items);
-          setLocalLastUpdated(stateData.lastUpdated || new Date(0).toISOString());
+          const initLastUpdated = typeof stateData.lastUpdated === 'string' && stateData.lastUpdated ? stateData.lastUpdated : new Date().toISOString();
+          setLocalLastUpdated(initLastUpdated);
           setLoading(false);
           setIsInitialized(true);
           setHasUnpublishedChanges(false);
@@ -142,7 +146,7 @@ const [isInitialized, setIsInitialized] = useState(false);
             }
             
             const items = r2Data.items || r2Data.posts || [];
-            if (r2Data.lastUpdated) setLocalLastUpdated(r2Data.lastUpdated);
+            setLocalLastUpdated(typeof r2Data.lastUpdated === 'string' && r2Data.lastUpdated ? r2Data.lastUpdated : new Date().toISOString());
             
             if (items.length > 0) {
               const baseUrl = getR2Config().publicDomain.endsWith('/') ? getR2Config().publicDomain.slice(0, -1) : getR2Config().publicDomain;
