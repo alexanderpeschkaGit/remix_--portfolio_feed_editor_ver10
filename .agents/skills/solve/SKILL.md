@@ -1,6 +1,8 @@
 ---
 name: solve
-description: Plans a solution and immediately delegates the execution to a subagent. Triggered by #solve or /solve.
+description: >-
+  Plans a solution and immediately delegates the execution to a subagent.
+  Triggered by #solve or /solve.
 ---
 
 # Solve Workflow (Plan & Delegate)

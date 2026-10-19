@@ -1,6 +1,8 @@
 ---
 name: grillme
-description: Relentlessly interview the user on every aspect of their idea, decision, or plan. Triggered when the user uses the `#grillme` tag or `/grillme` command.
+description: >-
+  Relentlessly interview the user on every aspect of their idea, decision, or plan.
+  Triggered when the user uses the #grillme, /grillme, #grill-me, or /grill-me command.
 ---
 
 # Grillme Workflow

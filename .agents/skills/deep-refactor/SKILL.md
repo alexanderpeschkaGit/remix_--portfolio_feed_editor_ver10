@@ -1,6 +1,8 @@
 ---
 name: deep-refactor
-description: Decompose large components, hooks, or server files (>300-500 lines) into modular subroutines, hooks, and utilities with 100% behavior parity. Supports step-by-step Batch Mode and fast One-Shot Blueprint Mode. Triggered by #deep-refactor, /deep-refactor, or #refrag.
+description: >-
+  Decompose large components, hooks, or server files (>300-500 lines) into modular subroutines, hooks, and utilities with 100% behavior parity. Supports step-by-step Batch Mode and fast One-Shot Blueprint Mode.
+  Triggered by #deep-refactor, /deep-refactor, #refrag, /refrag, #oneshot, or /oneshot.
 ---
 
 # Deep-Refactor Workflow (`#deep-refactor`)
@@ -11,16 +13,18 @@ description: Decompose large components, hooks, or server files (>300-500 lines)
 
 ## 1. Execution Modes (Choose Based on Context)
 
-### Mode A: Interactive Batch Mode *(Default when exploring & refactoring live)*
+### Mode A: Interactive Batch Mode _(Default when exploring & refactoring live)_
+
 - **Limit:** Maximum **3 implementation files** per batch (test files `*.test.ts` and docs `*.md` do not count toward the limit).
 - **Validation per Batch:** Run `npm run lint` and `npm test` after each batch and create a checkpoint commit on `preview`.
 - **Handoff Checkpoint:** Pause after Batch 3 to offer a concise session-handoff summary unless Auto-Pilot is active.
 - **Recommended Model:** `PRO` or `Flash (High Thinking)`.
 
-### Mode B: One-Shot Blueprint Mode *(Triggered by `#oneshot`, "alle auf einmal", or when a complete plan/code blueprint is provided)*
+### Mode B: One-Shot Blueprint Mode _(Triggered by `#oneshot`, "alle auf einmal", or when a complete plan/code blueprint is provided)_
+
 - **No Batch/File Limit:** Write all new and updated modules in a **single pass** without intermediate stops.
 - **Single Validation Pass:** Run `npx prettier --write <scoped-files>`, `npm run lint`, `npm test`, and `npm run check` **once** after all files are written.
-- **Recommended Model:** `Flash (Low or Medium Thinking)` for maximum speed when applying pre-verified code.
+- **Recommended Model:** `Flash (Low or Medium Thinking)` for maximum speed when applying pre-verified code. When using Flash, strictly follow the Single-Action Protocol from `flash/SKILL.md`.
 
 ---
 

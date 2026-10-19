@@ -1,6 +1,8 @@
 ---
 name: flash
-description: Enforce high-stability execution rules optimized for high-speed / Flash models. Triggered when the user uses the `#flash` tag or `/flash` command.
+description: >-
+  Enforce high-stability execution rules optimized for high-speed / Flash models.
+  Triggered when the user uses the #flash tag or /flash command.
 ---
 
 # Flash Workflow
